@@ -818,7 +818,7 @@ function renderAbout(b) {
     <button class="about-back" id="close-about">${icon("arrow_left", "about-back__icon")}Resources</button>
     <h1 class="about-title">About &amp; Methodology</h1>
     <p class="about-lede">UpstreamWX is a planning-reference briefing for caving and canyoneering. It gathers official and modeled weather, assesses four life-safety hazards (flash flooding, lightning, heat, and cold/wet hypothermia), and shows the reasoning. It never tells you whether to go.</p>
-    <p class="about-p">The hazard posture labels (Minimal, Elevated, High, Extreme) follow standard risk-management terminology. Our internal risk assessment is deliberately calibrated more conservatively than most people and organizations, so a posture like "High" or "Extreme" may read as stronger than you expect. Treat it as a prompt to look closer, not as a verdict.</p>
+    <p class="about-p">The hazard posture labels (Minimal, Elevated, High, Extreme) follow standard risk-management terminology. As outdoor adventurers, our internal risk assessment is calibrated differently than most, so a posture like "High" or "Extreme" may read as stronger than you expect. Treat it as a prompt to look closer, not as a verdict.</p>
 
     <section class="card">
       <div class="eyebrow">The deterministic engine</div>
