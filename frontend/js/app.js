@@ -376,7 +376,7 @@ function renderOverview(b) {
     el.addEventListener("click", () => selectTab("hazards"))
   );
   const edit = document.querySelector(".mission-card__edit");
-  if (edit) edit.addEventListener("click", () => openMissionEditor(b));
+  if (edit) edit.addEventListener("click", () => openMissionPlanner(specFromBriefing(b)));
   linkifyAcronyms(document.getElementById("view-overview"));
 }
 
@@ -952,70 +952,278 @@ function renderStatus(b) {
 }
 
 /* ── First-run acknowledgment (FR-31, Appendix C §17.1) ────────────── */
-function maybeShowAck() {
-  if (localStorage.getItem(ACK_KEY)) return;
+// Returns true if the ack was shown this load (so the caller defers any
+// follow-on, like the first-run planner, until the user accepts).
+function maybeShowAck(onAccept) {
+  if (localStorage.getItem(ACK_KEY)) return false;
   const modal = document.getElementById("ack");
   modal.hidden = false;
   document.getElementById("ack-accept").addEventListener("click", () => {
     localStorage.setItem(ACK_KEY, new Date().toISOString());
     modal.hidden = true;
+    if (onAccept) onAccept();
   });
+  return true;
 }
 
-/* ── Mission editor (FR-33) ────────────────────────────────────────── */
-// Minimal in-place editor: activity (cave/canyon), window, party size, slot flag.
-// Submitting builds a MissionSpec and re-fetches a live briefing.
-function openMissionEditor(b) {
+/* ── Mission planner (FR-1, FR-9, FR-33) ───────────────────────────────
+ * Map-based mission editor: geocode an address or paste coordinates, long-press
+ * to drop/move the point, drag it, use GPS, switch the topo/aerial/street
+ * basemap, and name the point in its tooltip. Saving rebuilds the MissionSpec
+ * and re-fetches a live briefing (refresh()), so the upstream watershed
+ * re-traces for the new point (FR-1, FR-38). Input-only: no posture or
+ * recommendation is shown here (FR-39). */
+let _mpMap = null;
+let _mpMarker = null;
+let _mpSpec = null;
+// Fallback view (CONUS center) when no point is set yet.
+const MP_DEFAULT_CENTER = [39.5, -111.5];
+
+function inLatLonRange(lat, lon) {
+  return (
+    Number.isFinite(lat) && Number.isFinite(lon) &&
+    lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+  );
+}
+
+// Parse free-form coordinates so a coordinate paste skips the geocoder. Accepts
+// decimal "lat, lon" (comma or whitespace separated) and DMS
+// (e.g. 34°39'54"N 85°21'42"W and common variants). Returns {lat, lon} in
+// range, else null.
+function parseCoords(str) {
+  const s = String(str).trim();
+  const dec = s.match(/^(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if (dec) {
+    const lat = parseFloat(dec[1]);
+    const lon = parseFloat(dec[2]);
+    return inLatLonRange(lat, lon) ? { lat, lon } : null;
+  }
+  const dmsRe = /(\d{1,3})\s*[°d:\s]\s*(\d{1,2}(?:\.\d+)?)?\s*['m:\s]?\s*(\d{1,2}(?:\.\d+)?)?\s*["s]?\s*([NSEW])/gi;
+  const parts = [];
+  let mt;
+  while ((mt = dmsRe.exec(s)) && parts.length < 2) {
+    const deg = parseFloat(mt[1]);
+    const min = mt[2] ? parseFloat(mt[2]) : 0;
+    const sec = mt[3] ? parseFloat(mt[3]) : 0;
+    const hemi = mt[4].toUpperCase();
+    let dd = deg + min / 60 + sec / 3600;
+    if (hemi === "S" || hemi === "W") dd = -dd;
+    parts.push({ dd, hemi });
+  }
+  if (parts.length === 2) {
+    const latP = parts.find((p) => p.hemi === "N" || p.hemi === "S");
+    const lonP = parts.find((p) => p.hemi === "E" || p.hemi === "W");
+    if (latP && lonP && inLatLonRange(latP.dd, lonP.dd)) return { lat: latP.dd, lon: lonP.dd };
+  }
+  return null;
+}
+
+// Free, attribution-bearing geocoder (Nominatim/OpenStreetMap). Called only on
+// explicit submit (one request, honoring the ≤1 req/s usage policy).
+async function geocodeAddress(q) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(res.status);
+  const hits = await res.json();
+  if (!hits.length) return null;
+  return { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon), label: hits[0].display_name };
+}
+
+function setPlannerStatus(msg, isError = false) {
+  const el = document.getElementById("mp-search-status");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("is-error", !!isError);
+}
+
+function mpNamePopupHtml() {
+  return `<div class="mp-name-pop">
+    <label class="mp-name-pop__label" for="mp-name-input">Mission name</label>
+    <input id="mp-name-input" class="mp-name-pop__input" value="${esc(_mpSpec.name || "")}" />
+  </div>`;
+}
+
+// Create or relocate the mission marker and sync the spec's coordinates.
+function placeOrMoveMarker(latlng, openPopup = true) {
+  if (!_mpMap) return;
+  _mpSpec.lat = latlng.lat;
+  _mpSpec.lon = latlng.lng;
+  if (_mpMarker) {
+    _mpMarker.setLatLng(latlng);
+  } else {
+    _mpMarker = L.marker(latlng, { draggable: true }).addTo(_mpMap);
+    _mpMarker.bindTooltip(esc(_mpSpec.name || "Mission"), {
+      permanent: true, direction: "top", className: "map-tooltip",
+    });
+    // Function content so each open reflects the current name.
+    _mpMarker.bindPopup(() => mpNamePopupHtml(), { className: "map-popup" });
+    _mpMarker.on("dragend", () => {
+      const ll = _mpMarker.getLatLng();
+      _mpSpec.lat = ll.lat;
+      _mpSpec.lon = ll.lng;
+    });
+    _mpMarker.on("popupopen", (e) => {
+      const input = e.popup.getElement()?.querySelector("#mp-name-input");
+      if (!input) return;
+      input.focus();
+      input.addEventListener("input", () => {
+        _mpSpec.name = input.value;
+        _mpMarker.setTooltipContent(esc(input.value || "Mission"));
+      });
+    });
+  }
+  if (openPopup) _mpMarker.openPopup();
+}
+
+// Long-press to drop/move the point — Leaflet has no native long-press, so use a
+// short press timer on the map container, cancelled on drag/scroll/zoom. Mirrors
+// the chart crosshair's pointer handling.
+function initPlannerLongPress(container) {
+  let timer = null;
+  let sx = 0;
+  let sy = 0;
+  const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  container.addEventListener("pointerdown", (e) => {
+    if ((e.button && e.button !== 0) || e.target.closest(".leaflet-control")) return;
+    sx = e.clientX;
+    sy = e.clientY;
+    const latlng = _mpMap.mouseEventToLatLng(e);
+    clear();
+    timer = setTimeout(() => { timer = null; placeOrMoveMarker(latlng); }, 450);
+  });
+  container.addEventListener("pointermove", (e) => {
+    if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) clear();
+  });
+  container.addEventListener("pointerup", clear);
+  container.addEventListener("pointercancel", clear);
+  container.addEventListener("pointerleave", clear);
+  _mpMap.on("movestart zoomstart dragstart", clear);
+  // Desktop fallback: right-click drops/moves the point.
+  _mpMap.on("contextmenu", (e) => placeOrMoveMarker(e.latlng));
+}
+
+function initPlannerMap() {
+  const container = document.getElementById("mp-map");
+  if (!container || !window.L) return;
+  const hasPoint = _mpSpec && Number.isFinite(_mpSpec.lat);
+  const start = hasPoint ? [_mpSpec.lat, _mpSpec.lon] : MP_DEFAULT_CENTER;
+
+  if (_mpMap) {
+    _mpMap.invalidateSize();
+    _mpMap.setView(start, hasPoint ? Math.max(_mpMap.getZoom(), 12) : 6);
+    if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon }, false);
+    return;
+  }
+
+  // Readable, switchable Esri basemaps (free, attributed): topo / aerial / street.
+  const esri = (svc, attr) =>
+    L.tileLayer(
+      `https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`,
+      { maxZoom: 17, attribution: attr }
+    );
+  const topo = esri("World_Topo_Map", "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, USGS, NPS");
+  const aerial = esri("World_Imagery", "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community");
+  const street = esri("World_Street_Map", "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, USGS, NGA");
+
+  _mpMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 17 })
+    .setView(start, hasPoint ? 12 : 6);
+  topo.addTo(_mpMap);
+  L.control.layers({ Topo: topo, Aerial: aerial, Street: street }, null, { position: "topright" }).addTo(_mpMap);
+
+  initPlannerLongPress(container);
+
+  // Seed a marker at the starting point so a save is always valid; the user can
+  // long-press, drag, search, or use GPS to move it.
+  if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon }, false);
+}
+
+// Open the planner over a starting spec (the saved/current mission, or a seed).
+function openMissionPlanner(spec) {
   hideGlossaryPopover();
-  const m = b.mission;
-  const local = (iso) => String(iso).slice(0, 16); // ISO -> "YYYY-MM-DDTHH:MM" for the input
-  const host = document.getElementById("mission-editor") || (() => {
-    const el = document.createElement("div");
-    el.id = "mission-editor";
-    el.className = "ack-modal";
-    el.setAttribute("role", "dialog");
-    el.setAttribute("aria-modal", "true");
-    document.body.appendChild(el);
-    return el;
-  })();
-  host.hidden = false;
-  host.innerHTML = `
-    <div class="ack-card">
-      <h2>Edit mission</h2>
-      <form id="mission-form" class="mission-form">
-        <label>Name<input name="name" value="${esc(m.name)}" required /></label>
-        <label>Activity
-          <select name="activity">
-            <option value="canyon" ${m.activity === "canyon" ? "selected" : ""}>Canyon</option>
-            <option value="cave" ${m.activity === "cave" ? "selected" : ""}>Cave</option>
-          </select>
-        </label>
-        <label>Start<input name="start" type="datetime-local" value="${esc(local(m.window_start))}" required /></label>
-        <label>End<input name="end" type="datetime-local" value="${esc(local(m.window_end))}" required /></label>
-        <label>Party size<input name="party_size" type="number" min="1" value="${m.party_size || ""}" /></label>
-        <label class="mission-form__check"><input name="slot" type="checkbox" ${m.is_slot ? "checked" : ""} /> Slot canyon</label>
-        <div class="mission-form__actions">
-          <button type="button" id="mission-cancel" class="btn-ghost">Cancel</button>
-          <button type="submit" class="btn-primary mission-form__submit">Update briefing</button>
-        </div>
-      </form>
-    </div>`;
-  const close = () => { host.hidden = true; };
-  document.getElementById("mission-cancel").addEventListener("click", close);
-  document.getElementById("mission-form").addEventListener("submit", (e) => {
+  _mpSpec = { ...(spec || DEFAULT_SPEC) };
+  document.getElementById("mp-activity").value = _mpSpec.activity || "canyon";
+  document.getElementById("mp-start").value = String(_mpSpec.start || "").slice(0, 16);
+  document.getElementById("mp-end").value = String(_mpSpec.end || "").slice(0, 16);
+  document.getElementById("mp-slot").checked = !!_mpSpec.slot;
+  document.getElementById("mp-search-input").value = "";
+  setPlannerStatus("");
+  document.getElementById("mission-planner").hidden = false;
+  requestAnimationFrame(initPlannerMap);
+}
+
+function closeMissionPlanner() {
+  const modal = document.getElementById("mission-planner");
+  if (modal) modal.hidden = true;
+}
+
+// Wire the planner's static controls once at startup.
+function initPlannerControls() {
+  document.getElementById("mp-search-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = new FormData(e.target);
+    const q = document.getElementById("mp-search-input").value.trim();
+    if (!q || !_mpMap) return;
+    const coords = parseCoords(q);
+    if (coords) {
+      _mpMap.setView([coords.lat, coords.lon], Math.max(_mpMap.getZoom(), 13));
+      placeOrMoveMarker({ lat: coords.lat, lng: coords.lon });
+      setPlannerStatus(`Coordinates ${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`);
+      return;
+    }
+    setPlannerStatus("Searching…");
+    try {
+      const hit = await geocodeAddress(q);
+      if (!hit) {
+        setPlannerStatus("No match. Try a more specific address or paste coordinates.", true);
+        return;
+      }
+      _mpMap.setView([hit.lat, hit.lon], Math.max(_mpMap.getZoom(), 13));
+      placeOrMoveMarker({ lat: hit.lat, lng: hit.lon });
+      setPlannerStatus(hit.label);
+    } catch (err) {
+      setPlannerStatus("Search is unavailable right now. Paste coordinates instead.", true);
+    }
+  });
+
+  const gps = document.getElementById("mp-gps");
+  if (!("geolocation" in navigator)) {
+    gps.disabled = true;
+    gps.title = "Location unavailable on this device";
+  } else {
+    gps.addEventListener("click", () => {
+      if (!_mpMap) return;
+      setPlannerStatus("Locating…");
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          _mpMap.setView([latitude, longitude], 14);
+          placeOrMoveMarker({ lat: latitude, lng: longitude });
+          setPlannerStatus(`Current location ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+        },
+        () => setPlannerStatus("Could not get your location. Check permissions or paste coordinates.", true),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }
+
+  document.getElementById("mp-cancel").addEventListener("click", closeMissionPlanner);
+
+  document.getElementById("mp-save").addEventListener("click", () => {
+    if (!_mpSpec || !Number.isFinite(_mpSpec.lat)) {
+      setPlannerStatus("Set a point first — long-press the map, search, or use your location.", true);
+      return;
+    }
     const spec = {
-      lat: m.lat, lon: m.lon,
-      activity: f.get("activity"),
-      name: f.get("name"),
-      start: f.get("start"),
-      end: f.get("end"),
-      slot: f.get("slot") === "on",
-      party_size: f.get("party_size") ? Number(f.get("party_size")) : null,
+      lat: _mpSpec.lat,
+      lon: _mpSpec.lon,
+      activity: document.getElementById("mp-activity").value,
+      name: _mpSpec.name || "mission",
+      start: document.getElementById("mp-start").value,
+      end: document.getElementById("mp-end").value,
+      slot: document.getElementById("mp-slot").checked,
+      party_size: _mpSpec.party_size ?? null,
       frame: false,
     };
-    close();
+    closeMissionPlanner();
     refresh(spec);
   });
 }
@@ -1037,7 +1245,14 @@ function renderAll(b) {
 async function main() {
   renderTabs();
   initGlossaryInteractions();
-  maybeShowAck();
+  initPlannerControls();
+  // First run with no saved mission: present the planner so the user picks a
+  // point. Defer until the ack is accepted when it's showing this load.
+  const promptFirstRun = () => {
+    if (savedSpec()) return;
+    openMissionPlanner(state.briefing ? specFromBriefing(state.briefing) : DEFAULT_SPEC);
+  };
+  const ackShown = maybeShowAck(promptFirstRun);
   let b;
   try {
     b = await loadBriefing(savedSpec() || DEFAULT_SPEC);
@@ -1047,6 +1262,7 @@ async function main() {
     return;
   }
   renderAll(b);
+  if (!ackShown) promptFirstRun();
 
   window.addEventListener("online", () => renderStatus(state.briefing));
   window.addEventListener("offline", () => { state.fromCache = true; renderStatus(state.briefing); });

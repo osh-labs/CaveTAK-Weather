@@ -213,7 +213,13 @@ the PWA renders its five views from (`sitrep/structured.py`, the API analogue of
 `render.py`; the contract is `frontend/data/sample-briefing.json`) and serves the PWA
 single-origin (`app.py` `StaticFiles` mount, `UPSTREAMWX_FRONTEND_DIR` to override). The
 frontend POSTs `/v1/briefing`; dropping/moving the point or editing the mission re-fetches
-live, the upstream watershed re-traces and renders (FR-1, FR-33, FR-38). The Open-Meteo
+live, the upstream watershed re-traces and renders (FR-1, FR-33, FR-38). Missions are
+planned/edited in a map-based **mission planner** modal (`openMissionPlanner` in
+`frontend/js/app.js`; shown at first run and from the mission-card edit pencil): geocode
+an address or paste decimal/DMS coordinates, GPS "use current location", a switchable
+topo/aerial/street basemap, and a long-press to drop/move a marker whose tooltip edits the
+mission name (FR-1, FR-9). Saving persists the spec to `localStorage` (FR-10) and
+re-fetches. The Open-Meteo
 adapter now also persists a per-hour display series (`IngestBundle.forecast_hourly`,
 display-only — never an engine input). Verified live end-to-end in-container.
 

@@ -880,28 +880,7 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .ack-card p { font-size: var(--text-label); color: var(--color-text-secondary); }
 .ack-card .btn-primary { margin-top: var(--space-4); }
 
-/* ── Mission editor (FR-33) ────────────────────────────────────────── */
-.mission-form { display: flex; flex-direction: column; gap: var(--space-3); }
-.mission-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: var(--text-caption);
-  color: var(--color-text-secondary);
-}
-.mission-form input,
-.mission-form select {
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--text-label);
-}
-.mission-form__check { flex-direction: row; align-items: center; gap: var(--space-2); }
-.mission-form__check input { width: auto; }
-.mission-form__actions { display: flex; gap: var(--space-3); margin-top: var(--space-2); }
-.mission-form__submit { margin-top: 0; }
+/* ── Mission editor buttons (FR-33) ────────────────────────────────── */
 .btn-ghost {
   flex: 1;
   padding: var(--space-3);
@@ -911,7 +890,133 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   border-radius: var(--radius-md);
   font-weight: 600;
 }
-.mission-form__actions .btn-primary { flex: 1; }
+
+/* ── 7.16 Mission planner (map-based mission editor; FR-1/FR-9/FR-33) ── */
+.mp-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 6, 10, 0.85);
+}
+.mp-modal[hidden] { display: none; }
+.mp-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  height: 100dvh;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@media (min-width: 768px) {
+  .mp-sheet {
+    height: 90dvh;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-pop);
+  }
+}
+.mp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.mp-bar__title { margin: 0; font-size: var(--text-h2); }
+.mp-bar__close {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  padding: var(--space-1);
+  cursor: pointer;
+}
+.mp-search { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-2); }
+.mp-search__input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-label);
+}
+.mp-search__go {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-brand-dim);
+  color: var(--color-brand);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+.mp-search__status {
+  min-height: var(--lh-caption);
+  padding: 0 var(--space-4);
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+.mp-search__status.is-error { color: var(--color-warn); }
+.mp-map {
+  flex: 1;
+  min-height: 0;
+  margin: var(--space-2) var(--space-4) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  overflow: hidden;
+}
+.mp-hint {
+  margin: 0;
+  padding: var(--space-2) var(--space-4) 0;
+  font-size: var(--text-caption);
+  line-height: var(--lh-caption);
+  color: var(--color-text-muted);
+}
+.mp-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4) 0;
+}
+.mp-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+}
+.mp-fields select,
+.mp-fields input[type="datetime-local"] {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-label);
+}
+.mp-fields__check { flex-direction: row; align-items: center; gap: var(--space-2); }
+.mp-fields__check input { width: auto; }
+.mp-actions { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.mp-actions .btn-ghost,
+.mp-actions .btn-primary { flex: 1; margin: 0; }
+.mp-name-pop__label { display: block; font-size: var(--text-caption); color: var(--color-text-secondary); margin-bottom: 4px; }
+.mp-name-pop__input {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--text-label);
+}
 
 /* ── 7.13 Acronym glossary (Resources card + tap-to-define) ─────────── */
 /* Inline term: reads as body text with a dotted brand underline cueing a tap. */

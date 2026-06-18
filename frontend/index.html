@@ -58,6 +58,47 @@
       </div>
     </div>
 
+    <!-- Mission planner — map-based mission editor (FR-1, FR-9, FR-33) -->
+    <div class="mp-modal" id="mission-planner" hidden role="dialog" aria-modal="true" aria-labelledby="mp-title">
+      <div class="mp-sheet">
+        <header class="mp-bar">
+          <h2 id="mp-title" class="mp-bar__title">Plan mission</h2>
+          <button class="mp-bar__close" id="mp-cancel" type="button" aria-label="Close">&times;</button>
+        </header>
+        <form class="mp-search" id="mp-search-form" role="search">
+          <input
+            id="mp-search-input"
+            class="mp-search__input"
+            type="text"
+            placeholder="Address or coordinates (e.g. 37.0192, -111.9889)"
+            autocomplete="off"
+            aria-label="Search address or coordinates"
+          />
+          <button class="mp-search__go" type="submit">Search</button>
+        </form>
+        <div id="mp-search-status" class="mp-search__status" aria-live="polite"></div>
+        <div id="mp-map" class="mp-map"></div>
+        <p class="mp-hint">
+          Long-press the map to set your point, then tap it to name it. Search &copy; OpenStreetMap contributors.
+        </p>
+        <div class="mp-fields">
+          <label>Activity
+            <select id="mp-activity">
+              <option value="canyon">Canyon</option>
+              <option value="cave">Cave</option>
+            </select>
+          </label>
+          <label class="mp-fields__check"><input id="mp-slot" type="checkbox" /> Slot canyon</label>
+          <label>Start<input id="mp-start" type="datetime-local" /></label>
+          <label>End<input id="mp-end" type="datetime-local" /></label>
+        </div>
+        <footer class="mp-actions">
+          <button id="mp-gps" class="btn-ghost" type="button">Use current location</button>
+          <button id="mp-save" class="btn-primary" type="button">Save mission</button>
+        </footer>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script type="module" src="js/app.js"></script>
   </body>
