@@ -23,6 +23,8 @@ const SHELL_ASSETS = [
   "js/app.js",
   "js/icons.js",
   "icons/icon.svg",
+  "icons/cave.png",
+  "icons/canyon.png",
 ];
 
 self.addEventListener("install", (event) => {
