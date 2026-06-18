@@ -1,13 +1,16 @@
 /*
  * UpstreamWX service worker — offline shell + last-briefing cache (FR-26, FR-28).
  * Strategy:
- *   - App shell (HTML/CSS/JS/icons): cache-first, precached on install.
+ *   - App shell (HTML/CSS/JS/icons): stale-while-revalidate — serve the cached
+ *     copy instantly (offline-capable, FR-26), but always fetch a fresh copy in
+ *     the background and update the cache so the next load converges on the
+ *     latest deploy without needing a service-worker version bump.
  *   - Briefing data: network-first, fall back to the cached copy when offline so
  *     the most recent fully generated briefing is reviewable with zero connectivity.
  * New briefing generation requires connectivity (FR-28); offline is review-only.
  */
 
-const VERSION = "uwx-v2";
+const VERSION = "uwx-v3";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
@@ -63,6 +66,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Shell: cache-first.
-  event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
+  // Shell: stale-while-revalidate. Serve cache immediately; refresh it in the
+  // background so the next navigation picks up new CSS/JS without a version bump.
+  event.respondWith(
+    caches.open(SHELL).then((cache) =>
+      cache.match(request).then((cached) => {
+        const network = fetch(request)
+          .then((res) => {
+            if (res && res.ok && res.type === "basic") cache.put(request, res.clone());
+            return res;
+          })
+          .catch(() => cached);
+        return cached || network;
+      })
+    )
+  );
 });
