@@ -45,11 +45,19 @@ function postureChip(label, sevClass, big = false) {
 }
 
 function confidenceTag(level, big = false) {
-  // Solid-orange bar whose thickness encodes the level (thin=low … fat=high) —
-  // style, not hue (FR-36), with the text label below. Display-only (FR-17).
+  // Three-stop orange track (low/moderate/high). The stop for the engine's level
+  // is filled, the others hollow; the level rides the position, not hue (FR-36).
+  // The thin→thick segment ramp is fixed decoration. Display-only (FR-17).
   const k = String(level).toLowerCase();
-  return `<div class="confidence is-${k} ${big ? "is-lg" : ""}" title="${esc(level)} confidence">
-    <div class="confidence__track"><span class="confidence__bar"></span></div>
+  const stops = ["low", "moderate", "high"]
+    .map((s) => `<span class="confidence__stop confidence__stop--${s} ${s === k ? "is-active" : ""}"></span>`)
+    .join("");
+  return `<div class="confidence ${big ? "is-lg" : ""}" title="${esc(level)} confidence">
+    <div class="confidence__track">
+      <span class="confidence__seg confidence__seg--a"></span>
+      <span class="confidence__seg confidence__seg--b"></span>
+      ${stops}
+    </div>
     <div class="confidence__label">${esc(level)} confidence</div>
   </div>`;
 }
@@ -489,7 +497,7 @@ function initLeafletMap(b) {
     }).addTo(_leafletMap);
     layer.bindPopup(
       `<div class="map-pop">
-        <div class="map-pop__title">Upstream watershed</div>
+        <div class="map-pop__title">Approximate Watershed</div>
         <div class="map-pop__row">HUC-12 <span class="mono">${esc(w.huc12.join(", "))}</span></div>
         <div class="map-pop__row">Area <span class="mono">${w.area_sq_mi.toFixed(1)} mi²</span></div>
       </div>`,

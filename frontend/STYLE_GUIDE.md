@@ -260,11 +260,14 @@ the noted class. Visual contract first; PRD reference in parentheses.
 - Heat variant uses the heat ramp + the NWS category label.
 
 ### 7.5 Confidence bar (`.confidence`) — FR-36
-- A solid-orange (`--sev-high`) bar the same width as the posture pill it sits
-  under, with the small gray label `High|Moderate|Low confidence` centered below.
-- Encodes confidence by **line thickness, not hue** (FR-36 — style, not hue):
-  `is-low` 2 px · `is-moderate` 5 px · `is-high` 9 px, vertically centered in a
-  fixed-height track so rows don't jump. Non-interactive — set by the engine.
+- A three-stop orange (`--sev-high`) track the same width as the posture pill it
+  sits under, with the small gray label `High|Moderate|Low confidence` centered
+  below.
+- Three beads — low (left) · moderate (centre) · high (right). The stop for the
+  engine's level is **filled**, the other two **hollow** (orange outline); the
+  level is read from **position, not hue** (FR-36 — style, not hue).
+- The connecting segments are fixed decoration: a thin segment left of centre,
+  a thicker one to the right. Non-interactive — set by the engine.
 
 ### 7.6 Metric card (`.metric-card`) — Appendix D §18.2
 - Grid of glanceable cards: label (caption), big value (`--text-display`, mono),

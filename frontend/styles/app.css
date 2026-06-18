@@ -293,8 +293,9 @@ main {
 .heat-extreme_danger { background: rgba(218, 54, 51, 0.18); color: var(--heat-ext-danger); }
 
 /* ── 7.5 Confidence bar ────────────────────────────────────────────── */
-/* Solid-orange bar the same width as the posture pill; thickness (not hue)
-   encodes the engine's confidence level — style, not hue (FR-36). Non-interactive. */
+/* Three-stop orange track the same width as the posture pill: low/moderate/high
+   beads, the engine's level filled and the rest hollow. Position (not hue)
+   encodes confidence — style, not hue (FR-36). Non-interactive. */
 .confidence {
   display: flex;
   flex-direction: column;
@@ -305,21 +306,39 @@ main {
 .confidence.is-lg { width: var(--pill-w-lg); }
 
 .confidence__track {
-  display: flex;
-  align-items: center;
-  height: 10px; /* fixed row so varying bar thickness stays vertically centered */
+  position: relative;
+  height: 10px;
 }
 
-.confidence__bar {
-  width: 100%;
-  height: 5px;
-  border-radius: var(--radius-pill);
+/* Fixed decorative ramp: thin segment left of centre, thicker to the right. */
+.confidence__seg {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(50% - 5px);
   background: var(--sev-high);
+  border-radius: var(--radius-pill);
 }
+.confidence__seg--a { left: 5px; height: 2px; }
+.confidence__seg--b { left: 50%; height: 4px; }
 
-.confidence.is-low  .confidence__bar { height: 2px; }
-.confidence.is-moderate .confidence__bar { height: 5px; }
-.confidence.is-high .confidence__bar { height: 9px; }
+/* Stops: hollow orange outline by default, solid when active. */
+.confidence__stop {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border: 1.5px solid var(--sev-high);
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
+.confidence__stop--low { left: 5px; }
+.confidence__stop--moderate { left: 50%; }
+.confidence__stop--high { left: calc(100% - 5px); }
+.confidence__stop.is-active { background: var(--sev-high); }
 
 .confidence__label {
   font-size: var(--text-caption);
