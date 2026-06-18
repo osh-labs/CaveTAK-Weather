@@ -694,6 +694,14 @@ function renderResources(b) {
   ).join("");
 
   document.getElementById("view-resources").innerHTML = `
+    <button class="about-link" id="open-about">
+      ${icon("info", "")}
+      <div class="resource-link__body">
+        <div class="resource-link__title">About &amp; methodology</div>
+        <div class="resource-link__sub">How this briefing is calculated — the engine, data sources, and thresholds.</div>
+      </div>
+      ${icon("chevron", "about-link__chev")}
+    </button>
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-3)">Verify against NWS</h2>
       ${links}
@@ -717,6 +725,132 @@ function renderResources(b) {
   linkifyAcronyms(document.getElementById("view-resources"));
   const pdf = document.getElementById("export-pdf");
   if (pdf) pdf.addEventListener("click", () => window.print());
+  const about = document.getElementById("open-about");
+  if (about) about.addEventListener("click", openAbout);
+}
+
+/* ── About & methodology (FR-20 "how this is calculated") ──────────────
+ * A reference sub-page of Resources, not a sixth primary view (FR-32):
+ * documents the deterministic engine (FR-13/FR-19/NFR-4), data sourcing
+ * (§8), and the Appendix B hazard thresholds (FR-20/FR-20a). Reference-only —
+ * describes how postures are derived, never issues a recommendation. */
+const ABOUT_SOURCES = [
+  ["NWS API", "api.weather.gov", "Forecast discussions (AFD), watches/warnings/advisories, and NWS Heat Index categories. The authoritative anchor; mandatory.", "doc"],
+  ["Open-Meteo", "HRRR-derived fields", "Derived numerical fields — QPF, precip probability, CAPE/lifted index, temperature, humidity, apparent temperature, wind — feeding all four hazard models.", "model"],
+  ["SREF (in-house)", "NCEP GRIB2, processed server-side", "Short-Range Ensemble probabilities of precip/thunder and member spread over the upstream domain, out to the full planning horizon.", "model"],
+  ["HREF (in-house)", "~3 km, same-day ≈6–36 h", "High-Resolution Ensemble neighborhood probabilities (1 h/3 h QPF, lightning/reflectivity) that sharpen the same-day window; the engine takes the higher of SREF/HREF.", "model"],
+  ["SPC outlook", "Storm Prediction Center", "Categorical/probabilistic severe & thunderstorm outlook, a secondary cross-check for lightning.", "alert"],
+  ["USGS Watershed Boundary Dataset", "HUC-12, self-hosted", "HUC-12 delineation and upstream tracing that define the contributing watershed for flash-flood aggregation.", "map"],
+];
+
+const ABOUT_THRESHOLDS = [
+  ["flash_flood", "Flash flood", "Upstream watershed (HUC-12)", [
+    ["Extreme", "sev-extreme", "Active NWS Flash Flood Warning for the area or the upstream domain"],
+    ["High", "sev-high", "Flash Flood Watch, or SREF P(precip/thunder) ≥ 60% over the upstream domain with a convective-rate proxy"],
+    ["Elevated", "sev-elevated", "SREF P 20–60% with measurable forecast precip; no watch/warning yet"],
+    ["Minimal", "sev-minimal", "Low convective probability; dry upstream forecast"],
+  ], "Same-day windows also evaluate HREF neighborhood P(QPF) and take the higher tier. Antecedent rain bumps up one tier; for slot canyons, ≥0.5 in/hr over the domain is treated as at least High."],
+  ["lightning", "Lightning", "Activity point + approach corridor (excluded in the technical span)", [
+    ["Extreme", "sev-extreme", "Active thunderstorm warning; or SREF P(tstm) ≥ 70%; or SPC categorical thunder/severe"],
+    ["High", "sev-high", "SREF P(tstm) 40–69%; or SPC Slight/Enhanced during an exposed phase"],
+    ["Elevated", "sev-elevated", "SREF P(tstm) 15–39%; or SPC Marginal; or AFD mentions afternoon convection"],
+    ["Minimal", "sev-minimal", "SREF P(tstm) < 15%; no convective mention"],
+  ], "CAPE/lifted index modulate confidence and severity but never set the tier. HREF P(lightning)/P(reflectivity) sharpen the same-day window."],
+  ["heat", "Heat stress", "Activity point — NWS Heat Index categories (FR-15)", [
+    ["Extreme Danger", "heat-extreme_danger", "Heat index ≥ 125 °F"],
+    ["Danger", "heat-danger", "103–124 °F"],
+    ["Extreme Caution", "heat-extreme_caution", "90–103 °F"],
+    ["Caution", "heat-caution", "80–90 °F"],
+  ], "Uses the established NWS categories directly, not the four-tier ladder. On the exertion-loaded approach, effective strain runs about one category hotter than ambient."],
+  ["cold_wet", "Cold / wet hypothermia", "Activity point, apparent temperature, assumed wet on egress (FR-16)", [
+    ["Extreme", "sev-extreme", "Apparent temp ≤ 32 °F — wet at/below freezing"],
+    ["High", "sev-high", "33–45 °F — strong risk for a wet party"],
+    ["Elevated", "sev-elevated", "46–60 °F — the deceptively mild band"],
+    ["Minimal", "sev-minimal", "> 60 °F with low wind"],
+  ], "Bands are intentionally warmer than dry-cold thresholds because wet clothing loses most of its insulation. A dry cave with no immersion may be discounted by roughly one tier."],
+];
+
+function renderAbout(b) {
+  const sources = ABOUT_SOURCES.map(
+    ([name, access, desc, ic]) => `<div class="about-source">
+      ${icon(ic, "about-source__icon")}
+      <div>
+        <div class="about-source__name">${esc(name)} <span class="about-source__access">${esc(access)}</span></div>
+        <div class="about-source__desc">${esc(desc)}</div>
+      </div>
+    </div>`
+  ).join("");
+
+  const thresholds = ABOUT_THRESHOLDS.map(
+    ([hz, title, basis, rows, note]) => `<div class="about-haz">
+      <div class="about-haz__head">${icon(hz, "about-haz__icon")}<span class="about-haz__title">${esc(title)}</span></div>
+      <div class="about-haz__basis">${esc(basis)}</div>
+      <div class="about-matrix">${rows
+        .map(([tier, cls, cond]) => `<div class="about-matrix__row">
+          <span class="posture-chip ${cls} about-matrix__tier">${esc(tier)}</span>
+          <span class="about-matrix__cond">${esc(cond)}</span>
+        </div>`)
+        .join("")}</div>
+      <p class="about-haz__note">${esc(note)}</p>
+    </div>`
+  ).join("");
+
+  document.getElementById("view-about").innerHTML = `
+    <button class="about-back" id="close-about">${icon("arrow_left", "about-back__icon")}Resources</button>
+    <h1 class="about-title">About &amp; methodology</h1>
+    <p class="about-lede">UpstreamWX is a planning-reference briefing for caving and canyoneering. It gathers official and modeled weather, assesses four life-safety hazards — flash flooding, lightning, heat, and cold/wet hypothermia — and shows the reasoning. It never tells you whether to go.</p>
+
+    <section class="card">
+      <div class="eyebrow">The deterministic engine</div>
+      <p class="about-p">Every hazard posture, confidence level, and window of concern is decided by a <strong>deterministic, documented rule engine</strong> (FR-13). Identical inputs always produce an identical result (NFR-4). The Claude language model only <strong>frames the wording</strong> of the summary — it can never compute, raise, or lower a posture (FR-21, FR-24).</p>
+      <ul class="about-list">
+        <li>Four hazards are scored independently on a common scale — Minimal · Elevated · High · Extreme — except heat, which uses the NWS Heat Index categories (FR-14, FR-15).</li>
+        <li>Each hazard applies only in the mission phases where it is relevant (approach · technical span · egress) and per activity type; a cave technical span is treated as isolated from surface weather and shows flash flood only (FR-14a, FR-14c).</li>
+        <li>The overall mission posture is the <strong>maximum</strong> across all applicable hazards, and every hazard stays visible — a high lightning posture on approach is never hidden behind a low flood posture (FR-19).</li>
+        <li>A confidence qualifier per hazard comes from SREF ensemble agreement and cross-source consistency, including SREF↔HREF agreement on same-day windows (FR-17).</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <div class="eyebrow">Data sourcing</div>
+      <p class="about-p">Providers sit behind a common interface; the engine never depends on a specific source. If a non-mandatory source is unavailable the briefing still renders, marking that input as unavailable (NFR-6).</p>
+      <div class="about-sources">${sources}</div>
+    </section>
+
+    <section class="card">
+      <div class="eyebrow">How the watershed is delineated</div>
+      <p class="about-p">Flash-flood risk is assessed over the <strong>upstream contributing watershed</strong> — the land that drains toward your point — not the point itself. This matters because a slot can flood under a clear sky from rain falling miles upstream; aggregating probability over the drainage area is what catches that (FR-3).</p>
+      <ul class="about-list">
+        <li>Your coordinate is resolved to its containing USGS HUC-12 sub-watershed (HUC-10 where HUC-12 is unavailable), the finest national tier (FR-2).</li>
+        <li>Every HUC-12 that drains <em>into</em> that unit is collected by walking the Watershed Boundary Dataset's downstream-to-upstream links, then dissolved into a single upstream-domain polygon. Where that walk fails, the system falls back to tracing upstream tributaries from the NHD flow network (FR-3).</li>
+        <li>For a sharper outline, the point can be snapped to the stream network and the basin delineated to an exact pour point (NLDI raindrop trace). Areas are measured on an equal-area projection.</li>
+        <li>The trace is deterministic and cached — the same point and data snapshot always yield the same domain, and it is reused across briefings.</li>
+      </ul>
+      <p class="about-p">The map's shaded basin is this delineated domain. It is labeled <strong>approximate</strong>: surface delineation is a defensible proxy for canyoneering, but for caves true <strong>karst recharge can cross surface divides</strong> through subsurface conduits, so the recharge area may differ from the surface watershed. The briefing states this caveat for caving locations (FR-4).</p>
+    </section>
+
+    <section class="card">
+      <div class="eyebrow">Derived hazard thresholds</div>
+      <p class="about-p">Every cut point is <strong>externalized, versioned configuration — never hard-coded</strong> (FR-20a). The engine loads them at runtime, so tuning a threshold is a config edit with provenance, not a code change. The values below are the accepted initial configuration (PRD Appendix B), refined through field testing. Cut points that ride on an established system (NWS warnings/watches, Heat Index categories, SPC outlook) are standard; the numeric probability and temperature break points are UpstreamWX proposals.</p>
+      <div class="about-hazards">${thresholds}</div>
+      <p class="about-haz__note" style="margin-top:var(--space-3)">Loaded threshold matrix version: <span class="mono">${esc(b.threshold_version)}</span></p>
+    </section>
+
+    <div class="disclaimer">Reference only — not a forecast, not a decision. These thresholds describe how the briefing reasons about hazards; they do not replace official NWS products or your own judgment in the field.</div>`;
+
+  linkifyAcronyms(document.getElementById("view-about"));
+  const back = document.getElementById("close-about");
+  if (back) back.addEventListener("click", closeAbout);
+}
+
+function openAbout() {
+  hideGlossaryPopover();
+  document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== "view-about"));
+  document.querySelector("main").scrollTo({ top: 0 });
+}
+
+function closeAbout() {
+  selectTab("resources");
 }
 
 /* ── Status / currency line (FR-39, FR-41) ─────────────────────────── */
@@ -761,6 +895,7 @@ async function main() {
   renderMap(b);
   renderHazards(b);
   renderResources(b);
+  renderAbout(b);
   renderStatus(b);
   selectTab(state.tab);
 
