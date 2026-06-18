@@ -98,4 +98,6 @@ def test_determinism_identical_inputs_identical_result():
 
 def test_threshold_version_recorded():
     result = assess(_mission(), HazardInputs())
-    assert "flash_flood=1.0.0" in result.threshold_version
+    # Provenance string carries each hazard's configured version (FR-20a, NFR-4).
+    assert "flash_flood=" in result.threshold_version
+    assert "lightning=" in result.threshold_version

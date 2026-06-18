@@ -3,7 +3,7 @@
 # references them by key; no threshold is hard-coded in engine logic. Tune through
 # field testing by editing this file — never a code change.
 hazard: flash_flood
-version: "1.0.0"
+version: "1.1.0"
 provenance:
   effective_date: "2026-06-18"
   rationale: >-
@@ -11,7 +11,9 @@ provenance:
     products (authoritative near-term anchor) plus SREF ensemble probability over
     the upstream domain (planning horizon). Probability cut points and the slot
     fallback are UpstreamWX proposals; warning/watch overrides are standard NWS
-    practice. To be tuned via field testing (FR-20a).
+    practice. v1.1 adds the HREF same-day high-resolution overlay (FR-7a, §16.1):
+    HREF neighborhood P(QPF) on its own cut points, engine takes the higher tier.
+    To be tuned via field testing (FR-20a).
   source: "UpstreamWX PRD v0.8 §16.1"
 
 # Active NWS products override SREF probability (they already encode QPF-vs-FFG).
@@ -25,6 +27,16 @@ sref_probability:
   high_min: 60        # >=60% (with a meaningful convective-rate proxy) -> High
   elevated_min: 20    # 20-60% with measurable forecast precip          -> Elevated
                       # <20% / dry / no products                         -> Minimal
+
+# HREF same-day high-resolution overlay (FR-7a, §16.1), percent [0, 100]. HREF
+# neighborhood P(>=0.5"/1h or >=1"/3h QPF) over the upstream domain. NOT comparable
+# to the SREF bands above (neighborhood / 3 km / 11-member basis), so its own cut
+# points. The engine evaluates this only when in-range (~6-36 h) and takes the
+# higher of the SREF- and HREF-derived tiers (FR-19). UpstreamWX proposals.
+href_probability:
+  high_min: 40        # >=40% neighborhood probability -> High
+  elevated_min: 10    # 10-40% -> Elevated
+                      # <10% -> Minimal (no HREF contribution)
 
 modifiers:
   # Significant rainfall in the prior 24-72h (saturated soils) bumps tier up one.

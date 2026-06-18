@@ -14,7 +14,8 @@ committing to M0.1 architecture (roadmap §M0.0). **Both are resolved YES.**
 | **SREF data-availability risk resolved (yes/no)** | ✅ **YES** — NOMADS `ensprod`, source/cadence/retention pinned |
 | **Spike B — upstream HUC-12 trace** runs on sample input, plausible output | ✅ [spike-b-report.md](spike-b-report.md) |
 | Backend SREF resource profile for EC2 sizing | ✅ [resource-profile.md](resource-profile.md) — fits existing EC2 |
-| Offline fixtures committed; tests pass with no network; lint clean | ✅ `pytest` 8 passed / 2 network deselected; `ruff` clean |
+| **Spike C — HREF same-day high-res supplement** (additive de-risk) | ✅ [spike-c-report.md](spike-c-report.md) — HREF resolved **YES** on NOMADS, same idx pattern |
+| Offline fixtures committed; tests pass with no network; lint clean | ✅ `pytest` 14 passed / 3 network deselected; `ruff` clean |
 | CI | ⏸ Deferred by request; structure (ruff + offline pytest) keeps it a trivial add |
 
 ## Architecture implications for M0.1
@@ -27,9 +28,17 @@ committing to M0.1 architecture (roadmap §M0.0). **Both are resolved YES.**
   products with `.idx` byte-range subsetting. Download the needed CONUS field set
   **once per cycle**, then aggregate every active domain from the cached grid — so
   recurring cost scales with cycles/day, not domains. Fits the existing UpstreamWX EC2.
+- **HREF (Spike C → same-day supplement):** the ~3 km convection-allowing ensemble
+  is reachable on the **same NOMADS `ensprod` + `.idx`** pattern; its neighborhood
+  probabilities (`APCP` for flood, `REFC`/`LTNG` for lightning) sharpen the same-day
+  (≲36 h) window while SREF keeps the longer horizon. The idx + polygon-aggregation
+  code is now shared in `src/upstreamwx/grib/`; HREF is fetched **conditionally** and
+  only for the mission's exposure-hours (per-hour files). Engine combines the two
+  "show both, higher tier wins" (FR-19) with HREF-specific config thresholds (FR-20a).
 - **Coarse grid caveat:** the ~16 km SREF grid undersamples small headwater HUC-12s;
-  coverage-weighted aggregation (`exactextract`) is the v1.x refinement. The nearest-
-  cell fallback is in place and flagged.
+  the 3 km HREF grid largely resolves this (≈50 vs ≈5 cells over Buckskin), and
+  coverage-weighted aggregation (`exactextract`) remains the SREF-side v1.x refinement.
+  The nearest-cell fallback is in place, flagged, and now longitude-convention safe.
 - **No threshold→tier logic yet** (intentional): that is the M0.1 deterministic rule
   engine, driven by versioned config (FR-20a). The spikes only prove data feasibility.
 

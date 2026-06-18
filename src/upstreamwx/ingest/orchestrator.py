@@ -16,7 +16,7 @@ from shapely.geometry.base import BaseGeometry
 
 from ..engine.models import HazardInputs, Mission
 from ..watershed import resolve_and_trace_cached
-from . import nws, openmeteo, spc, sref_provider
+from . import href_provider, nws, openmeteo, spc, sref_provider
 from .base import IngestBundle, to_hazard_inputs
 
 # Providers that don't need the watershed polygon; (name, module).
@@ -54,6 +54,14 @@ def gather(
         except Exception as exc:  # noqa: BLE001
             bundle.sources_ok[sref_provider.NAME] = False
             bundle.notes.append(f"sref: unavailable ({type(exc).__name__}).")
+
+        # HREF same-day supplement (FR-7a): conditional, runs after SREF so it can
+        # record SREF<->HREF agreement; degrades gracefully like any non-mandatory source.
+        try:
+            href_provider.fetch(mission, bundle, polygon)
+        except Exception as exc:  # noqa: BLE001
+            bundle.sources_ok[href_provider.NAME] = False
+            bundle.notes.append(f"href: unavailable ({type(exc).__name__}).")
 
     failed_mandatory = [s for s in MANDATORY if bundle.sources_ok.get(s) is False]
     if failed_mandatory:

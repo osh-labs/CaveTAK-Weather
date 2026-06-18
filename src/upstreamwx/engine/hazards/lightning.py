@@ -26,6 +26,7 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     bands = cfg["sref_ptstm"]
     p = inputs.sref_p_tstm
     _ptstm_bands = (("EXTREME", "extreme_min"), ("HIGH", "high_min"), ("ELEVATED", "elevated_min"))
+    _href_bands = _ptstm_bands  # same Extreme/High/Elevated ordering, HREF cut points
     if p is not None:
         for tier_name, key in _ptstm_bands:
             if p >= bands[key]:
@@ -47,6 +48,21 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
                 "AFD mentions isolated/scattered afternoon convection",
             )
         )
+
+    # HREF same-day overlay (FR-7a, §16.2): HREF neighborhood P(lightning)/P(reflectivity)
+    # on its own cut points, added as another candidate; the max across all wins.
+    hp = inputs.href_p_lightning
+    if hp is not None:
+        hb = cfg["href_convection"]
+        for tier_name, key in _href_bands:
+            if hp >= hb[key]:
+                candidates.append(
+                    (
+                        Tier.from_name(tier_name),
+                        f"HREF neighborhood P(convection) {hp:.0f}% ≥ {hb[key]}% (~3 km same-day)",
+                    )
+                )
+                break
 
     if candidates:
         tier = max(c[0] for c in candidates)

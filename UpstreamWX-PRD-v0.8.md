@@ -17,7 +17,9 @@ author: Chris Lee
 | Product | UpstreamWX |
 | Host | `upstreamwx.com` |
 | Form factor | Progressive Web App (PWA); no native app |
-| Status | Draft v0.8 — compute environment resolved (existing UpstreamWX EC2); all decision items in §13 now resolved |
+| Status | Draft v0.9 — HREF same-day high-resolution supplement added alongside SREF (de-risked, Spike C); compute environment resolved (existing UpstreamWX EC2); all decision items in §13 resolved |
+
+**Changelog v0.8 → v0.9:** Added the **HREF (High-Resolution Ensemble Forecast)** as a *supplement* to SREF for same-day (≲36 h) briefings — NCEP's ~3 km convection-allowing ensemble, processed in-house from the same NOMADS `ensprod` GRIB2 + `.idx` pattern. HREF sharpens the flash-flood and lightning signal at convective scale inside the same-day window via neighborhood ensemble probability (`APCP` for flood; explicit `LTNG` and `REFC` for lightning); SREF (~16 km) still owns the longer planning horizon to 87 h. The engine **runs both in-range and takes the higher tier** (FR-19), using SREF↔HREF agreement as a cross-source confidence cue (FR-17). New FR-7a; updated §6.4 inputs, §6.3 FR-12 cadence, §7, §8, §11, §12, and Appendix B §16.1/§16.2/§16.5. Feasibility resolved YES (Spike C, `docs/m0.0/spike-c-report.md`): same retrieval machinery as SREF, now shared in `src/upstreamwx/grib/`.
 
 **Changelog v0.7 → v0.8:** Compute environment resolved — small always-on backend on the existing UpstreamWX EC2 (scalable), recurring SREF/AFD refresh server-side, one-time/batch pre-processing on a dev machine (§7, §13 M). Cost model updated: hosting reuses provisioned infrastructure, so recurring cash cost at hundreds of users is near-zero beyond the existing instance; the real constraint is EC2 headroom for the SREF job (§11.3–11.4).
 
@@ -127,6 +129,7 @@ The synthesis a meteorologically literate trip leader performs manually — read
 - **FR-5.** The system shall ingest the NWS Area Forecast Discussion (AFD) and active watches/warnings/advisories for the relevant zone(s) directly from the NWS API (`api.weather.gov`). The AFD forecaster discussion is available from no other source and is mandatory.
 - **FR-6.** The system shall ingest derived numerical forecast fields (precipitation, QPF, convective indices, wind, temperature, relative humidity, apparent temperature) from **Open-Meteo**, which serves HRRR-derived output as JSON and is free for non-commercial use.
 - **FR-7.** The system shall **process raw SREF ensemble fields in-house** — probability of measurable precipitation, probability of thunderstorms, and QPF exceedance/member spread — over the upstream domain, ingesting native GRIB2 from NCEP/EMC (NOMADS or the AWS/Google open-data mirrors). This is a committed backend component, scheduled to the SREF run cycle and cached. (Resolves the prior FR-6/FR-7 conflict: derived fields come from Open-Meteo, SREF is processed directly.)
+- **FR-7a.** The system shall additionally **process raw HREF ensemble fields in-house** as a *same-day high-resolution supplement* to SREF (FR-7) — NCEP's ~3 km convection-allowing ensemble, ingested as native GRIB2 from NOMADS `ensprod` using the same `.idx` byte-range machinery as SREF. From the HREF `prob` product it shall extract **neighborhood ensemble probability (NEP)** of precipitation accumulation (`APCP`, 1 h/3 h windows → flash flood) and of convection (explicit `LTNG` lightning probability and `REFC` composite-reflectivity probability → lightning), with `CAPE` probability and the `sprd` product as supporting fields. HREF is used **only within the same-day window (≈6–36 h)**: it runs twice daily (00/12Z) to a 48 h horizon, so for the longer planning horizon the engine falls back to SREF (FR-7). Where both are in range the engine evaluates **both ensembles and takes the higher hazard tier** (FR-19), treating SREF↔HREF agreement as a confidence input (FR-17). Ingestion is **conditional** — HREF is fetched only when an active mission window falls in range, and only for that window's forecast hours — and cached. Feasibility de-risked in Spike C (§6.2 source pattern shared with FR-7; `docs/m0.0/spike-c-report.md`). The cold-start 0–6 h window is left to the HRRR-derived Open-Meteo layer (FR-6), where HREF spin-up skill is weakest.
 - **FR-8.** *(v1.x, deferred.)* The system shall ingest NWS Flash Flood Guidance (FFG) for the relevant area to support the quantitative QPF/FFG flood refinement (§16.1). Deferred from v1 because gridded FFG distribution is fragmented across RFCs; v1 flood logic relies on active NWS flood products plus SREF ensemble probability instead.
 
 ### 6.3 Mission Object
@@ -135,7 +138,7 @@ The synthesis a meteorologically literate trip leader performs manually — read
 - **FR-9a.** The mission time window shall support optional **phase markers** — approach start, expected technical span, and egress end — so the engine can assess each hazard against the phase in which it is relevant. When the user supplies only an overall window, the engine shall infer phases as: **approach = the first hour** of the window, **egress = the last hour**, and **technical span = everything in between**. The briefing shall state that phases were inferred this way.
 - **FR-10.** The mission shall persist across sessions on the device.
 - **FR-11.** The user shall be able to **clear the mission and start fresh** at any time.
-- **FR-12.** A briefing shall be (re)generated for the active mission on demand and on a refresh schedule while the mission window is within range. **[ASSUMPTION]** Refresh cadence aligned to SREF/AFD update cycles (SREF runs every 6 hours; AFDs issued roughly twice daily and updated as needed).
+- **FR-12.** A briefing shall be (re)generated for the active mission on demand and on a refresh schedule while the mission window is within range. **[ASSUMPTION]** Refresh cadence aligned to SREF/AFD update cycles (SREF runs every 6 hours; AFDs issued roughly twice daily and updated as needed). When the mission window is within the same-day range, refresh additionally aligns to the **HREF cycle (00/12Z)** so the high-resolution supplement (FR-7a) stays current.
 
 ### 6.4 Hazard Rule Engine (Deterministic Core)
 
@@ -146,8 +149,8 @@ The engine produces a **vector of hazard postures** — one per hazard class —
 
   | Hazard | Phases where it applies | Spatial basis | Primary inputs |
   |---|---|---|---|
-  | **Flash flood** | Technical span (canyon and cave) | Upstream contributing watershed (HUC-12) | Active NWS flood products, SREF P(precip)/P(thunder) over the upstream domain, derived convective-rate/reflectivity proxy, antecedent-precip proxy. *(v1.x: QPF-vs-FFG ratio — see §16.1.)* |
-  | **Lightning** | Approach + egress only (surface, exposed); **excluded** in the technical span | Activity location + approach corridor | CAPE / lifted index, SREF P(thunderstorm), derived convective/lightning proxy, AFD thunder mentions, SPC convective outlook |
+  | **Flash flood** | Technical span (canyon and cave) | Upstream contributing watershed (HUC-12) | Active NWS flood products, SREF P(precip)/P(thunder) over the upstream domain, **HREF neighborhood P(1 h/3 h QPF) over the upstream domain for same-day windows (FR-7a)**, derived convective-rate/reflectivity proxy, antecedent-precip proxy. *(v1.x: QPF-vs-FFG ratio — see §16.1.)* |
+  | **Lightning** | Approach + egress only (surface, exposed); **excluded** in the technical span | Activity location + approach corridor | CAPE / lifted index, SREF P(thunderstorm), **HREF neighborhood P(lightning)/P(reflectivity) for same-day windows (FR-7a)**, derived convective/lightning proxy, AFD thunder mentions, SPC convective outlook |
   | **Heat stress** | Approach (weighted up) + canyon technical span + egress | Activity location (point) | Temperature + relative humidity → NWS heat index; apparent temperature; time-of-day exposure |
   | **Cold / wet hypothermia** | Egress (weighted up) + canyon technical span + approach | Activity location at the relevant time | Air temperature and wind (wind chill / apparent temp), evaluated under an assumed-wet party state on egress; evening temperature drop; elevation adjustment |
 
@@ -163,7 +166,7 @@ The engine produces a **vector of hazard postures** — one per hazard class —
 - **FR-14c.** Lightning shall be **excluded from the technical span** for both activity types (sheltered in-slot; isolated underground). For a **cave** technical span, only flash flood shall be evaluated; surface heat, cold, and lightning shall be omitted as not applicable, and the briefing shall state that the cave interior is treated as isolated from surface weather. **[ASSUMPTION]** Canyon sections that are known to be exposed (non-slot) inherit approach-style lightning exposure; absent section-level data, v1 treats the whole technical span as sheltered and notes the assumption.
 - **FR-15.** Heat stress tiers shall map to the established **NWS heat index categories** (Caution / Extreme Caution / Danger / Extreme Danger) rather than an invented scale, for defensibility.
 - **FR-16.** Cold/wet hypothermia posture shall be computed under the explicit assumption that the party is **wet on egress** (standard for canyoneering and wet caves); this assumption shall be stated in the briefing so the user can discount it if it does not apply.
-- **FR-17.** The engine shall compute a **confidence** qualifier per hazard, derived primarily from SREF ensemble spread and inter-source agreement.
+- **FR-17.** The engine shall compute a **confidence** qualifier per hazard, derived primarily from SREF ensemble spread and inter-source agreement. For same-day windows where HREF is in range (FR-7a), **SREF↔HREF agreement** is an additional confidence input: concurrence of the two independent ensembles raises confidence, material disagreement lowers it (§16.5).
 - **FR-18.** The engine shall identify, per hazard, the **time window of concern** within the relevant mission phase.
 - **FR-19.** The engine shall derive an **overall mission posture** as the maximum across all hazards that are applicable to the mission's phases and activity type (per FR-14a), while preserving and displaying each hazard and phase separately (a High lightning posture on approach must not be hidden behind a Minimal flood posture in the slot).
 - **FR-20.** The threshold matrix and rule logic for every hazard shall be versioned and surfaced to the user (a "how this is calculated" reference), supporting the reference-only/defensible posture. The initial configured matrices are in **Appendix B (§16)**.
@@ -223,8 +226,8 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
             │  │ Watershed   │  │ Ingestion     │  │ Rule     │ │
             │  │ resolver    │  │ orchestrator  │  │ engine   │ │
             │  │ (HUC/WBD,   │  │ (NWS, Open-   │  │ (determ- │ │
-            │  │ upstream    │  │ Meteo, SREF,  │  │ inistic) │ │
-            │  │ trace)      │  │ SPC)          │  │          │ │
+            │  │ upstream    │  │ Meteo, SREF/  │  │ inistic) │ │
+            │  │ trace)      │  │ HREF, SPC)    │  │          │ │
             │  └────────────┘  └──────────────┘  └────┬─────┘ │
             │                                          │       │
             │                          ┌───────────────▼─────┐ │
@@ -237,9 +240,9 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
    ┌────────────────────────┼─────────────────────────────────────┐
    │                        │                                       │
 ┌──▼──────────┐   ┌─────────▼─────────┐   ┌──────────────┐   ┌──────▼──────┐
-│ NWS API      │   │ Open-Meteo         │   │ SREF GRIB2    │   │ USGS WBD     │
-│ AFD, alerts, │   │ HRRR-derived       │   │ NCEP/EMC,     │   │ HUC-12       │
-│ warnings,    │   │ JSON fields        │   │ processed     │   │ (hosted)     │
+│ NWS API      │   │ Open-Meteo         │   │ SREF+HREF     │   │ USGS WBD     │
+│ AFD, alerts, │   │ HRRR-derived       │   │ GRIB2 (NOMADS │   │ HUC-12       │
+│ warnings,    │   │ JSON fields        │   │ ensprod),     │   │ (hosted)     │
 │ heat index   │   │ (free non-comm.)   │   │ in-house      │   │              │
 └──────────────┘   └────────────────────┘   └──────────────┘   └─────────────┘
 ```
@@ -247,6 +250,7 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
 **Notes**
 - USGS Watershed Boundary Dataset (HUC-12) is downloaded once and hosted; upstream-contributing-area traces are computed **on demand** per free-form pin and cached for reuse. The hosted WBD is a capital item; tracing is light recurring compute.
 - The **SREF processor** is a scheduled backend job: it pulls native GRIB2 on the SREF run cycle, extracts the ensemble probability fields over each active upstream domain, and caches the result for the rule engine. This is the heaviest backend component and the main recurring compute load.
+- The **HREF processor** (FR-7a) shares the SREF processor's retrieval and aggregation code (the `.idx` byte-range subsetting and polygon zonal reduction live in a common GRIB module). It is the *same-day high-resolution supplement*: it runs on the HREF cycle (00/12Z) **only when an active mission window is in range (≈6–36 h)**, fetching just that window's forecast hours from the ~3 km `ensprod` `prob` product. Because HREF publishes one file per forecast hour, its per-cycle work is bounded by the in-range hours needed, not the full 48 h.
 - Open-Meteo supplies the remaining derived fields by REST/JSON; no GRIB handling is needed for those.
 - Briefings are generated server-side and cached; the client fetches the latest cached briefing and stores it for offline review. This caps LLM and API cost regardless of how often a user reopens the app.
 - Backend is a **small always-on service on the existing UpstreamWX EC2 instance** (already provisioned, scalable on demand), with a scheduler on that instance driving recurring SREF/AFD refresh and briefing regeneration. **One-time and batch pre-processing** — watershed trace cache warming, validation-corpus preparation, threshold-config builds, and SREF extraction-tooling development — runs **on a dev machine**, with results deployed to the backend. The recurring SREF extraction itself runs server-side so briefings stay current on the SREF cycle.
@@ -259,7 +263,8 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
 |---|---|---|---|
 | NWS API (`api.weather.gov`) | AFD, watches/warnings/advisories, heat index categories; FFG *(v1.x)* | Public REST | Free; mandatory |
 | Open-Meteo | Derived numerical fields: QPF, PoP, convective indices (CAPE/LI), temperature, relative humidity, apparent temperature, wind — feeding all four hazard models | REST/JSON | Free for non-commercial use |
-| SREF ensemble (in-house) | Raw probability of thunderstorms / precip, member spread (flash flood + lightning) | Native GRIB2 from NCEP/EMC (NOMADS / open-data mirrors), processed and cached server-side | Free data; recurring compute for scheduled processing |
+| SREF ensemble (in-house) | Raw probability of thunderstorms / precip, member spread (flash flood + lightning); full planning horizon to 87 h | Native GRIB2 from NCEP (NOMADS), processed and cached server-side | Free data; recurring compute for scheduled processing |
+| HREF ensemble (in-house) | ~3 km convection-allowing **neighborhood** probability — `APCP` 1 h/3 h QPF (flash flood), `LTNG`/`REFC` (lightning) — **same-day supplement (≈6–36 h)** to SREF | Native GRIB2 from NCEP NOMADS `ensprod`, same `.idx` machinery as SREF; processed and cached server-side, fetched conditionally per in-range mission | Free data; bounded recurring compute (in-range hours only) |
 | SPC convective outlook | Categorical/probabilistic severe + thunderstorm outlook (lightning) | SPC / NWS | Free; secondary input |
 | USGS Watershed Boundary Dataset | HUC-12 delineation, upstream tracing (flash flood) | Bulk download, self-hosted | Free; one-time capital |
 
@@ -282,6 +287,7 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
 1. **Karst recharge ≠ surface watershed.** Surface HUC-12 delineation is a defensible proxy for canyoneering but can misrepresent the true recharge area for cave systems, which may cross surface divides via subsurface conduits. v1 discloses this explicitly; v3+ may add karst-specific modeling.
 2. **Probability-of-precipitation semantics.** NWS PoP expresses areal coverage, a point that is widely misread by recreationists and has direct life-safety consequences in slot canyons. The SITREP must phrase probability in plain, unambiguous terms.
 3. **Derived-field fidelity (Open-Meteo).** Open-Meteo serves HRRR-derived fields as JSON; it may smooth or reinterpret native model output, and for the sharpest convective timing the native HRRR is finer. v1 accepts this for the derived layer while processing SREF natively in-house, and discloses the model source. A native HRRR pipeline is a later-phase option.
+3a. **HREF range and convective-scale uncertainty (FR-7a).** The HREF supplement reaches only **48 h** (used to ≈36 h), so beyond the same-day window the briefing relies on SREF alone — the high-resolution view is a near-term sharpening, not a planning-horizon tool. Even within range, convection-allowing ensembles are known to be **underdispersive** on convective initiation location/timing and can fire **spurious afternoon convection**; an HREF probability is a neighborhood likelihood, not a guarantee of a storm at the point. The briefing treats HREF as one input, surfaces it alongside SREF, and never lets a single ensemble's high-resolution signal close the decision loop.
 4. **Non-flood hazards are point/corridor estimates.** Lightning, heat, and cold/hypothermia are assessed at the activity location and approach corridor, not aggregated over a watershed. Local terrain (slot shading, cold-air drainage, exposure) can deviate from the forecast point; the briefing states this.
 5. **Wet-egress assumption.** Cold/hypothermia posture assumes the party exits wet. This is the conservative default for canyoneering and wet caves but may overstate risk for a dry cave; the assumption is shown so the user can discount it.
 6. **Cave isolation and slot-shelter assumptions.** The cave interior is treated as isolated from surface weather (flash flood only), and the canyon technical span is treated as sheltered from lightning. Both are reasonable defaults but are coarse: a shallow cave entrance series, or an exposed non-slot canyon section, can violate them. v1 states these assumptions in the briefing.
@@ -301,7 +307,7 @@ Scale basis: **hundreds of users at 12 months**, free with optional donation.
 
 ### 11.2 One-Time Labor (Development)
 Distinct from capital. Major build components, in rough descending effort:
-1. **SREF GRIB2 processor** — scheduled native ingestion, ensemble-field extraction over upstream domains, caching. The heaviest single backend component (committed, not optional).
+1. **SREF GRIB2 processor** — scheduled native ingestion, ensemble-field extraction over upstream domains, caching. The heaviest single backend component (committed, not optional). The **HREF same-day supplement (FR-7a)** reuses this processor's retrieval/aggregation code (shared GRIB module), so its incremental labor is the conditional per-hour fetch loop and HREF-specific field selection, not a second pipeline.
 2. Watershed resolver + upstream tracing.
 3. Deterministic rule engine + versioned threshold matrices for all four hazards (flood, lightning, heat, cold/wet), including the phase/activity applicability matrix and thermal weighting.
 4. Ingestion orchestrator (NWS products/AFD + Open-Meteo + SREF processor + SPC outlook).
@@ -319,6 +325,7 @@ Deferred to v1.x (removed from v1 to keep scope tight): FFG ingestion across RFC
 | App hosting (always-on backend + static + scheduler) | Runs on the **existing UpstreamWX EC2** | Marginal — reuses provisioned infrastructure; incremental cost is scaling headroom if needed, not a new instance |
 | Open-Meteo (derived fields) | API calls | $0 (free non-commercial use) |
 | SREF processing compute | Scheduled GRIB2 pulls + extraction per active upstream domain, on the existing EC2 | **Largest recurring workload**, but on already-provisioned hardware — cost is CPU time and the scaling headroom it consumes, not a separate bill. Bounded by run cadence and active-domain count, not user count |
+| HREF processing compute (FR-7a) | Conditional GRIB2 pulls on the HREF cycle (00/12Z), only for in-range missions and only the needed forecast hours | Incremental over SREF: ~3 km grids decode to a higher peak memory (~0.9 GB observed for a small field set vs ~0.5 GB for SREF — Spike C), and per-hour files add HTTP round-trips. Still fits the existing EC2; bound it by fetching only exposure-window hours and decoding fields sequentially |
 | Claude Haiku 4.5 (SITREP framing) | Briefings generated | **Small.** See §11.4 |
 
 ### 11.4 LLM Cost Detail (Claude Haiku 4.5)
@@ -336,6 +343,7 @@ At hundreds of users generating, conservatively, a few hundred briefings per day
 |---|---|---|
 | Derived numerical fields | **Open-Meteo** | Free for non-commercial use; serves HRRR-derived fields as JSON; fits a free, donation-funded tool at hundreds of users with no licensing exposure. |
 | SREF ensemble | **Processed in-house from native GRIB2** | No derived/commercial API reliably exposes raw SREF probability and member spread; native processing is the only way to meet the raw-ensemble requirement. Committed backend component (see §6.2 FR-7, §7, §11.2). |
+| HREF ensemble (same-day supplement) | **Processed in-house from native GRIB2**, reusing the SREF machinery | Same rationale as SREF — no API exposes raw HREF neighborhood probability — and the cost is small because the retrieval/aggregation code is shared and ingestion is conditional and window-scoped. Adds convection-allowing (~3 km) flash-flood/lightning detail SREF cannot resolve inside the same-day window (see §6.2 FR-7a, §7, §11; Spike C). |
 | Forecaster discussion | **NWS API (`api.weather.gov`)** | The AFD is available from no other source; mandatory regardless of the derived-field choice. |
 
 This resolves the v0.2 open items C (derived API) and D (SREF sourcing). The cost consequence is favorable — no commercial data licensing — at the expense of carrying the SREF processing job in-house as the main recurring compute load (§11.3).
@@ -441,6 +449,15 @@ Modifiers:
 
 Why this is enough for v1: an active **Flash Flood Watch/Warning already encodes the QPF-vs-FFG determination** made by NWS forecasters with radar nowcasting we do not have, so the products carry the near-term expert judgment directly. SREF probability over the upstream domain covers the planning horizon beyond warning lead time, which is where a trip leader spends most of their attention.
 
+**HREF same-day overlay (FR-7a).** When the mission window is within HREF range (≈6–36 h), the engine *also* evaluates HREF **neighborhood** P(QPF) over the upstream domain and takes the higher resulting tier (FR-19). Because HREF probabilities are neighborhood/3 km/11-member, they are **not comparable to SREF's grid-point/16 km/27-member** values and carry their own versioned cut points (FR-20a) — proposed initial set, tuned by field testing:
+
+| Tier | HREF condition (any one triggers) |
+|---|---|
+| **High** | HREF neighborhood **P(≥0.5 in/1 h) ≥ 40%** over the upstream domain, OR P(≥1 in/3 h) ≥ 40% |
+| **Elevated** | HREF neighborhood P(≥0.5 in/1 h) 10–40% over the upstream domain |
+
+For a **slot** canyon the slot fallback applies to the HREF signal too: a non-trivial neighborhood probability of ≥0.5 in/1 h over the upstream domain is treated as **at least High**, flagged in the briefing. These HREF break points (40% / 10%) are **UpstreamWX proposals**, distinct from the SREF ones above.
+
 **v1.x quantitative refinement (deferred — QPF/FFG ratio).** Once FFG ingestion and areal QPF aggregation exist, add a basin-specific ratio R = (forecast QPF over the upstream domain, for the FFG duration) ÷ (FFG for that duration), with proposed tiers Extreme at R ≥ 1.0, High at 0.5 ≤ R < 1.0, Elevated at 0.25 ≤ R < 0.5. This sharpens the assessment *before* a watch is issued. It is out of v1 scope because: (1) gridded FFG is fragmented across RFCs with no single clean national API; (2) "QPF over the upstream domain" requires sampling and aggregating forecast precip across the watershed polygon, layered on the watershed trace; and (3) QPF and FFG must be aligned on duration, grid, and projection. The active-warning anchor covers the near term in the meantime.
 
 Established vs proposed: warning/watch overrides and the eventual QPF-vs-FFG technique are standard NWS operational practice; the probability cut points, the 0.5 in/hr slot fallback, and the R break points are **UpstreamWX proposals**.
@@ -460,6 +477,8 @@ Supporting context (instability), used to modulate confidence/severity, not to s
 - CAPE < 500 J/kg: minimal instability; 500–1000: marginal; 1000–2500: moderate; > 2500: strong.
 
 Established components: SPC outlook categories and the active-warning override are standard. The P(tstm) cut points (15 / 40 / 70%) are **UpstreamWX proposals**. Note in-product: the forecast is for planning; in the field, "when thunder roars, go indoors" and direct observation govern.
+
+**HREF same-day overlay (FR-7a).** Within HREF range (≈6–36 h) the engine also evaluates HREF neighborhood convection probability over the exposure window and takes the higher tier (FR-19). HREF gives an **explicit** `LTNG` neighborhood P(lightning) plus `REFC` P(composite reflectivity ≥ 40 dBZ) as a convective-mode proxy — a sharper same-day lightning signal than SREF P(tstm). Proposed initial cut points (versioned config, FR-20a; distinct from SREF's because of the neighborhood/3 km/11-member basis): **Extreme** at HREF P(lightning) ≥ 60% or P(reflectivity ≥ 40 dBZ) ≥ 60% in the exposure window; **High** at 30–60%; **Elevated** at 10–30%. These break points are **UpstreamWX proposals**.
 
 ### 16.3 Heat Stress (NWS Heat Index categories, per FR-15)
 
@@ -501,6 +520,13 @@ Derived from SREF ensemble agreement and cross-source consistency. Proposed oper
 | **Low** | < 40% member support, or sources materially conflict |
 
 The agreement fractions (40% / 75%) are **UpstreamWX proposals**.
+
+**SREF↔HREF cross-ensemble agreement (FR-7a, FR-17).** For same-day windows where HREF is in range, the two independent ensembles provide a cross-source check on top of within-ensemble member support:
+
+- **Concurrence** — both SREF and HREF point to the same tier (or both clearly below it): treat as a confidence *raise* (a Moderate from member spread alone may lift to High).
+- **Divergence** — the ensembles materially disagree on the same-day flood/lightning tier: cap confidence at **Moderate at most**, and surface both signals in the briefing rather than hiding the disagreement (reference-only posture). HREF's known convective-scale underdispersion (§10 item 3a) means HREF agreement should *corroborate*, not by itself manufacture, High confidence.
+
+This cross-ensemble rule is a **UpstreamWX proposal**, tuned with the member-support fractions through field testing.
 
 ---
 

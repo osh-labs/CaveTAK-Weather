@@ -39,6 +39,18 @@ class IngestBundle:
     cape_jkg: float | None = None
     member_support: dict[str, float] = field(default_factory=dict)
 
+    # HREF same-day high-resolution supplement over the upstream domain (FR-7a).
+    # Set only when the mission window is in HREF range (~6-36 h).
+    href_p_precip: float | None = None
+    href_p_lightning: float | None = None
+    href_in_range: bool = False
+    href_cycle: str | None = None
+    href_fhour: int | None = None
+
+    # SREF<->HREF cross-ensemble agreement (FR-17, §16.5); feeds the confidence
+    # qualifier. "consistent" unless an in-range HREF materially diverges from SREF.
+    source_agreement: str = "consistent"
+
     # SPC convective outlook category.
     spc_category: str | None = None
 
@@ -68,8 +80,10 @@ def to_hazard_inputs(bundle: IngestBundle, *, dry_party: bool = False) -> Hazard
         measurable_precip=bundle.measurable_precip,
         convective_rate_in_per_hr=bundle.convective_rate_in_per_hr,
         cape_jkg=bundle.cape_jkg,
+        href_p_precip=bundle.href_p_precip,
+        href_p_lightning=bundle.href_p_lightning,
         member_support=dict(bundle.member_support),
-        source_agreement="consistent",
+        source_agreement=bundle.source_agreement,
         spc_category=bundle.spc_category,
         afd_convective_mention=bundle.afd_convective_mention,
         heat_index_f=bundle.heat_index_f,

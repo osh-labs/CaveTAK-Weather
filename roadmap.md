@@ -56,6 +56,7 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 - **Spike A — SREF over a polygon:** retrieve native SREF GRIB2, extract the ensemble probability fields (P(precip), P(thunder), member spread), and aggregate them over a sample watershed polygon. Confirm data availability and retention for the run cadence.
 - **Spike B — upstream HUC-12 trace:** given an arbitrary CONUS lat/lon, resolve the containing HUC-12 and trace the upstream contributing watershed from the hosted USGS WBD (PRD FR-2, FR-3).
 - Backend decided: **small always-on service on the existing UpstreamWX EC2** (scalable). The M0.0 spike no longer chooses the architecture — it characterizes the SREF job's resource profile (memory, runtime, cadence) to size EC2 headroom. One-time/batch pre-processing runs on a dev machine; recurring SREF/AFD refresh runs on the EC2 scheduler (PRD §7).
+- **Spike C — HREF same-day high-res supplement (additive de-risk):** confirm the ~3 km HREF convection-allowing ensemble is retrievable on the same NOMADS `ensprod` + `.idx` pattern, extract its neighborhood probability fields (`APCP` for flood; `LTNG`/`REFC` for lightning) over a watershed polygon, and profile its (heavier) per-cycle resource cost. **Resolved YES** (PRD §6.2 FR-7a, `docs/m0.0/spike-c-report.md`). The idx + aggregation code is now shared in `src/upstreamwx/grib/`, reused by both SREF and HREF.
 
 **Exit criteria.** Both spikes run on sample inputs and produce plausible output; SREF data-availability risk is resolved yes/no.
 
@@ -69,7 +70,7 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 
 **Recommended internal sequence** (these are not equal-weight or independent):
 1. **Watershed component** — promote Spike B to a real module: HUC-12 resolution + upstream trace + cache. Prerequisite for the flood path of both ingest and engine.
-2. **Data ingest** — NWS API (AFD, alerts), Open-Meteo (derived fields), the **scheduled SREF processor** (heaviest backend item, PRD §11.2), SPC convective outlook. Each source behind a stable internal interface so providers can be swapped (PRD §12).
+2. **Data ingest** — NWS API (AFD, alerts), Open-Meteo (derived fields), the **scheduled SREF processor** (heaviest backend item, PRD §11.2), the **conditional HREF same-day supplement** (PRD §6.2 FR-7a — reuses the SREF retrieval/aggregation code via the shared `grib` module; fetched only for in-range missions and only the needed forecast hours), SPC convective outlook. Each source behind a stable internal interface so providers can be swapped (PRD §12). The engine selects ensemble signals by lead time — HREF inside the same-day window (≈6–36 h), SREF beyond — and where both are in range takes the higher tier (FR-19).
 3. **Decision engine** — the deterministic rule engine: four hazards, phase × activity applicability matrix (FR-14a), thermal weighting (FR-14b), lightning/cave gating (FR-14c), per-hazard confidence from SREF spread (FR-17), overall posture as max across applicable hazards (FR-19).
 
 **Cross-cutting deliverables (start here, used by every later milestone):**
@@ -174,7 +175,7 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 
 ## Critical path and long poles
 
-1. **SREF processor** (M0.0 spike → M0.1 on-demand module → M0.1.1 scheduled job) — heaviest backend component; on the critical path for both flood and lightning. On-demand processing built/validated in M0.1; recurring scheduling + persistent cache deferred to M0.1.1 (EC2).
+1. **SREF processor** (M0.0 spike → M0.1 on-demand module → M0.1.1 scheduled job) — heaviest backend component; on the critical path for both flood and lightning. On-demand processing built/validated in M0.1; recurring scheduling + persistent cache deferred to M0.1.1 (EC2). The **HREF same-day supplement** (Spike C → M0.1) is *not* a separate long pole: it reuses the SREF retrieval/aggregation code (shared `grib` module), so its incremental cost is the conditional per-hour fetch loop, HREF field selection, and the lead-time-based ensemble selection in the engine.
 2. **Upstream watershed trace** (M0.0 spike → M0.1 module) — prerequisite for the entire flood model and the M0.4 map overlay.
 3. **Threshold tuning** (field testing, post-build) — Appendix B values are the accepted starting point; field testing refines them via config (FR-20a). Not on the build critical path.
 

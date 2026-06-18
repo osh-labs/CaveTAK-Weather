@@ -49,6 +49,27 @@ def evaluate(
                 f"SREF P(precip/thunder) {p:.0f}% below {prob['elevated_min']}%; dry upstream"
             )
 
+    # HREF same-day high-resolution overlay (FR-7a, §16.1): evaluate HREF neighborhood
+    # P(QPF) on its own cut points and take the higher tier (FR-19). None out of range.
+    hp = inputs.href_p_precip
+    if hp is not None:
+        hb = cfg["href_probability"]
+        href_tier = Tier.MINIMAL
+        if hp >= hb["high_min"]:
+            href_tier = Tier.HIGH
+        elif hp >= hb["elevated_min"]:
+            href_tier = Tier.ELEVATED
+        if href_tier > tier:
+            drivers.append(
+                f"HREF neighborhood P(QPF) {hp:.0f}% over upstream domain "
+                f"(~3 km, same-day) raises flood tier to {href_tier.label}"
+            )
+            tier = href_tier
+        elif href_tier > Tier.MINIMAL:
+            drivers.append(
+                f"HREF neighborhood P(QPF) {hp:.0f}% concurs at {href_tier.label}"
+            )
+
     # Antecedent wetness bumps an existing precip-driven posture up one level.
     # Applied only when a base signal already exists (>= Elevated): a saturated
     # basin with a dry incoming forecast is still Minimal flood risk.

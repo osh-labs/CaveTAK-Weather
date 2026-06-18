@@ -2,7 +2,7 @@
 # Applies to exposed phases only (approach, egress); excluded from the technical
 # span by FR-14c. Externalized, versioned config (FR-20a).
 hazard: lightning
-version: "1.0.0"
+version: "1.1.0"
 provenance:
   effective_date: "2026-06-18"
   rationale: >-
@@ -10,7 +10,9 @@ provenance:
     cross-checked against the SPC convective outlook and AFD. CAPE/Lifted Index
     modulate confidence and severity but never set the tier. P(tstm) cut points
     (15/40/70%) are UpstreamWX proposals; SPC categories and the active-warning
-    override are standard. To be tuned via field testing (FR-20a).
+    override are standard. v1.1 adds the HREF same-day overlay (FR-7a, §16.2):
+    HREF neighborhood P(lightning)/P(reflectivity) on its own cut points, taken
+    as another tier candidate (higher wins). To be tuned via field testing (FR-20a).
   source: "UpstreamWX PRD v0.8 §16.2"
 
 products:
@@ -22,6 +24,17 @@ sref_ptstm:
   high_min: 40        # 40-69% -> High
   elevated_min: 15    # 15-39% -> Elevated
                       # <15%   -> Minimal
+
+# HREF same-day overlay (FR-7a, §16.2), percent [0, 100]. HREF neighborhood
+# P(lightning) (explicit) or P(composite reflectivity >= 40 dBZ) over the exposure
+# window. NOT comparable to the SREF bands (neighborhood / 3 km / 11-member basis),
+# so its own cut points. Evaluated only in-range (~6-36 h) and added as another tier
+# candidate; the assigned tier is the max across all candidates. UpstreamWX proposals.
+href_convection:
+  extreme_min: 60     # >=60% -> Extreme
+  high_min: 30        # 30-60% -> High
+  elevated_min: 10    # 10-30% -> Elevated
+                      # <10%   -> no HREF contribution
 
 # SPC convective outlook category over the window -> tier (any one triggers).
 # Keys cover the SPC categorical labels plus a "categorical" alias for the

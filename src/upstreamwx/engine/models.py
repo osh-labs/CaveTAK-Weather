@@ -114,6 +114,13 @@ class HazardInputs:
     convective_rate_in_per_hr: float | None = None  # forecast convective rate (slot)
     cape_jkg: float | None = None                 # instability (modulates, not tier)
 
+    # HREF same-day high-resolution overlay over the upstream domain (FR-7a, §16.1/§16.2).
+    # Neighborhood ensemble probabilities, percent [0, 100]; None when out of HREF
+    # range (~6-36 h). Evaluated on their own cut points; the engine takes the higher
+    # of the SREF- and HREF-derived tiers (FR-19).
+    href_p_precip: float | None = None            # NEP P(>=0.5"/1h or >=1"/3h), flood
+    href_p_lightning: float | None = None         # NEP P(lightning)/P(reflectivity)
+
     # Confidence inputs (FR-17, §16.5). member_support keyed by Hazard.value, [0, 1].
     member_support: dict[str, float] = field(default_factory=dict)
     source_agreement: str = "consistent"          # consistent | partial | conflict
