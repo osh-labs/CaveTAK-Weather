@@ -75,7 +75,7 @@ function missionCard(b) {
           <button class="mission-card__edit" aria-label="Edit mission">${icon("edit", "")}</button>
         </h1>
         <div class="mission-card__meta">${fmtD} · ${fmtT(start)}–${fmtT(end)} ${esc(m.timezone)}</div>
-        <div class="mission-card__meta"><span class="mono">${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}</span> · Upstream HUC-12 <span class="mono">${m.huc12.join(", ")}</span></div>
+        <div class="mission-card__meta"><span class="mono">${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}</span>${b.watershed ? ` · Watershed area <span class="mono">${b.watershed.area_sq_mi.toFixed(1)} mi²</span>` : ""}</div>
       </div>
       <div class="mission-card__posture">
         <div class="eyebrow">Overall posture</div>
@@ -110,6 +110,7 @@ function selectTab(id) {
   if (id === "map" && state.briefing) {
     requestAnimationFrame(() => initLeafletMap(state.briefing));
   }
+  if (id === "forecast" && _fcSync) requestAnimationFrame(_fcSync);
 }
 
 /* ── 7.4 Overview ──────────────────────────────────────────────────── */
@@ -160,7 +161,7 @@ function renderOverview(b) {
       <div class="hazard-list">${hazards}</div>
     </section>
     <div class="metric-grid">${metrics}</div>
-    <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-3)">Phases</h2>
+    <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-3)">Mission Phases</h2>
       <div class="phase-strip">${phases}</div>
       ${b.mission.phases_inferred ? '<div class="phase-seg__note" style="margin-top:var(--space-3)">Phases inferred from the overall window: approach = first hour, egress = last hour.</div>' : ""}
     </section>
@@ -184,7 +185,12 @@ function renderForecast(b) {
       <div class="forecast-tabs" style="margin-bottom:var(--space-3)">
         <button aria-selected="true">Hourly</button><button aria-selected="false">Daily</button><button aria-selected="false">Table</button>
       </div>
-      <table class="fc-table"><thead>${head}</thead><tbody>${rows}</tbody></table>
+      <div class="fc-scroll">
+        <div class="fc-scroll__viewport" data-fc-scroll>
+          <table class="fc-table"><thead>${head}</thead><tbody>${rows}</tbody></table>
+        </div>
+        <div class="fc-scroll__more" aria-hidden="true">${icon("chevron", "fc-scroll__chev")}</div>
+      </div>
     </section>
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-2)">Temperature (°F)</h2>
@@ -198,6 +204,23 @@ function renderForecast(b) {
     </section>
     <div class="disclaimer">Forecast detail is the drill-down behind the hazard drivers. Derived fields from Open-Meteo (HRRR-derived); ensemble probabilities from in-house SREF + HREF.</div>`;
   flushChartInits();
+  initForecastScroll();
+}
+
+// Toggle the right-edge "more" indicator on the hourly table as it scrolls (FR — long windows overflow).
+let _fcSync = null;
+function initForecastScroll() {
+  const wrap = document.querySelector("[data-fc-scroll]");
+  if (!wrap) return;
+  _fcSync = () => {
+    const atEnd = wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 1;
+    wrap.parentElement.classList.toggle(
+      "is-scrollable", wrap.scrollWidth > wrap.clientWidth + 1 && !atEnd
+    );
+  };
+  wrap.addEventListener("scroll", _fcSync, { passive: true });
+  window.addEventListener("resize", _fcSync);
+  requestAnimationFrame(_fcSync);
 }
 
 let _chartSeq = 0;
@@ -239,8 +262,10 @@ function lineChart(series, labels, colors) {
   const xhDots = colors.map((c, si) =>
     `<circle data-xh="dot" data-si="${si}" r="4" fill="${c}" stroke="var(--color-surface)" stroke-width="1.5" cx="-99" cy="-99"/>`
   ).join("");
+  // Each value gets a surface-colored plate behind it so the label never reads on top of a data line.
   const xhVals = colors.map((c, si) =>
-    `<text data-xh="val" data-si="${si}" font-size="9" font-weight="600" fill="${c}" dominant-baseline="middle" x="-99" y="-99"></text>`
+    `<rect data-xh="valbg" data-si="${si}" fill="var(--color-surface)" fill-opacity="0.85" rx="2" height="12" x="-99" y="-99" width="0"/>
+     <text data-xh="val" data-si="${si}" font-size="9" font-weight="600" fill="${c}" dominant-baseline="middle" x="-99" y="-99"></text>`
   ).join("");
 
   const xhair = `<g data-xh="group" visibility="hidden" pointer-events="none">
@@ -270,6 +295,7 @@ function initChartInteractivity({ id, series, labels, min, span, W, H, padL, pad
   const hLines  = [...svg.querySelectorAll('[data-xh="hl"]')];
   const dots    = [...svg.querySelectorAll('[data-xh="dot"]')];
   const vals    = [...svg.querySelectorAll('[data-xh="val"]')];
+  const valBgs  = [...svg.querySelectorAll('[data-xh="valbg"]')];
 
   const dataW = W - padL - padR;
   const dataH = H - padT - padB;
@@ -301,15 +327,23 @@ function initChartInteractivity({ id, series, labels, min, span, W, H, padL, pad
       // Dot at intersection
       dots[si].setAttribute("cx", cx); dots[si].setAttribute("cy", cy);
 
-      // Value label: right of dot in left half, left of dot in right half
-      // Offset second series down if values crowd each other
-      const crowd = si === 1 && Math.abs(yFn(s[i]) - yFn(series[0][i])) < 11;
-      const labelY = cy + (crowd ? 11 : 0);
+      // Value label: lift off the data line — series 0 above its dot, series 1 below —
+      // and clamp inside the plot so it never sits on top of the curve (or clips the edge).
+      const txt = String(Math.round(v));
+      const dir = si === 0 ? -1 : 1;
+      const labelY = Math.max(padT + 7, Math.min(H - padB - 7, cy + dir * 10));
       const inRight = cx > W / 2;
-      vals[si].setAttribute("x", inRight ? cx - 7 : cx + 7);
+      const x = inRight ? cx - 7 : cx + 7;
+      vals[si].setAttribute("x", x);
       vals[si].setAttribute("text-anchor", inRight ? "end" : "start");
       vals[si].setAttribute("y", labelY);
-      vals[si].textContent = Math.round(v);
+      vals[si].textContent = txt;
+
+      // Plate sized to the text, anchored on the same side as the label.
+      const bgW = txt.length * 6 + 6;
+      valBgs[si].setAttribute("x", (inRight ? x - bgW + 3 : x - 3).toFixed(1));
+      valBgs[si].setAttribute("y", (labelY - 6).toFixed(1));
+      valBgs[si].setAttribute("width", bgW);
     });
 
     group.setAttribute("visibility", "visible");
@@ -402,10 +436,20 @@ function renderHazards(b) {
 function renderMap(b) {
   document.getElementById("view-map").innerHTML = `
     <div id="leaflet-map" aria-label="Mission area satellite map"></div>
-    <div class="disclaimer">Planning map — satellite imagery via Esri. Mission point marks entry coordinates. No radar layer in v1.</div>`;
+    <div class="disclaimer">Planning map — satellite imagery via Esri. The shaded basin is the upstream watershed feeding the mission point; tap either for details. No radar layer in v1.</div>`;
 }
 
 let _leafletMap = null;
+let _poiMarker = null;
+let _moveMode = false;
+
+function poiPopupHtml(m) {
+  return `<div class="map-pop">
+    <div class="map-pop__title">${esc(m.name)}</div>
+    <div class="map-pop__row"><span class="mono">${m.lat.toFixed(5)}, ${m.lon.toFixed(5)}</span></div>
+    <button class="map-pop__btn" data-move-point>Move point</button>
+  </div>`;
+}
 
 function initLeafletMap(b) {
   const container = document.getElementById("leaflet-map");
@@ -427,10 +471,51 @@ function initLeafletMap(b) {
     { maxZoom: 18, opacity: 0.9 }
   ).addTo(_leafletMap);
 
-  L.circleMarker([m.lat, m.lon], {
-    radius: 9, fillColor: "#38bdf8", color: "#fff", weight: 2.5, fillOpacity: 1,
+  // Upstream watershed: 20%-opacity blue fill, full-opacity thin border; tap for HUC + area.
+  if (b.watershed?.geometry) {
+    const w = b.watershed;
+    const layer = L.geoJSON(w.geometry, {
+      style: { color: "#38bdf8", weight: 1.5, opacity: 1, fillColor: "#38bdf8", fillOpacity: 0.2 },
+    }).addTo(_leafletMap);
+    layer.bindPopup(
+      `<div class="map-pop">
+        <div class="map-pop__title">Upstream watershed</div>
+        <div class="map-pop__row">HUC-12 <span class="mono">${esc(w.huc12.join(", "))}</span></div>
+        <div class="map-pop__row">Area <span class="mono">${w.area_sq_mi.toFixed(1)} mi²</span></div>
+      </div>`,
+      { className: "map-popup" }
+    );
+    _leafletMap.fitBounds(layer.getBounds(), { padding: [24, 24] });
+  }
+
+  // Mission point: tap for coordinates + a move-point action.
+  _poiMarker = L.circleMarker([m.lat, m.lon], {
+    radius: 9, fillColor: "#fbbf24", color: "#fff", weight: 2.5, fillOpacity: 1,
   }).addTo(_leafletMap)
-    .bindTooltip(esc(m.name), { permanent: true, direction: "top", className: "map-tooltip" });
+    .bindTooltip(esc(m.name), { permanent: true, direction: "top", className: "map-tooltip" })
+    .bindPopup(poiPopupHtml(m), { className: "map-popup" });
+
+  // Wire the "Move point" button each time the POI popup opens.
+  _poiMarker.on("popupopen", (e) => {
+    const btn = e.popup.getElement()?.querySelector("[data-move-point]");
+    if (btn) btn.addEventListener("click", () => {
+      _moveMode = true;
+      container.classList.add("is-moving-point");
+      _poiMarker.closePopup();
+    });
+  });
+
+  // In move mode, the next map tap relocates the point (display-only on the mock data).
+  _leafletMap.on("click", (e) => {
+    if (!_moveMode) return;
+    _moveMode = false;
+    container.classList.remove("is-moving-point");
+    m.lat = e.latlng.lat;
+    m.lon = e.latlng.lng;
+    _poiMarker.setLatLng(e.latlng);
+    _poiMarker.setPopupContent(poiPopupHtml(m));
+    renderOverview(b); // keep the mission card's coordinates in sync
+  });
 
   state.mapInitialized = true;
 }

@@ -613,6 +613,30 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   border-color: transparent;
 }
 
+/* Hourly table scrolls horizontally for long trip windows; right-edge cue shows there's more. */
+.fc-scroll { position: relative; }
+.fc-scroll__viewport { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fc-scroll__viewport .fc-table { min-width: max-content; }
+.fc-scroll__more {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  justify-content: flex-end;
+  width: 40px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--color-surface) 75%);
+}
+.fc-scroll.is-scrollable .fc-scroll__more { display: flex; }
+.fc-scroll__chev {
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-secondary);
+  transform: rotate(-90deg);
+}
+
 .fc-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); }
 .fc-table th, .fc-table td {
   padding: var(--space-2) var(--space-1);
@@ -661,6 +685,36 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .map-tooltip::before {
   border-top-color: var(--color-border-strong) !important;
 }
+
+/* Click popups for the mission point + watershed (FR — selectable map features). */
+.map-popup .leaflet-popup-content-wrapper {
+  background: var(--color-overlay);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+}
+.map-popup .leaflet-popup-tip { background: var(--color-overlay); }
+.map-popup .leaflet-popup-content { margin: var(--space-3); }
+.map-pop__title { font-weight: 650; font-size: var(--text-label); margin-bottom: var(--space-1); }
+.map-pop__row { font-size: var(--text-caption); color: var(--color-text-secondary); margin: 2px 0; }
+.map-pop__row .mono { font-family: var(--font-mono); color: var(--color-text); }
+.map-pop__btn {
+  margin-top: var(--space-2);
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-brand);
+  background: var(--color-brand-dim);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+/* While placing a new point, hint that the next tap drops it. */
+#leaflet-map.is-moving-point { cursor: crosshair; }
+#leaflet-map.is-moving-point .leaflet-grab { cursor: crosshair; }
 
 /* ── 7.12 Resources ────────────────────────────────────────────────── */
 .resource-link {

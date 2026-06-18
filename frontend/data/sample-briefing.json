@@ -12,6 +12,18 @@
     "phases_inferred": true,
     "timezone": "CDT"
   },
+  "watershed": {
+    "huc12": ["060300010201"],
+    "area_sq_mi": 21.0,
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [[
+        [-85.790, 34.972], [-85.772, 35.008], [-85.752, 35.035], [-85.730, 35.048],
+        [-85.704, 35.038], [-85.694, 35.008], [-85.710, 34.978], [-85.736, 34.962],
+        [-85.764, 34.960], [-85.790, 34.972]
+      ]]
+    }
+  },
   "overall_posture": "Extreme",
   "overall_confidence": "Moderate",
   "threshold_version": "flash_flood=1.2.0;lightning=1.1.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0",
