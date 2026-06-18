@@ -178,12 +178,12 @@ function confidenceTag(level, big = false) {
     .map((s) => `<span class="confidence__stop confidence__stop--${s} ${s === k ? "is-active" : ""}"></span>`)
     .join("");
   return `<div class="confidence ${big ? "is-lg" : ""}" title="${esc(level)} confidence">
+    <div class="confidence__label">${esc(level)} confidence</div>
     <div class="confidence__track">
       <span class="confidence__seg confidence__seg--a"></span>
       <span class="confidence__seg confidence__seg--b"></span>
       ${stops}
     </div>
-    <div class="confidence__label">${esc(level)} confidence</div>
   </div>`;
 }
 
@@ -686,11 +686,11 @@ function renderResources(b) {
 
   const glossary = GLOSSARY.map(
     ([acr, term, def]) => `<div class="glossary-item">
-      <div class="glossary-item__acr">${esc(acr)}</div>
-      <div class="glossary-item__body">
-        <div class="glossary-item__term">${esc(term)}</div>
-        <div class="glossary-item__def">${esc(def)}</div>
+      <div class="glossary-item__head">
+        <span class="glossary-item__acr">${esc(acr)}</span>
+        <span class="glossary-item__term">${esc(term)}</span>
       </div>
+      <div class="glossary-item__def">${esc(def)}</div>
     </div>`
   ).join("");
 
