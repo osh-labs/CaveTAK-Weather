@@ -112,7 +112,7 @@
     "href": true
   },
   "warnings": [],
-  "summary": "Flash flood is High (SREF 65%, HREF 4%). Lightning is Extreme \u2014 SREF places thunderstorm probability at 92%. Heat reaches Caution on the surface approach (NWS heat index 87 \u00b0F). Cold/wet is Minimal \u2014 apparent temperature 72 \u00b0F on egress. Phases were inferred from the overall window. Verify against the linked NWS sources before entry.",
+  "summary": "Flash flood risk is High (SREF 65%, HREF 4%). Lightning risk is Extreme, with SREF placing thunderstorm probability at 92%. Heat reaches the Caution threshold on the surface approach, where NWS reports a heat index of 87 °F. Cold/wet exposure risk is Minimal, with an apparent temperature of 72 °F on egress. Phase ratings were inferred from the overall forecast window rather than discrete phase data — verify against the linked NWS sources before entry.",
   "bluf": [
     {
       "hazard": "flash_flood",
