@@ -15,6 +15,7 @@ committing to M0.1 architecture (roadmap §M0.0). **Both are resolved YES.**
 | **Spike B — upstream HUC-12 trace** runs on sample input, plausible output | ✅ [spike-b-report.md](spike-b-report.md) |
 | Backend SREF resource profile for EC2 sizing | ✅ [resource-profile.md](resource-profile.md) — fits existing EC2 |
 | **Spike C — HREF same-day high-res supplement** (additive de-risk) | ✅ [spike-c-report.md](spike-c-report.md) — HREF resolved **YES** on NOMADS, same idx pattern |
+| **Spike D — StreamStats API probe** (exploratory; Effective-QPF de-risk) | ◐ [spike-d-streamstats-report.md](spike-d-streamstats-report.md) — delineation/characteristics **YES**; CN/travel-time coverage **uneven by state** (see report) |
 | Offline fixtures committed; tests pass with no network; lint clean | ✅ `pytest` 14 passed / 3 network deselected; `ruff` clean |
 | CI | ⏸ Deferred by request; structure (ruff + offline pytest) keeps it a trivial add |
 
