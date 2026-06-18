@@ -288,6 +288,40 @@ from a CONUS-complete dataset rather than from SS-Delineate's per-state payload.
 
 -----
 
+## Follow-up — current WBD HUC-12 trace vs NLDI split-catchment
+
+The project already ships a delineator: the deterministic WBD `tohuc` HUC-12
+graph walk (Spike B, `upstreamwx.watershed.trace_upstream`). Run live on the two
+test points against NLDI split-catchment:
+
+| Metric | Current WBD HUC-12 trace | NLDI split-catchment |
+| --- | --- | --- |
+| Zion area | **926.6 km²** (origin `150100080109`, 9 HUC-12) | 747.4 km² |
+| Linville area | **175.6 km²** (origin `030501010302`, 2 HUC-12) | 114.3 km² |
+| Over-inclusion vs NLDI | **+24 % (Zion), +54 % (Linville)** | baseline (pour-point exact) |
+| Spatial unit | whole HUC-12 polygons | exact pour-point split |
+| Snapping | **none needed** (HUC containment) | required (raw Zion → degenerate) |
+| Raw Zion point | ✅ 926 km² | ❌ needs nudge |
+| Determinism | deterministic (WBD snapshot) | NHDPlus, stateless |
+| Latency | 2.6–8.3 s | ~0.9 s |
+
+The methods answer different questions: the WBD trace returns *everything
+draining into the HUC-12 that contains the point* (the whole containing unit
+counts, including area below/lateral to the activity point), while NLDI splits
+the catchment at the point. The WBD answer is therefore **24–54 % larger** than
+the true contributing area.
+
+**This is not cosmetic for Effective QPF.** An inflated contributing area
+inflates aggregated upstream QPF — the same over-warning bias the redesign
+exists to remove — so the coarse HUC-12 method works *against* the goal and
+should not be the primary domain. Its genuine virtues are that it is
+**snap-free and deterministic** (it resolved Zion's raw point to a sensible
+926 km² where NLDI/SS-Delineate returned a degenerate basin until nudged, and is
+reproducible from a WBD snapshot), which make it a sound coarse fallback when a
+point will not snap — but not the right pour-point domain.
+
+-----
+
 ## Corrected cache schema
 
 The probe writes one record per point (`docs/m0.0/spike-d-streamstats.json`).
@@ -331,8 +365,11 @@ Changes from the brief's proposed schema, each traceable to a finding above:
    shows matching geometry (~1 %), but NLDI is faster (~0.9 s), needs no state
    code, is stateless, and is already a dependency. Treat "no `drainageBasin` in
    the response" as the unsnappable signal and run the snap-and-nudge step
-   (shared by both delineators — it is not a StreamStats-only problem). This also
-   upgrades the current WBD HUC-12 trace to pour-point granularity.
+   (shared by both delineators — it is not a StreamStats-only problem). This
+   upgrades pour-point accuracy over the current WBD HUC-12 trace, which
+   over-includes the contributing area by **24–54 %** on the test points. Keep
+   the WBD trace as the **snap-free deterministic fallback** for points that
+   won't snap (it handled Zion's raw point where both pixel methods degenerated).
 2. Compute CN **ourselves** (TR-55 lookup over NLCD × SSURGO). Because the
    SSURGO/NLCD bundle is SS-Delineate's only real residual value yet is
    regionally uneven (absent for UT), source soil/land cover from a
