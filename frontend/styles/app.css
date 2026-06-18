@@ -345,7 +345,7 @@ main {
 .confidence__stop--low { left: 5px; }
 .confidence__stop--moderate { left: 50%; }
 .confidence__stop--high { left: calc(100% - 5px); }
-.confidence__stop.is-active { background: var(--sev-high); }
+.confidence__stop.is-active { background: var(--sev-high); width: 14px; height: 14px;}
 
 .confidence__label {
   font-size: var(--text-caption);
