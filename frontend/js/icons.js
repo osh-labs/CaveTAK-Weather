@@ -27,6 +27,8 @@ const PATHS = {
   // chrome
   edit: '<path d="M4 20h4L18 9l-4-4L4 16z"/><path d="M14 5l4 4"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>',
+  arrow_left: '<path d="M15 5l-7 7 7 7"/>',
   book: '<path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z"/><path d="M19 17H6a2 2 0 00-2 2"/><path d="M8 7h7M8 11h7"/>',
   external: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6H5V6h6"/>',
   cave: '<path d="M3 21V12a9 9 0 0118 0v9h-5v-5a4 4 0 00-8 0v5z"/>',
