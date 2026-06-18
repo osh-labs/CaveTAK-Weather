@@ -7,7 +7,7 @@ source is down (NFR-6). The NWS AFD is mandatory (FR-5); its failure is surfaced
 
 This is the glue from a mission to engine-ready inputs:
 
-    mission -> watershed trace -> ingest bundle -> HazardInputs -> engine.assess
+    mission -> watershed delineation -> ingest bundle -> HazardInputs -> engine.assess
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 from shapely.geometry.base import BaseGeometry
 
 from ..engine.models import HazardInputs, Mission
-from ..watershed import resolve_and_trace_cached
+from ..watershed import delineate_cached
 from . import href_provider, nws, openmeteo, spc, sref_provider
 from .base import IngestBundle, to_hazard_inputs
 
@@ -41,13 +41,24 @@ def gather(
             bundle.sources_ok[provider.NAME] = False
             bundle.notes.append(f"{provider.NAME}: unavailable ({type(exc).__name__}).")
 
-    # SREF over the upstream domain (needs the watershed polygon).
+    # SREF over the upstream domain (needs the watershed polygon). Delineate
+    # pour-point-exact (NLDI raindrop two-step) with the WBD HUC-12 trace as the
+    # snap-free fallback; cache on disk so repeat missions reuse it.
     if polygon is None:
         try:
-            polygon = resolve_and_trace_cached(mission.lat, mission.lon).polygon
+            basin = delineate_cached(mission.lat, mission.lon)
+            bundle.upstream = basin
+            polygon = basin.polygon
+            bundle.sources_ok["watershed"] = True
+            domain = basin.flowline_name or (
+                f"comid {basin.comid}" if basin.comid else "pour point"
+            )
+            bundle.notes.append(
+                f"watershed: {basin.area_km2:.0f} km² to {domain} via {basin.method}."
+            )
         except Exception as exc:  # noqa: BLE001
             bundle.sources_ok["watershed"] = False
-            bundle.notes.append(f"watershed: trace failed ({type(exc).__name__}).")
+            bundle.notes.append(f"watershed: delineation failed ({type(exc).__name__}).")
     if polygon is not None:
         try:
             sref_provider.fetch(mission, bundle, polygon, cycle=cycle)

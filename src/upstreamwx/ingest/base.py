@@ -9,9 +9,12 @@ The engine never imports a provider directly (FR-13, §12): every source fills a
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ..engine.models import HazardInputs, Mission
+
+if TYPE_CHECKING:
+    from ..watershed import PourpointBasin
 
 
 @dataclass
@@ -57,6 +60,12 @@ class IngestBundle:
 
     # SPC convective outlook category.
     spc_category: str | None = None
+
+    # Upstream contributing-watershed domain used for SREF/HREF aggregation (FR-3),
+    # delineated pour-point-exact (NLDI raindrop two-step) with a WBD fallback. Set
+    # by the orchestrator unless an explicit polygon override is passed; carries the
+    # provenance (method, area, snapped point, flowline) the SITREP header renders.
+    upstream: PourpointBasin | None = None
 
     # Provenance / graceful-degradation tracking (NFR-6).
     sources_ok: dict[str, bool] = field(default_factory=dict)

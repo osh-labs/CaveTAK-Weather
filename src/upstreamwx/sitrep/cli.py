@@ -110,13 +110,14 @@ def main(argv: list[str] | None = None) -> int:
         bundle: IngestBundle | None = None
     else:
         from ..ingest.orchestrator import gather_inputs
-        from ..watershed import resolve_and_trace_cached
 
         inputs, bundle = gather_inputs(mission)
-        try:
-            upstream = resolve_and_trace_cached(mission.lat, mission.lon)
-        except Exception as exc:  # noqa: BLE001 — header degrades gracefully (NFR-6)
-            print(f"warning: upstream trace unavailable ({type(exc).__name__})", file=sys.stderr)
+        # The orchestrator delineates the upstream domain (NLDI raindrop two-step,
+        # WBD fallback) and attaches it to the bundle; reuse it for the header so we
+        # don't trace twice. None when delineation failed (header degrades, NFR-6).
+        upstream = bundle.upstream if bundle is not None else None
+        if upstream is None and bundle is not None and bundle.sources_ok.get("watershed") is False:
+            print("warning: upstream delineation unavailable", file=sys.stderr)
 
     result = assess(mission, inputs)
     structured = render_md(

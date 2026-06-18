@@ -22,7 +22,7 @@ from ..engine.models import (
     PhaseAssessment,
 )
 from ..ingest.base import IngestBundle
-from ..watershed import UpstreamTrace
+from ..watershed import PourpointBasin, UpstreamTrace
 from .sources import build_source_links
 
 # Reference-only disclaimer (PRD Appendix C §17.2 + the short §15 line). Embedded in
@@ -85,7 +85,7 @@ def _posture_window(posture: HazardPosture) -> str:
 def render_md(
     result: BriefingResult,
     *,
-    upstream: UpstreamTrace | None = None,
+    upstream: UpstreamTrace | PourpointBasin | None = None,
     bundle: IngestBundle | None = None,
     generated_at: datetime | None = None,
 ) -> str:
@@ -109,13 +109,7 @@ def render_md(
         f"**Type:** {mission.activity_type.value.capitalize()}  |  "
         f"**Window:** {_window((mission.window_start, mission.window_end))}"
     )
-    if upstream is not None:
-        domain = (
-            f"HUC-12 {upstream.origin_huc12} "
-            f"(+{len(upstream.upstream_huc_ids)} upstream, {upstream.area_km2:.0f} km²)"
-        )
-    else:
-        domain = "(not resolved)"
+    domain = _domain_label(upstream)
     lines.append(
         f"**Location:** {mission.lat:.4f}, {mission.lon:.4f}  |  **Upstream domain:** {domain}"
     )
@@ -221,16 +215,44 @@ def _render_phase(lines: list[str], phase_assessment: PhaseAssessment) -> None:
         lines.append(f"- _{note}_")
 
 
-def _watershed_summary(result: BriefingResult, upstream: UpstreamTrace | None) -> str:
+def _pourpoint_where(basin: PourpointBasin, *, fallback: str) -> str:
+    """Human label for what a pour-point basin drains to (stream name / comid)."""
+    if basin.flowline_name:
+        return basin.flowline_name
+    return f"comid {basin.comid}" if basin.comid else fallback
+
+
+def _domain_label(upstream: UpstreamTrace | PourpointBasin | None) -> str:
+    """One-line upstream-domain label for the header, for either delineation type."""
+    if upstream is None:
+        return "(not resolved)"
+    if isinstance(upstream, UpstreamTrace):
+        return (
+            f"HUC-12 {upstream.origin_huc12} "
+            f"(+{len(upstream.upstream_huc_ids)} upstream, {upstream.area_km2:.0f} km²)"
+        )
+    where = _pourpoint_where(upstream, fallback="pour point")
+    return f"{where} (~{upstream.area_km2:.0f} km², {upstream.method})"
+
+
+def _watershed_summary(
+    result: BriefingResult, upstream: UpstreamTrace | PourpointBasin | None
+) -> str:
     if result.upstream_summary:
         return result.upstream_summary
-    if upstream is not None:
+    if upstream is None:
+        return "Upstream watershed not resolved for this briefing."
+    if isinstance(upstream, UpstreamTrace):
         return (
             f"Flash-flood assessment aggregates over the upstream contributing watershed "
             f"of HUC-12 {upstream.origin_huc12}: {len(upstream.upstream_huc_ids)} upstream "
             f"HUC-12 unit(s), ~{upstream.area_km2:.0f} km², traced via {upstream.method}."
         )
-    return "Upstream watershed not resolved for this briefing."
+    where = _pourpoint_where(upstream, fallback="the pour point")
+    return (
+        f"Flash-flood assessment aggregates over the upstream contributing watershed to "
+        f"{where}: ~{upstream.area_km2:.0f} km², delineated via {upstream.method}."
+    )
 
 
 def _render_source_data(lines: list[str], bundle: IngestBundle | None) -> None:

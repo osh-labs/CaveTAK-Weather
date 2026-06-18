@@ -21,7 +21,7 @@ from upstreamwx.engine.assess import assess
 from upstreamwx.engine.models import ActivityType, HazardInputs, Mission
 from upstreamwx.ingest.base import IngestBundle
 from upstreamwx.sitrep import DISCLAIMER, render_md
-from upstreamwx.watershed import UpstreamTrace
+from upstreamwx.watershed import PourpointBasin, UpstreamTrace
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "sitrep"
 
@@ -101,3 +101,42 @@ def test_render_carries_disclaimer_and_sources(case):
     assert "## SOURCES (verify)" in rendered
     assert "https://api.weather.gov/alerts/active" in rendered
     assert "## DISCLAIMER" in rendered
+
+
+def _pourpoint_render(basin: PourpointBasin) -> str:
+    mission = Mission(
+        activity_type=ActivityType.CANYON,
+        lat=37.2794,
+        lon=-112.9481,
+        window_start=datetime(2026, 6, 20, 8),
+        window_end=datetime(2026, 6, 20, 18),
+        name="Zion Narrows",
+    )
+    result = assess(mission, HazardInputs(sref_p_precip=20, measurable_precip=True))
+    return render_md(result, upstream=basin)
+
+
+def test_render_pourpoint_basin_header_and_summary():
+    """A PourpointBasin renders the flowline/area header and a pour-point summary."""
+    basin = PourpointBasin(
+        lat=37.2794, lon=-112.9481, snapped_lat=37.2792, snapped_lon=-112.945,
+        polygon=Point(-112.945, 37.2792).buffer(0.1), area_km2=747.2,
+        method="nldi-raindrop-split", comid=10025834,
+        flowline_name="North Fork Virgin River",
+    )
+    rendered = _pourpoint_render(basin)
+    assert "North Fork Virgin River (~747 km², nldi-raindrop-split)" in rendered
+    summary = "watershed to North Fork Virgin River: ~747 km², delineated via nldi-raindrop-split"
+    assert summary in rendered
+
+
+def test_render_pourpoint_fallback_uses_method_without_flowline():
+    """The WBD fallback basin (no flowline/comid) still renders cleanly."""
+    basin = PourpointBasin(
+        lat=35.0, lon=-82.0, snapped_lat=35.0, snapped_lon=-82.0,
+        polygon=Point(-82.0, 35.0).buffer(0.1), area_km2=175.6,
+        method="wbd-huc12-fallback",
+    )
+    rendered = _pourpoint_render(basin)
+    assert "pour point (~176 km², wbd-huc12-fallback)" in rendered
+    assert "watershed to the pour point: ~176 km², delineated via wbd-huc12-fallback" in rendered
