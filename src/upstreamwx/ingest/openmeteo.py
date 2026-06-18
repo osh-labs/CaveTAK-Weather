@@ -8,6 +8,7 @@ window max apparent temperature; cold/wet takes the egress-relevant minimum.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 
 import requests
@@ -23,8 +24,21 @@ _HOURLY = "temperature_2m,apparent_temperature,precipitation,cape,wind_speed_10m
 _MEASURABLE_IN = 0.01
 _ANTECEDENT_IN = 0.25
 
+# Open-Meteo is a free best-effort endpoint that intermittently 5xx's or drops the
+# connection; retry transient failures with exponential backoff before degrading (NFR-6).
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_S = 0.5
 
-def _query(lat: float, lon: float, *, timeout: float = 30.0) -> dict:
+
+def _is_transient(exc: requests.exceptions.RequestException) -> bool:
+    """Transient = worth retrying: connection/timeout, or HTTP 429 / 5xx."""
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        status = exc.response.status_code
+        return status == 429 or status >= 500  # client 4xx (other than 429) is permanent
+    return True  # ConnectionError, Timeout, etc.
+
+
+def _query(lat: float, lon: float, *, timeout: float = 30.0, attempts: int = _MAX_ATTEMPTS) -> dict:
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -35,9 +49,20 @@ def _query(lat: float, lon: float, *, timeout: float = 30.0) -> dict:
         "past_days": 3,
         "forecast_days": 3,
     }
-    resp = requests.get(API, params=params, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    last_exc: requests.exceptions.RequestException | None = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.get(API, params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.RequestException as exc:
+            if not _is_transient(exc):
+                raise
+            last_exc = exc
+            if attempt + 1 < attempts:
+                time.sleep(_BACKOFF_BASE_S * (2**attempt))
+    assert last_exc is not None  # loop ran at least once
+    raise last_exc
 
 
 def _in_window(times: list[str], start: datetime, end: datetime) -> list[int]:
