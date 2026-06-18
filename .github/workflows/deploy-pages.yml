@@ -1,0 +1,58 @@
+name: Deploy PWA to GitHub Pages
+
+# Publishes the static UpstreamWX PWA in frontend/ to GitHub Pages so it can be
+# installed on a phone (Add to Home Screen) and tested offline over HTTPS — the
+# service worker (FR-26/28) needs a secure origin, which Pages provides.
+#
+# The whole frontend/ directory is uploaded as the site root, so the app lands at
+#   https://<owner>.github.io/<repo>/
+# All asset paths in the app are relative and the manifest scope is "./", so it
+# works at that subpath with no changes.
+#
+# One-time setup (repo settings, owner only):
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# If the deploy is rejected with "Branch is not allowed to deploy to
+# github-pages", add this branch under Settings -> Environments -> github-pages
+# -> Deployment branches (or merge to the default branch).
+
+on:
+  push:
+    branches:
+      - claude/pwa-ui-style-guide-nbb52k
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; let an in-progress run finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload frontend/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
