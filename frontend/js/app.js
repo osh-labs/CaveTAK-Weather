@@ -21,6 +21,131 @@ const esc = (s) =>
 
 let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized: false };
 
+/* ── Acronym glossary (Resources card + tap-to-define) ─────────────────
+ * Definitions for the acronyms that show up in the BLUF/SITREP and hazard
+ * cards. Surfaced two ways: a glossary card in Resources and inline
+ * tap-to-define wherever the term appears in rendered text. Reference-only —
+ * plain definitions, no posture or recommendation (PRD §6.8). */
+const GLOSSARY = [
+  ["BLUF", "Bottom Line Up Front", "The one-line summary at the top of the briefing — the headline before the detail."],
+  ["SITREP", "Situation Report", "The structured, section-by-section hazard report this briefing is built around."],
+  ["NWS", "National Weather Service", "The U.S. agency that issues official forecasts, watches, and warnings. Always the authority to verify against."],
+  ["WFO", "Weather Forecast Office", "A local NWS office responsible for forecasts and warnings in its area (e.g. WFO MRX)."],
+  ["AFD", "Area Forecast Discussion", "The forecaster's plain-language reasoning behind the local forecast, published by each WFO."],
+  ["SPC", "Storm Prediction Center", "The NWS center that issues severe-thunderstorm and tornado outlooks."],
+  ["SREF", "Short-Range Ensemble Forecast", "An NWS ensemble of model runs; used here for hazard probabilities beyond the same-day window."],
+  ["HREF", "High-Resolution Ensemble Forecast", "An NWS high-resolution (~3 km) ensemble; used here for same-day (~6–36 h) probabilities."],
+  ["HRRR", "High-Resolution Rapid Refresh", "An hourly-updating high-resolution NWS model. The Open-Meteo derived fields shown here are HRRR-based."],
+  ["HUC-12", "Hydrologic Unit Code (12-digit)", "A USGS watershed identifier. HUC-12 is the small sub-watershed scale used to aggregate rain upstream of your point."],
+  ["HUC", "Hydrologic Unit Code", "A USGS nested watershed identifier; smaller (more digits) = finer drainage area."],
+  ["QPF", "Quantitative Precipitation Forecast", "Forecast precipitation amount (e.g. inches) over a given period."],
+  ["NEP", "Neighborhood Ensemble Probability", "The probability an event occurs within a neighborhood of a point across the ensemble members."],
+];
+
+const GLOSSARY_MAP = new Map(GLOSSARY.map(([acr, term, def]) => [acr, { term, def }]));
+// Single alternation, longest acronym first so "HUC-12" wins over "HUC".
+const GLOSSARY_RE = new RegExp(
+  "\\b(" +
+    GLOSSARY.map(([a]) => a)
+      .sort((a, b) => b.length - a.length)
+      .map((a) => a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|") +
+    ")\\b",
+  "g"
+);
+
+// Wrap known acronyms in rendered text with tap-to-define buttons. Walks text
+// nodes so existing markup/escaping is preserved; skips links, buttons, the
+// glossary card itself, and already-linked terms.
+function linkifyAcronyms(root) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      GLOSSARY_RE.lastIndex = 0;
+      if (!node.nodeValue || !GLOSSARY_RE.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement.closest("a, button, .glossary-term, [data-no-glossary]"))
+        return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const targets = [];
+  while (walker.nextNode()) targets.push(walker.currentNode);
+
+  for (const node of targets) {
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    const text = node.nodeValue;
+    GLOSSARY_RE.lastIndex = 0;
+    let m;
+    while ((m = GLOSSARY_RE.exec(text))) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "glossary-term";
+      btn.dataset.acr = m[1];
+      btn.textContent = m[1];
+      frag.appendChild(btn);
+      last = m.index + m[1].length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+let _glossaryPop = null;
+
+function hideGlossaryPopover() {
+  if (_glossaryPop) _glossaryPop.hidden = true;
+}
+
+function showGlossaryPopover(acr, anchor) {
+  const entry = GLOSSARY_MAP.get(acr);
+  if (!entry) return;
+  if (!_glossaryPop) {
+    _glossaryPop = document.createElement("div");
+    _glossaryPop.className = "glossary-pop";
+    _glossaryPop.setAttribute("role", "tooltip");
+    document.body.appendChild(_glossaryPop);
+  }
+  _glossaryPop.innerHTML = `<div class="glossary-pop__acr">${esc(acr)}</div>
+    <div class="glossary-pop__term">${esc(entry.term)}</div>
+    <div class="glossary-pop__def">${esc(entry.def)}</div>`;
+  _glossaryPop.hidden = false;
+
+  // Position under the term, flipping above if it would overflow, clamped to the viewport.
+  const r = anchor.getBoundingClientRect();
+  const pop = _glossaryPop.getBoundingClientRect();
+  const margin = 8;
+  let top = r.bottom + 6;
+  if (top + pop.height > window.innerHeight - margin) top = Math.max(margin, r.top - pop.height - 6);
+  let left = r.left + r.width / 2 - pop.width / 2;
+  left = Math.max(margin, Math.min(left, window.innerWidth - pop.width - margin));
+  _glossaryPop.style.top = `${Math.round(top)}px`;
+  _glossaryPop.style.left = `${Math.round(left)}px`;
+}
+
+// One delegated handler for every tap-to-define term, plus dismissal.
+function initGlossaryInteractions() {
+  document.addEventListener("click", (e) => {
+    const term = e.target.closest(".glossary-term");
+    if (term) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!_glossaryPop || _glossaryPop.hidden || _glossaryPop.dataset.acr !== term.dataset.acr) {
+        showGlossaryPopover(term.dataset.acr, term);
+        if (_glossaryPop) _glossaryPop.dataset.acr = term.dataset.acr;
+      } else {
+        hideGlossaryPopover();
+      }
+      return;
+    }
+    if (!e.target.closest(".glossary-pop")) hideGlossaryPopover();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideGlossaryPopover(); });
+  window.addEventListener("scroll", hideGlossaryPopover, true);
+  window.addEventListener("resize", hideGlossaryPopover);
+}
+
 /* ── Data load ─────────────────────────────────────────────────────── */
 async function loadBriefing() {
   // M0.4: replace with `fetch('/v1/briefing', {method:'POST', body: missionSpec})`.
@@ -116,6 +241,7 @@ function renderTabs() {
 
 function selectTab(id) {
   state.tab = id;
+  hideGlossaryPopover();
   document.querySelectorAll(".tab").forEach((el) =>
     el.setAttribute("aria-selected", String(el.dataset.tab === id))
   );
@@ -184,6 +310,7 @@ function renderOverview(b) {
   document.querySelectorAll('[data-goto="hazards"]').forEach((el) =>
     el.addEventListener("click", () => selectTab("hazards"))
   );
+  linkifyAcronyms(document.getElementById("view-overview"));
 }
 
 /* ── 7.6 Forecast ──────────────────────────────────────────────────── */
@@ -219,6 +346,7 @@ function renderForecast(b) {
     <div class="disclaimer">Forecast detail is the drill-down behind the hazard drivers. Derived fields from Open-Meteo (HRRR-derived); ensemble probabilities from in-house SREF + HREF.</div>`;
   flushChartInits();
   initForecastScroll();
+  linkifyAcronyms(document.getElementById("view-forecast"));
 }
 
 // Toggle the right-edge "more" indicator on the hourly table as it scrolls (FR — long windows overflow).
@@ -444,6 +572,7 @@ function renderHazards(b) {
     </section>
     <div style="display:flex;flex-direction:column;gap:var(--space-2)">${details}</div>
     <div class="disclaimer">Severity on the UpstreamWX ladder (Minimal / Elevated / High / Extreme); heat uses NWS Heat Index categories. Confidence shown as hatching and an explicit label; bar length distinguishes persistent from windowed hazards (display only).</div>`;
+  linkifyAcronyms(document.getElementById("view-hazards"));
 }
 
 /* ── 7.11 Map ──────────────────────────────────────────────────────── */
@@ -555,11 +684,26 @@ function renderResources(b) {
     ? `<div class="assumption" style="border-color:var(--color-warn)">${icon("alert", "")}<span>${esc(b.warnings.join(" "))}</span></div>`
     : "";
 
+  const glossary = GLOSSARY.map(
+    ([acr, term, def]) => `<div class="glossary-item">
+      <div class="glossary-item__acr">${esc(acr)}</div>
+      <div class="glossary-item__body">
+        <div class="glossary-item__term">${esc(term)}</div>
+        <div class="glossary-item__def">${esc(def)}</div>
+      </div>
+    </div>`
+  ).join("");
+
   document.getElementById("view-resources").innerHTML = `
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-3)">Verify against NWS</h2>
       ${links}
       ${degraded}
+    </section>
+    <section class="card" data-no-glossary>
+      <h2 class="section-title" style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-3)">${icon("book", "section-title__icon")}Glossary</h2>
+      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin:0 0 var(--space-3)">Acronyms used in the briefing. These terms are also tappable wherever they appear.</p>
+      <div class="glossary-list">${glossary}</div>
     </section>
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-3)">Export &amp; offline</h2>
@@ -571,6 +715,7 @@ function renderResources(b) {
     </section>
     <div class="disclaimer">UpstreamWX — planning reference only. Not an official forecast or warning. The go/no-go decision is the user's and the party's.</div>`;
 
+  linkifyAcronyms(document.getElementById("view-resources"));
   const pdf = document.getElementById("export-pdf");
   if (pdf) pdf.addEventListener("click", () => window.print());
 }
@@ -600,6 +745,7 @@ function maybeShowAck() {
 /* ── Bootstrap ─────────────────────────────────────────────────────── */
 async function main() {
   renderTabs();
+  initGlossaryInteractions();
   maybeShowAck();
   let b;
   try {
