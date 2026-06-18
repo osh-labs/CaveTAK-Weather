@@ -153,7 +153,7 @@ function renderOverview(b) {
     ${missionCard(b)}
     <section class="card">
       <p class="summary">${esc(b.summary)}
-        ${b.framed ? '<span class="framed-by">Framed by Claude Haiku from the deterministic engine output — wording only, no posture is model-derived (FR-13, FR-21).</span>' : ""}
+        ${b.framed ? '<span class="framed-by">Summary wording only — all posture and severity values are deterministic engine output, not model-derived.</span>' : ""}
       </p>
     </section>
     <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-2)">Hazards</h2>
@@ -162,7 +162,7 @@ function renderOverview(b) {
     <div class="metric-grid">${metrics}</div>
     <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-3)">Phases</h2>
       <div class="phase-strip">${phases}</div>
-      ${b.mission.phases_inferred ? '<div class="phase-seg__note" style="margin-top:var(--space-3)">Phases inferred from the overall window: approach = first hour, egress = last hour (FR-9a).</div>' : ""}
+      ${b.mission.phases_inferred ? '<div class="phase-seg__note" style="margin-top:var(--space-3)">Phases inferred from the overall window: approach = first hour, egress = last hour.</div>' : ""}
     </section>
     <div class="disclaimer">Planning reference only — not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked in Resources, and let what you see in the field overrule this briefing.</div>`;
 
@@ -201,12 +201,23 @@ function renderForecast(b) {
 
 // Minimal dependency-free SVG line chart.
 function lineChart(series, labels, colors) {
-  const W = 320, H = 120, pad = 24;
+  const W = 320, H = 128;
+  const padL = 30, padR = 8, padT = 8, padB = 20;
   const all = series.flat();
   const min = Math.min(...all), max = Math.max(...all);
   const span = max - min || 1;
-  const x = (i) => pad + (i * (W - 2 * pad)) / (labels.length - 1);
-  const y = (v) => H - pad - ((v - min) / span) * (H - 2 * pad);
+  const x = (i) => padL + (i * (W - padL - padR)) / (labels.length - 1);
+  const y = (v) => padT + (1 - (v - min) / span) * (H - padT - padB);
+
+  const GRID_N = 4;
+  const grids = Array.from({ length: GRID_N }, (_, i) => {
+    const frac = i / (GRID_N - 1);
+    const val = min + frac * span;
+    const yp = y(val).toFixed(1);
+    return `<line x1="${padL}" y1="${yp}" x2="${W - padR}" y2="${yp}" stroke="var(--color-border)" stroke-width="1"/>
+      <text x="${padL - 3}" y="${yp}" fill="var(--color-text-muted)" font-size="8" text-anchor="end" dominant-baseline="middle">${Math.round(val)}</text>`;
+  }).join("");
+
   const lines = series
     .map((s, si) => {
       const d = s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
@@ -214,9 +225,9 @@ function lineChart(series, labels, colors) {
     })
     .join("");
   const ticks = labels
-    .map((l, i) => `<text x="${x(i)}" y="${H - 6}" fill="var(--color-text-muted)" font-size="9" text-anchor="middle">${esc(l)}</text>`)
+    .map((l, i) => `<text x="${x(i)}" y="${H - 5}" fill="var(--color-text-muted)" font-size="9" text-anchor="middle">${esc(l)}</text>`)
     .join("");
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${ticks}${lines}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${grids}${ticks}${lines}</svg>`;
 }
 
 /* ── 7.9 Hazards (phase-primary timeline + details) ────────────────── */
@@ -248,7 +259,7 @@ function renderHazards(b) {
       .map((s) => `<span class="legend__item"><span class="legend__swatch bar-${s}"></span>${s[0].toUpperCase() + s.slice(1)}</span>`)
       .join("")}
     <span class="legend__item"><span class="legend__swatch" style="background:var(--color-text-secondary)"></span>Solid = higher confidence</span>
-    <span class="legend__item"><span class="legend__swatch conf-low" style="background:var(--color-surface-3)"></span>Hatched = lower confidence</span>
+    <span class="legend__item"><span class="legend__swatch" style="background:var(--color-text-secondary);opacity:0.35"></span>Faded = lower confidence</span>
   </div>`;
 
   const details = b.hazard_detail
@@ -263,7 +274,7 @@ function renderHazards(b) {
       <div class="hazard-detail__body">
         <div style="margin-top:var(--space-3)">${confidenceTag(h.confidence)}</div>
         <h4>Key drivers</h4><ul>${h.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
-        <h4>Threshold logic (Appendix B)</h4>
+        <h4>Threshold logic</h4>
         <p style="font-size:var(--text-label);color:var(--color-text-secondary);margin:var(--space-1) 0 0">${esc(h.logic)}</p>
         ${h.assumptions.map((a) => `<div class="assumption">${icon("alert", "")}<span>${esc(a)}</span></div>`).join("")}
       </div>
@@ -274,7 +285,7 @@ function renderHazards(b) {
   document.getElementById("view-hazards").innerHTML = `
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-2)">Hazards by phase</h2>
-      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin:0 0 var(--space-3)">Organized by mission phase (FR-34). A hazard appears only where it applies (FR-14a) — no lightning across a sheltered technical span.</p>
+      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin:0 0 var(--space-3)">Organized by mission phase. A hazard appears only where it applies — no lightning across a sheltered technical span.</p>
       <div class="timeline">
         <div class="timeline__phases">${phaseHead}</div>
         ${rows}

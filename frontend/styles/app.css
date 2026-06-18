@@ -278,7 +278,7 @@ main {
 .sev-high { background: var(--sev-high-wash); color: var(--sev-high-text); }
 .sev-extreme { background: var(--sev-extreme-wash); color: var(--sev-extreme-text); }
 
-/* heat category variants (FR-15) */
+/* heat category variants */
 .heat-caution { background: rgba(227, 192, 26, 0.16); color: var(--heat-caution); }
 .heat-extreme_caution { background: rgba(240, 160, 32, 0.16); color: var(--heat-ext-caution); }
 .heat-danger { background: rgba(236, 106, 44, 0.16); color: var(--heat-danger); }
@@ -497,7 +497,7 @@ main {
   width: 100%;
   border-radius: var(--radius-sm);
 }
-/* windowed (FR-37): partial-width bar, length encodes acute window */
+/* windowed: partial-width bar encodes an acute/time-bounded window */
 .timeline__bar.is-windowed { width: 55%; }
 .timeline__bar.is-na { background: none; }
 
@@ -511,8 +511,8 @@ main {
 .bar-danger { background: var(--heat-danger); }
 .bar-extreme_danger { background: var(--heat-ext-danger); }
 
-/* confidence fill (FR-36): hatch for low, dim for moderate */
-.conf-low { background-image: var(--confidence-hatch); }
+/* confidence fill: faded for low, slightly dimmed for moderate */
+.conf-low { opacity: 0.35; }
 .conf-moderate { opacity: var(--confidence-mod-opacity); }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -571,14 +571,23 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 
 .assumption {
   display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: 3px var(--space-2);
   background: rgba(217, 165, 20, 0.08);
   border-left: 2px solid var(--color-warn);
   border-radius: var(--radius-sm);
   font-size: var(--text-caption);
+  line-height: var(--lh-caption);
   color: var(--color-text-secondary);
+}
+.assumption svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-warn);
 }
 
 /* ── Forecast table & charts ───────────────────────────────────────── */
