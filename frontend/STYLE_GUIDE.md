@@ -45,6 +45,23 @@ PRD.
 6. **Honest about assumptions.** Inferred phases, wet-egress, cave-isolation,
    and slot-shelter assumptions are surfaced in-line, not hidden (FR-9a, §10).
 
+### 1.1 User-facing copy rules
+
+These apply to **copy that ships in the UI** (labels, summaries, cards, the
+About page, disclaimers). They do not apply to this document or other internal
+docs, which may cite requirements freely.
+
+- **No requirement citations in user-facing copy.** Never surface `FR-xx`,
+  `NFR-x`, `§n`, or "Appendix B" to a user. They are internal traceability and
+  read as clutter. Explain the behavior in plain language instead; keep the
+  requirement reference in code comments or commit messages if needed.
+- **No em-dashes (`—`) in user-facing copy.** Rewrite with a period, comma, or
+  parentheses. For numeric ranges use "to" (e.g. "6 to 36 h") or an en-dash on
+  units ("90–103 °F"); never an em-dash.
+- **Emphasis bold is not used in body copy.** Let sentence structure carry the
+  emphasis. Bold is reserved for genuine labels/headings, not for stressing a
+  word mid-sentence.
+
 ---
 
 ## 2. Adaptations from the reference mockups

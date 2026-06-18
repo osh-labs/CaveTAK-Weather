@@ -10,7 +10,7 @@
  * New briefing generation requires connectivity (FR-28); offline is review-only.
  */
 
-const VERSION = "uwx-v5";
+const VERSION = "uwx-v6";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
