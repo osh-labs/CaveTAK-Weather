@@ -19,7 +19,7 @@ const ACK_KEY = "uwx.ack.v1"; // first-run acknowledgment (FR-31)
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-let state = { briefing: null, fromCache: false, tab: "overview" };
+let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized: false };
 
 /* ── Data load ─────────────────────────────────────────────────────── */
 async function loadBriefing() {
@@ -55,8 +55,7 @@ function renderHeader(b) {
   const actIcon = m.activity === "cave" ? icon("cave", "brand__mark") : icon("canyon", "brand__mark");
   document.getElementById("header").innerHTML = `
     <div class="brand">
-      ${icon("flash_flood", "brand__mark")}
-      <span><span class="brand__name">UpstreamWX</span><span class="brand__tagline">Weather Briefing</span></span>
+      <img src="icons/logo.jpg" class="brand__logo" alt="UpstreamWX Weather Briefing" />
     </div>
     <div class="app-header__spacer"></div>
     <span class="activity-pill">${actIcon}${esc(m.activity)}</span>
@@ -107,7 +106,10 @@ function selectTab(id) {
     el.setAttribute("aria-selected", String(el.dataset.tab === id))
   );
   document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== `view-${id}`));
-  document.querySelector(".app").scrollTo({ top: 0 });
+  document.querySelector("main").scrollTo({ top: 0 });
+  if (id === "map" && state.briefing) {
+    requestAnimationFrame(() => initLeafletMap(state.briefing));
+  }
 }
 
 /* ── 7.4 Overview ──────────────────────────────────────────────────── */
@@ -151,7 +153,7 @@ function renderOverview(b) {
     ${missionCard(b)}
     <section class="card">
       <p class="summary">${esc(b.summary)}
-        ${b.framed ? '<span class="framed-by">Framed by Claude Haiku from the deterministic engine output — wording only, no posture is model-derived (FR-13, FR-21).</span>' : ""}
+        ${b.framed ? '<span class="framed-by">Summary wording only — all posture and severity values are deterministic engine output, not model-derived.</span>' : ""}
       </p>
     </section>
     <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-2)">Hazards</h2>
@@ -160,7 +162,7 @@ function renderOverview(b) {
     <div class="metric-grid">${metrics}</div>
     <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-3)">Phases</h2>
       <div class="phase-strip">${phases}</div>
-      ${b.mission.phases_inferred ? '<div class="phase-seg__note" style="margin-top:var(--space-3)">Phases inferred from the overall window: approach = first hour, egress = last hour (FR-9a).</div>' : ""}
+      ${b.mission.phases_inferred ? '<div class="phase-seg__note" style="margin-top:var(--space-3)">Phases inferred from the overall window: approach = first hour, egress = last hour.</div>' : ""}
     </section>
     <div class="disclaimer">Planning reference only — not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked in Resources, and let what you see in the field overrule this briefing.</div>`;
 
@@ -195,26 +197,139 @@ function renderForecast(b) {
       <div class="chart-caption">Wind (cyan) · Gusts (grey)</div>
     </section>
     <div class="disclaimer">Forecast detail is the drill-down behind the hazard drivers. Derived fields from Open-Meteo (HRRR-derived); ensemble probabilities from in-house SREF + HREF.</div>`;
+  flushChartInits();
 }
 
-// Minimal dependency-free SVG line chart.
+let _chartSeq = 0;
+const _pendingCharts = [];
+
+// Interactive SVG line chart with touch/mouse crosshair.
 function lineChart(series, labels, colors) {
-  const W = 320, H = 120, pad = 24;
+  const id = `chart-${++_chartSeq}`;
+  const W = 320, H = 128;
+  const padL = 30, padR = 8, padT = 8, padB = 20;
   const all = series.flat();
   const min = Math.min(...all), max = Math.max(...all);
   const span = max - min || 1;
-  const x = (i) => pad + (i * (W - 2 * pad)) / (labels.length - 1);
-  const y = (v) => H - pad - ((v - min) / span) * (H - 2 * pad);
-  const lines = series
-    .map((s, si) => {
-      const d = s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
-      return `<path d="${d}" fill="none" stroke="${colors[si]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
-    })
-    .join("");
-  const ticks = labels
-    .map((l, i) => `<text x="${x(i)}" y="${H - 6}" fill="var(--color-text-muted)" font-size="9" text-anchor="middle">${esc(l)}</text>`)
-    .join("");
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${ticks}${lines}</svg>`;
+  const xFn = (i) => padL + (i * (W - padL - padR)) / (labels.length - 1);
+  const yFn = (v) => padT + (1 - (v - min) / span) * (H - padT - padB);
+
+  const GRID_N = 4;
+  const grids = Array.from({ length: GRID_N }, (_, i) => {
+    const frac = i / (GRID_N - 1);
+    const val = min + frac * span;
+    const yp = yFn(val).toFixed(1);
+    return `<line x1="${padL}" y1="${yp}" x2="${W - padR}" y2="${yp}" stroke="var(--color-border)" stroke-width="1"/>
+      <text x="${padL - 3}" y="${yp}" fill="var(--color-text-muted)" font-size="8" text-anchor="end" dominant-baseline="middle">${Math.round(val)}</text>`;
+  }).join("");
+
+  const lines = series.map((s, si) => {
+    const d = s.map((v, i) => `${i ? "L" : "M"}${xFn(i).toFixed(1)} ${yFn(v).toFixed(1)}`).join(" ");
+    return `<path d="${d}" fill="none" stroke="${colors[si]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }).join("");
+
+  const ticks = labels.map((l, i) =>
+    `<text x="${xFn(i)}" y="${H - 5}" fill="var(--color-text-muted)" font-size="9" text-anchor="middle">${esc(l)}</text>`
+  ).join("");
+
+  // Crosshair overlay — sits on top of lines; hidden until interaction
+  const xhHLines = colors.map((c, si) =>
+    `<line data-xh="hl" data-si="${si}" x1="${padL}" y1="0" x2="${padL}" y2="0" stroke="${c}" stroke-width="1" opacity="0.55" stroke-dasharray="2 3"/>`
+  ).join("");
+  const xhDots = colors.map((c, si) =>
+    `<circle data-xh="dot" data-si="${si}" r="4" fill="${c}" stroke="var(--color-surface)" stroke-width="1.5" cx="-99" cy="-99"/>`
+  ).join("");
+  const xhVals = colors.map((c, si) =>
+    `<text data-xh="val" data-si="${si}" font-size="9" font-weight="600" fill="${c}" dominant-baseline="middle" x="-99" y="-99"></text>`
+  ).join("");
+
+  const xhair = `<g data-xh="group" visibility="hidden" pointer-events="none">
+    <line data-xh="v" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="var(--color-text-muted)" stroke-width="1" opacity="0.4"/>
+    ${xhHLines}${xhDots}${xhVals}
+    <rect data-xh="xlabel-bg" fill="var(--color-surface-3)" rx="2" height="11" y="${H - padB + 2}" x="0" width="16"/>
+    <text data-xh="xlabel" font-size="9" font-weight="600" fill="var(--color-text)" text-anchor="middle" y="${H - 5}" x="0"></text>
+  </g>`;
+
+  _pendingCharts.push({ id, series, labels, min, span, W, H, padL, padR, padT, padB });
+  return `<svg id="${id}" class="chart" viewBox="0 0 ${W} ${H}" role="img">${grids}${ticks}${lines}${xhair}</svg>`;
+}
+
+function flushChartInits() {
+  _pendingCharts.forEach(initChartInteractivity);
+  _pendingCharts.length = 0;
+}
+
+function initChartInteractivity({ id, series, labels, min, span, W, H, padL, padR, padT, padB }) {
+  const svg = document.getElementById(id);
+  if (!svg) return;
+
+  const group   = svg.querySelector('[data-xh="group"]');
+  const vLine   = svg.querySelector('[data-xh="v"]');
+  const xlabel  = svg.querySelector('[data-xh="xlabel"]');
+  const xlbg    = svg.querySelector('[data-xh="xlabel-bg"]');
+  const hLines  = [...svg.querySelectorAll('[data-xh="hl"]')];
+  const dots    = [...svg.querySelectorAll('[data-xh="dot"]')];
+  const vals    = [...svg.querySelectorAll('[data-xh="val"]')];
+
+  const dataW = W - padL - padR;
+  const dataH = H - padT - padB;
+  const yFn = (v) => padT + (1 - (v - min) / span) * dataH;
+
+  function update(clientX) {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((clientX - rect.left) / rect.width) * W;
+    const i = Math.max(0, Math.min(labels.length - 1, Math.round((svgX - padL) * (labels.length - 1) / dataW)));
+    const cx = padL + (i * dataW) / (labels.length - 1);
+
+    // Vertical line
+    vLine.setAttribute("x1", cx); vLine.setAttribute("x2", cx);
+
+    // X label with fitted background
+    const lbl = labels[i];
+    const bgW = lbl.length * 6 + 4;
+    xlbg.setAttribute("x", cx - bgW / 2); xlbg.setAttribute("width", bgW);
+    xlabel.setAttribute("x", cx); xlabel.textContent = lbl;
+
+    series.forEach((s, si) => {
+      const v = s[i];
+      const cy = yFn(v);
+
+      // Horizontal guide from Y-axis to dot
+      hLines[si].setAttribute("y1", cy); hLines[si].setAttribute("y2", cy);
+      hLines[si].setAttribute("x2", cx);
+
+      // Dot at intersection
+      dots[si].setAttribute("cx", cx); dots[si].setAttribute("cy", cy);
+
+      // Value label: right of dot in left half, left of dot in right half
+      // Offset second series down if values crowd each other
+      const crowd = si === 1 && Math.abs(yFn(s[i]) - yFn(series[0][i])) < 11;
+      const labelY = cy + (crowd ? 11 : 0);
+      const inRight = cx > W / 2;
+      vals[si].setAttribute("x", inRight ? cx - 7 : cx + 7);
+      vals[si].setAttribute("text-anchor", inRight ? "end" : "start");
+      vals[si].setAttribute("y", labelY);
+      vals[si].textContent = Math.round(v);
+    });
+
+    group.setAttribute("visibility", "visible");
+  }
+
+  function hide() { group.setAttribute("visibility", "hidden"); }
+
+  let captured = false;
+  svg.addEventListener("pointerdown", (e) => {
+    captured = true;
+    svg.setPointerCapture(e.pointerId);
+    update(e.clientX);
+  });
+  svg.addEventListener("pointermove", (e) => {
+    // Show on mouse hover without press; show on any captured (touch) drag
+    if (e.pointerType === "mouse" || captured) update(e.clientX);
+  });
+  svg.addEventListener("pointerup",     () => { captured = false; });
+  svg.addEventListener("pointercancel", () => { captured = false; hide(); });
+  svg.addEventListener("pointerleave",  () => { if (!captured) hide(); });
 }
 
 /* ── 7.9 Hazards (phase-primary timeline + details) ────────────────── */
@@ -246,7 +361,7 @@ function renderHazards(b) {
       .map((s) => `<span class="legend__item"><span class="legend__swatch bar-${s}"></span>${s[0].toUpperCase() + s.slice(1)}</span>`)
       .join("")}
     <span class="legend__item"><span class="legend__swatch" style="background:var(--color-text-secondary)"></span>Solid = higher confidence</span>
-    <span class="legend__item"><span class="legend__swatch conf-low" style="background:var(--color-surface-3)"></span>Hatched = lower confidence</span>
+    <span class="legend__item"><span class="legend__swatch legend__swatch--conf-low" style="background:var(--color-text-secondary)"></span>Striped = lower confidence</span>
   </div>`;
 
   const details = b.hazard_detail
@@ -261,7 +376,7 @@ function renderHazards(b) {
       <div class="hazard-detail__body">
         <div style="margin-top:var(--space-3)">${confidenceTag(h.confidence)}</div>
         <h4>Key drivers</h4><ul>${h.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
-        <h4>Threshold logic (Appendix B)</h4>
+        <h4>Threshold logic</h4>
         <p style="font-size:var(--text-label);color:var(--color-text-secondary);margin:var(--space-1) 0 0">${esc(h.logic)}</p>
         ${h.assumptions.map((a) => `<div class="assumption">${icon("alert", "")}<span>${esc(a)}</span></div>`).join("")}
       </div>
@@ -272,7 +387,7 @@ function renderHazards(b) {
   document.getElementById("view-hazards").innerHTML = `
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-2)">Hazards by phase</h2>
-      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin:0 0 var(--space-3)">Organized by mission phase (FR-34). A hazard appears only where it applies (FR-14a) — no lightning across a sheltered technical span.</p>
+      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin:0 0 var(--space-3)">Organized by mission phase. A hazard appears only where it applies — no lightning across a sheltered technical span.</p>
       <div class="timeline">
         <div class="timeline__phases">${phaseHead}</div>
         ${rows}
@@ -285,39 +400,39 @@ function renderHazards(b) {
 
 /* ── 7.11 Map ──────────────────────────────────────────────────────── */
 function renderMap(b) {
-  const m = b.mission;
   document.getElementById("view-map").innerHTML = `
-    <section class="card map-card">
-      ${mapSvg()}
-      <div class="map-legend">Upstream watershed (HUC-12) · alert polygon · mission point</div>
-      <div class="point-callout">
-        <div class="point-callout__head">${icon("pin", "")}<strong>${esc(m.name)}</strong>
-          <span class="activity-pill" style="margin-left:auto">${esc(m.activity)}</span>
-        </div>
-        <div class="point-callout__cond">
-          <div>Temp<strong>84°F</strong></div><div>Wind<strong>NW 12</strong></div>
-          <div>Precip<strong>45%</strong></div><div>HUC-12<strong>${esc(m.huc12[0])}</strong></div>
-        </div>
-      </div>
-    </section>
-    <div class="disclaimer">Planning map: the traced upstream contributing watershed is the flash-flood overlay (FR-38). Single free-form point; no radar layer in v1.</div>`;
+    <div id="leaflet-map" aria-label="Mission area satellite map"></div>
+    <div class="disclaimer">Planning map — satellite imagery via Esri. Mission point marks entry coordinates. No radar layer in v1.</div>`;
 }
 
-// Schematic watershed overlay (placeholder for a Leaflet/MapLibre layer in M0.4).
-function mapSvg() {
-  return `<svg class="map-canvas" viewBox="0 0 480 360" role="img" aria-label="Upstream watershed overlay">
-    <rect width="480" height="360" fill="var(--color-surface-2)"/>
-    <g stroke="var(--color-border)" stroke-width="1">
-      ${Array.from({ length: 9 }, (_, i) => `<line x1="${i * 60}" y1="0" x2="${i * 60}" y2="360"/>`).join("")}
-      ${Array.from({ length: 7 }, (_, i) => `<line x1="0" y1="${i * 60}" x2="480" y2="${i * 60}"/>`).join("")}
-    </g>
-    <path d="M120 40 L300 60 L360 150 L320 250 L220 300 L130 240 L90 140 Z"
-      fill="var(--color-brand-dim)" stroke="var(--color-brand)" stroke-width="2"/>
-    <path d="M150 80 Q220 140 250 210 T280 290" fill="none" stroke="var(--color-brand)" stroke-width="2.5" opacity="0.8"/>
-    <path d="M120 40 L220 90 M300 60 L240 130" fill="none" stroke="var(--color-brand)" stroke-width="1.5" opacity="0.5"/>
-    <polygon points="60,40 150,30 170,110 80,120" fill="var(--sev-elevated-wash)" stroke="var(--sev-elevated)" stroke-width="1.5" stroke-dasharray="4 3"/>
-    <circle cx="280" cy="290" r="7" fill="var(--color-brand)" stroke="#fff" stroke-width="2"/>
-  </svg>`;
+let _leafletMap = null;
+
+function initLeafletMap(b) {
+  const container = document.getElementById("leaflet-map");
+  if (!container || !window.L) return;
+  if (_leafletMap) { _leafletMap.invalidateSize(); return; }
+
+  const m = b.mission;
+  _leafletMap = L.map(container, { zoomControl: true, attributionControl: true })
+    .setView([m.lat, m.lon], 13);
+
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "Tiles &copy; Esri &mdash; Esri, i-cubed, USDA, USGS, AEX, GeoEye", maxZoom: 18 }
+  ).addTo(_leafletMap);
+
+  // Place-name / boundary labels on top of satellite
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 18, opacity: 0.9 }
+  ).addTo(_leafletMap);
+
+  L.circleMarker([m.lat, m.lon], {
+    radius: 9, fillColor: "#38bdf8", color: "#fff", weight: 2.5, fillOpacity: 1,
+  }).addTo(_leafletMap)
+    .bindTooltip(esc(m.name), { permanent: true, direction: "top", className: "map-tooltip" });
+
+  state.mapInitialized = true;
 }
 
 /* ── 7.12 Resources ────────────────────────────────────────────────── */
