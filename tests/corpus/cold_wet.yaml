@@ -1,0 +1,30 @@
+# Cold / wet hypothermia boundary cases — PRD Appendix B §16.4 (apparent temp °F).
+# Edges: extreme<=32, high<=45, elevated<=60, else minimal. Dry party discounts one.
+hazard: cold_wet
+cases:
+  - id: extreme_at_freezing
+    inputs: {apparent_temp_f: 32}
+    expect: extreme
+  - id: high_lower_edge
+    inputs: {apparent_temp_f: 33}
+    expect: high
+  - id: high_upper_edge
+    inputs: {apparent_temp_f: 45}
+    expect: high
+  - id: elevated_lower_edge
+    inputs: {apparent_temp_f: 46}
+    expect: elevated
+  - id: elevated_upper_edge
+    inputs: {apparent_temp_f: 60}
+    expect: elevated
+  - id: minimal_above_band
+    inputs: {apparent_temp_f: 61}
+    expect: minimal
+  - id: dry_party_discounts_high_to_elevated
+    dry_party: true
+    inputs: {apparent_temp_f: 40}
+    expect: elevated
+  - id: dry_party_floor_at_minimal
+    dry_party: true
+    inputs: {apparent_temp_f: 61}
+    expect: minimal

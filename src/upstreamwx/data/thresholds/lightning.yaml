@@ -1,0 +1,46 @@
+# Lightning hazard thresholds — PRD v0.8 Appendix B §16.2.
+# Applies to exposed phases only (approach, egress); excluded from the technical
+# span by FR-14c. Externalized, versioned config (FR-20a).
+hazard: lightning
+version: "1.0.0"
+provenance:
+  effective_date: "2026-06-18"
+  rationale: >-
+    Primary basis is SREF probability of thunderstorms over the exposure window,
+    cross-checked against the SPC convective outlook and AFD. CAPE/Lifted Index
+    modulate confidence and severity but never set the tier. P(tstm) cut points
+    (15/40/70%) are UpstreamWX proposals; SPC categories and the active-warning
+    override are standard. To be tuned via field testing (FR-20a).
+  source: "UpstreamWX PRD v0.8 §16.2"
+
+products:
+  thunderstorm_warning_tier: extreme   # active (severe) thunderstorm warning -> Extreme
+
+# SREF P(thunderstorm) over the exposure window, percent [0, 100]. Highest band wins.
+sref_ptstm:
+  extreme_min: 70     # >=70% -> Extreme
+  high_min: 40        # 40-69% -> High
+  elevated_min: 15    # 15-39% -> Elevated
+                      # <15%   -> Minimal
+
+# SPC convective outlook category over the window -> tier (any one triggers).
+# Keys cover the SPC categorical labels plus a "categorical" alias for the
+# top-end severe outlook called out in §16.2's Extreme row.
+spc_category:
+  categorical: extreme    # explicit categorical thunder/severe
+  high: extreme           # SPC High risk
+  moderate: extreme       # SPC Moderate risk
+  enhanced: high          # SPC Enhanced
+  slight: high            # SPC Slight
+  marginal: elevated      # SPC Marginal
+  general_thunder: elevated  # SPC general-thunderstorm (TSTM) area
+
+# AFD mention of isolated/scattered afternoon convection during an exposed phase.
+afd_convective_mention_tier: elevated
+
+# Instability bands (CAPE J/kg) — modulate confidence/severity, NOT the tier.
+cape_bands_jkg:
+  minimal_max: 500     # <500 minimal instability
+  marginal_max: 1000   # 500-1000 marginal
+  moderate_max: 2500   # 1000-2500 moderate
+                       # >2500 strong

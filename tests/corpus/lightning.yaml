@@ -1,0 +1,47 @@
+# Lightning boundary cases — PRD Appendix B §16.2.
+# Cut points: extreme_min=70%, high_min=40%, elevated_min=15%. Any one condition
+# triggers; assigned tier is the max across SREF / SPC / AFD / warning.
+hazard: lightning
+cases:
+  - id: tstm_warning_to_extreme
+    inputs: {thunderstorm_warning: true, sref_p_tstm: 0}
+    expect: extreme
+  - id: ptstm_extreme_lower_edge
+    inputs: {sref_p_tstm: 70}
+    expect: extreme
+  - id: ptstm_just_below_extreme
+    inputs: {sref_p_tstm: 69}
+    expect: high
+  - id: ptstm_high_lower_edge
+    inputs: {sref_p_tstm: 40}
+    expect: high
+  - id: ptstm_just_below_high
+    inputs: {sref_p_tstm: 39}
+    expect: elevated
+  - id: ptstm_elevated_lower_edge
+    inputs: {sref_p_tstm: 15}
+    expect: elevated
+  - id: ptstm_just_below_elevated
+    inputs: {sref_p_tstm: 14}
+    expect: minimal
+  - id: spc_categorical_to_extreme
+    inputs: {sref_p_tstm: 0, spc_category: categorical}
+    expect: extreme
+  - id: spc_enhanced_to_high
+    inputs: {sref_p_tstm: 0, spc_category: enhanced}
+    expect: high
+  - id: spc_slight_to_high
+    inputs: {sref_p_tstm: 0, spc_category: slight}
+    expect: high
+  - id: spc_marginal_to_elevated
+    inputs: {sref_p_tstm: 0, spc_category: marginal}
+    expect: elevated
+  - id: afd_mention_to_elevated
+    inputs: {sref_p_tstm: 0, afd_convective_mention: true}
+    expect: elevated
+  - id: max_across_triggers
+    inputs: {sref_p_tstm: 20, spc_category: enhanced}
+    expect: high
+  - id: cape_does_not_set_tier
+    inputs: {sref_p_tstm: 5, cape_jkg: 3000}
+    expect: minimal

@@ -1,0 +1,28 @@
+# Heat stress boundary cases — PRD Appendix B §16.3 (NWS Heat Index categories).
+# Edges: caution>=80, extreme_caution>=90, danger>=103, extreme_danger>=125 °F.
+hazard: heat
+cases:
+  - id: below_caution
+    inputs: {heat_index_f: 79}
+    expect: none
+  - id: caution_lower_edge
+    inputs: {heat_index_f: 80}
+    expect: caution
+  - id: extreme_caution_lower_edge
+    inputs: {heat_index_f: 90}
+    expect: extreme_caution
+  - id: extreme_caution_upper
+    inputs: {heat_index_f: 102}
+    expect: extreme_caution
+  - id: danger_lower_edge
+    inputs: {heat_index_f: 103}
+    expect: danger
+  - id: danger_upper
+    inputs: {heat_index_f: 124}
+    expect: danger
+  - id: extreme_danger_lower_edge
+    inputs: {heat_index_f: 125}
+    expect: extreme_danger
+  - id: no_data_is_none
+    inputs: {}
+    expect: none

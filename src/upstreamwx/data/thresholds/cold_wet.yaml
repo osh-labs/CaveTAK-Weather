@@ -1,0 +1,28 @@
+# Cold / Wet Hypothermia thresholds — PRD v0.8 Appendix B §16.4.
+# Egress-weighted; assumes a wet party (FR-16). Built on apparent temperature
+# (air temp adjusted for wind). Band edges are UpstreamWX proposals grounded in
+# wilderness-medicine reasoning — the matrix most in need of field review (FR-20a).
+hazard: cold_wet
+version: "1.0.0"
+provenance:
+  effective_date: "2026-06-18"
+  rationale: >-
+    No official wet-hypothermia index exists; bands are intentionally warmer than
+    dry-condition thresholds because wet clothing loses most insulating value.
+    Apparent-temperature/wind-chill use is standard; the band edges are proposals
+    to be tuned via field testing (FR-20a).
+  source: "UpstreamWX PRD v0.8 §16.4"
+
+assumes: wet_party_on_egress
+
+# Apparent temperature, deg F (wind already folded in). Coldest matching band wins.
+apparent_temp:
+  extreme_max: 32     # <=32 F  Extreme (wet at/below freezing)
+  high_max: 45        # 33-45   High
+  elevated_max: 60    # 46-60   Elevated ("deceptively mild")
+                      # >60     Minimal
+
+modifiers:
+  # Dry cave with no immersion: discount by roughly one tier. The briefing always
+  # states the wet assumption so the discount is visible.
+  dry_party_discount_tiers: 1

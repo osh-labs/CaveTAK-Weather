@@ -39,6 +39,7 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 |---|---|---|
 | **M0.0** | Foundation + de-risk spikes (recommended) | Both hard-unknown spikes demonstrably work on sample data |
 | **M0.1** | Data ingest, decision engine, watershed component built and validated | Engine produces correct hazard postures on the validation corpus |
+| **M0.1.1** | SREF scheduler + persistent cache (EC2-hosted) | Recurring SREF/AFD refresh runs on schedule and caches across restarts |
 | **M0.2** | SITREP output as `.md` via terminal command | One command turns a mission spec into a complete, disclaimer-bearing `.md` briefing |
 | **M0.3** | API functional, passing internal validation | API returns the same briefing the CLI does, with caching/scheduling |
 | **M0.4** | PWA framework: map location in → SITREP out | A user picks a point on a map and sees a rendered SITREP |
@@ -80,6 +81,24 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 **Exit criteria.** Engine produces the expected hazard postures, confidence, and windows across the entire validation corpus; threshold changes are config-only; SREF job runs on schedule and caches.
 
 **Dependency / gating input.** None blocking. Appendix B values are accepted as the initial configured set (Chris, M0.0 planning), to be tuned through field testing rather than a pre-build redline. Because thresholds are config (FR-20a), tuning never requires a code change.
+
+**Build status (this pass).** Delivered and hermetically validated: the deterministic engine (`upstreamwx.engine` — four hazards, FR-14a/b/c, FR-17 confidence, FR-19 max), the externalized YAML threshold config (`upstreamwx/data/thresholds/`, FR-20a) with provenance, and the validation corpus (`tests/corpus/`, the exit-criterion oracle). Delivered and live-tested against real services: the watershed promotion with on-disk caching (`upstreamwx.watershed.resolve_and_trace_cached`) and the ingest provider abstraction with live adapters (NWS, Open-Meteo, SPC, SREF; `upstreamwx.ingest`). The **recurring SREF scheduler and persistent cross-restart cache moved to M0.1.1** — an ephemeral dev container cannot validate cadence or cache persistence; that work belongs on the always-on EC2. The on-demand SREF *processing logic* those will invoke is built and tested here.
+
+---
+
+## M0.1.1 — SREF Scheduler & Persistent Cache (EC2-hosted)
+
+**Objective.** Promote the on-demand SREF/watershed processing built in M0.1 to the recurring, always-on backend the PRD assumes (PRD §7, §11.2, FR-12). Hosted on the existing UpstreamWX EC2 (roadmap §M0.0 backend decision), because cadence and cross-restart persistence cannot be exercised in the ephemeral dev environment used for M0.1.
+
+**Deliverables (carried over from M0.1, not yet completed).**
+- **Scheduled SREF processor** — cron/scheduler at the SREF cadence (03/09/15/21Z), pulling promptly within NOMADS's ~2-day retention; download the CONUS field set once per cycle and aggregate every active domain from the cached grid (M0.0 resource-profile pattern).
+- **Persistent cross-restart cache** of decoded SREF grids and watershed traces (the M0.1 caches are process/disk-local and ephemeral).
+- **On-demand + scheduled refresh** wiring for active missions while the window is in range (FR-12).
+- **Smoke-test the NLDI upstream-trace fallback** (`trace_upstream_nldi`), flagged unexercised in the Spike B report.
+
+**Exit criteria.** Refresh runs unattended on the SREF/AFD cycles; a restart loses no cached cycle; the on-demand path is unchanged in output.
+
+**Why split out.** Keeps M0.1's exit criterion (engine correct on the corpus) cleanly testable and met, while isolating the genuinely host-dependent scheduling/persistence work so it is not lost or forgotten.
 
 ---
 
@@ -155,7 +174,7 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 
 ## Critical path and long poles
 
-1. **SREF processor** (M0.0 spike → M0.1 module) — heaviest backend component; on the critical path for both flood and lightning.
+1. **SREF processor** (M0.0 spike → M0.1 on-demand module → M0.1.1 scheduled job) — heaviest backend component; on the critical path for both flood and lightning. On-demand processing built/validated in M0.1; recurring scheduling + persistent cache deferred to M0.1.1 (EC2).
 2. **Upstream watershed trace** (M0.0 spike → M0.1 module) — prerequisite for the entire flood model and the M0.4 map overlay.
 3. **Threshold tuning** (field testing, post-build) — Appendix B values are the accepted starting point; field testing refines them via config (FR-20a). Not on the build critical path.
 
