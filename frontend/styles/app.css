@@ -511,8 +511,11 @@ main {
 .bar-danger { background: var(--heat-danger); }
 .bar-extreme_danger { background: var(--heat-ext-danger); }
 
-/* confidence fill: faded for low, slightly dimmed for moderate */
-.conf-low { opacity: 0.35; }
+/* confidence fill: striped transparency for low, dim for moderate */
+.conf-low {
+  -webkit-mask-image: repeating-linear-gradient(-45deg, black 0 5px, transparent 5px 8px);
+  mask-image: repeating-linear-gradient(-45deg, black 0 5px, transparent 5px 8px);
+}
 .conf-moderate { opacity: var(--confidence-mod-opacity); }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -532,6 +535,10 @@ main {
 }
 .legend__item { display: inline-flex; align-items: center; gap: 5px; }
 .legend__swatch { width: 14px; height: 10px; border-radius: 2px; }
+.legend__swatch--conf-low {
+  -webkit-mask-image: repeating-linear-gradient(-45deg, black 0 5px, transparent 5px 8px);
+  mask-image: repeating-linear-gradient(-45deg, black 0 5px, transparent 5px 8px);
+}
 
 /* ── 7.10 Hazard detail row ────────────────────────────────────────── */
 .hazard-detail {

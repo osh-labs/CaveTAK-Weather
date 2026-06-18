@@ -259,7 +259,7 @@ function renderHazards(b) {
       .map((s) => `<span class="legend__item"><span class="legend__swatch bar-${s}"></span>${s[0].toUpperCase() + s.slice(1)}</span>`)
       .join("")}
     <span class="legend__item"><span class="legend__swatch" style="background:var(--color-text-secondary)"></span>Solid = higher confidence</span>
-    <span class="legend__item"><span class="legend__swatch" style="background:var(--color-text-secondary);opacity:0.35"></span>Faded = lower confidence</span>
+    <span class="legend__item"><span class="legend__swatch legend__swatch--conf-low" style="background:var(--color-text-secondary)"></span>Striped = lower confidence</span>
   </div>`;
 
   const details = b.hazard_detail
