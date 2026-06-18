@@ -1,0 +1,183 @@
+# Historical-replay corpus — the "realism check" half of the M0.1 validation
+# oracle (roadmap M0.1: "a small set of documented events … replayed … expected
+# to flag the right tier"). Where the boundary cases (the other *.yaml here) probe
+# each tier edge in isolation, these run a *whole mission* end-to-end through
+# `engine.assess` and assert the overall posture plus the documented dominant
+# hazard(s). They guard against the engine drifting into the wrong tier on real,
+# multi-hazard situations even while every boundary case still passes.
+#
+# Honesty about inputs: UpstreamWX cannot replay live archived GRIB in CI, so each
+# `inputs` block is the normalized HazardInputs feature vector that the documented
+# conditions map to (the same contract ingest fills at runtime), with provenance
+# naming the real event and the conditions the values encode. Cases marked
+# "(representative)" encode a climatologically faithful pattern rather than one
+# dated archive pull. Expected tiers are the operationally correct posture for the
+# situation — if the engine ever disagrees, that is a real regression, not a flaky
+# fixture.
+hazard: historical_replay
+cases:
+  - id: antelope_canyon_1997_upstream_flash_flood
+    event: >-
+      Lower Antelope Canyon, AZ — 1997-08-11 flash flood, 11 fatalities. A
+      monsoon thunderstorm dropped heavy rain ~15 mi upstream of the slot; little
+      to no rain fell at the canyon itself. The textbook upstream-trace case: the
+      hazard is sourced from the contributing watershed, not the sky overhead.
+    provenance: >-
+      Flash flood warnings were in effect for the region that afternoon (the
+      classic failure was dissemination, not absence of a posture). Inputs encode
+      an active warning plus a strong upstream convective signal in a slot.
+    mission:
+      activity_type: canyon
+      lat: 36.862
+      lon: -111.424
+      window_start: "2026-08-11T10:00:00"
+      window_end: "2026-08-11T15:00:00"
+      is_slot: true
+    inputs:
+      flash_flood_warning: true
+      sref_p_precip: 75
+      measurable_precip: true
+      convective_rate_in_per_hr: 2.0
+      sref_p_tstm: 35
+      cape_jkg: 1800
+      heat_index_f: 92
+      apparent_temp_f: 82
+    expect:
+      overall: extreme
+      hazards:
+        flash_flood: extreme
+
+  - id: keyhole_canyon_zion_2015_flash_flood_watch
+    event: >-
+      Keyhole Canyon, Zion NP, UT — 2015-09-14 flash flood, 7 canyoneers killed.
+      A short technical slot hit by a flash flood from fast-building afternoon
+      storms.
+    provenance: >-
+      A flash flood WATCH was in effect that morning when the party would have
+      planned; the warning followed near the time of the flood. This case models
+      the morning planning briefing: a Watch alone is High and should turn a
+      party around. Inputs encode the watch plus the convective setup.
+    mission:
+      activity_type: canyon
+      lat: 37.220
+      lon: -112.918
+      window_start: "2026-09-14T09:00:00"
+      window_end: "2026-09-14T16:00:00"
+      is_slot: true
+    inputs:
+      flash_flood_watch: true
+      sref_p_precip: 55
+      measurable_precip: true
+      convective_rate_in_per_hr: 0.8
+      sref_p_tstm: 55
+      spc_category: slight
+      cape_jkg: 1500
+      afd_convective_mention: true
+    expect:
+      overall: high
+      hazards:
+        flash_flood: high
+        lightning: high
+
+  - id: stable_high_pressure_clear_day_control
+    event: >-
+      Stable high-pressure bluebird day over the Colorado Plateau — the true
+      negative control. No active products, dry ensemble, mild thermals.
+    provenance: >-
+      Representative clear-day pattern. Its job is to fail loudly if the engine
+      ever starts manufacturing a posture from nothing (false positive guard).
+    mission:
+      activity_type: canyon
+      lat: 38.300
+      lon: -109.900
+      window_start: "2026-05-12T08:00:00"
+      window_end: "2026-05-12T17:00:00"
+    inputs:
+      sref_p_precip: 0
+      sref_p_tstm: 0
+      heat_index_f: 70
+      apparent_temp_f: 72
+      wind_mph: 6
+    expect:
+      overall: minimal
+      hazards:
+        flash_flood: minimal
+        lightning: minimal
+
+  - id: monsoon_enhanced_convective_afternoon
+    event: >-
+      Monsoon afternoon under an SPC Moderate-risk convective outlook over an
+      exposed canyon approach — strong instability, high P(thunderstorm), only a
+      modest direct-rain flood signal (representative).
+    provenance: >-
+      Representative high-end convective day (climatology of the Four Corners
+      monsoon), encoded as high SREF P(tstm) + SPC Moderate + strong CAPE. The
+      dominant hazard is lightning on the exposed phases, not flood.
+    mission:
+      activity_type: canyon
+      lat: 37.000
+      lon: -111.500
+      window_start: "2026-07-22T11:00:00"
+      window_end: "2026-07-22T18:00:00"
+    inputs:
+      sref_p_tstm: 80
+      spc_category: moderate
+      cape_jkg: 3000
+      sref_p_precip: 30
+      measurable_precip: true
+    expect:
+      overall: extreme
+      hazards:
+        lightning: extreme
+        flash_flood: elevated
+
+  - id: grand_canyon_inner_corridor_extreme_heat
+    event: >-
+      Grand Canyon inner corridor in mid-summer — sustained extreme heat, a
+      well-documented and recurring cause of fatalities on the approach/descent.
+    provenance: >-
+      Representative inner-canyon summer heat day. Low desert humidity makes the
+      heat index track air temperature closely; ~120 °F lands in the NWS Danger
+      category, which folds to High on the overall posture (heat equivalence).
+    mission:
+      activity_type: canyon
+      lat: 36.100
+      lon: -112.090
+      window_start: "2026-07-15T07:00:00"
+      window_end: "2026-07-15T16:00:00"
+    inputs:
+      heat_index_f: 120
+      apparent_temp_f: 100
+      sref_p_precip: 0
+      sref_p_tstm: 5
+      wind_mph: 4
+    expect:
+      overall: high
+      hazards:
+        heat: danger
+
+  - id: black_hole_white_canyon_cold_water_hypothermia
+    event: >-
+      The Black Hole of White Canyon, UT — a deep, sunless slot holding cold
+      standing water; a repeat site of hypothermia rescues even on warm-air days.
+    provenance: >-
+      Representative cold-water case. Air may be pleasant but the wet-party egress
+      basis (FR-16) governs: a ~40 °F apparent temperature in soaked clothing is
+      High cold/wet exposure. Demonstrates the engine catching a thermal hazard a
+      naive air-temperature read would miss.
+    mission:
+      activity_type: canyon
+      lat: 37.860
+      lon: -110.400
+      window_start: "2026-06-02T09:00:00"
+      window_end: "2026-06-02T17:00:00"
+      is_slot: true
+    inputs:
+      apparent_temp_f: 40
+      heat_index_f: 50
+      sref_p_precip: 5
+      sref_p_tstm: 5
+    expect:
+      overall: high
+      hazards:
+        cold_wet: high

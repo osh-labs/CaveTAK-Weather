@@ -10,7 +10,7 @@ promotion and the data-ingest abstraction that feeds the engine (roadmap §M0.1)
 
 | Exit criterion (roadmap §M0.1) | Status |
 | --- | --- |
-| Engine produces expected postures/confidence/windows across the validation corpus | ✅ `tests/corpus/` + `tests/test_engine_corpus.py` (boundary cases per hazard) |
+| Engine produces expected postures/confidence/windows across the validation corpus | ✅ `tests/corpus/` — boundary cases per hazard (`test_engine_corpus.py`) **and** documented-event replays (`test_engine_replay.py`) |
 | Threshold changes are config-only (FR-20a) | ✅ YAML in `upstreamwx/data/thresholds/`; `test_thresholds_config.py` proves config-only tuning + no hard-coded cut points |
 | SREF job runs on schedule and caches | ⏸ **Moved to M0.1.1 (EC2):** scheduling/persistence are not testable in an ephemeral container. On-demand SREF processing is built + live-tested here. |
 | Offline tests pass with no network; lint clean | ✅ `pytest` 84 passed / 7 network deselected; `ruff` clean |
@@ -37,8 +37,16 @@ block (effective date, rationale, source). Loaded at runtime by
 `engine/thresholds.py`; the engine never hard-codes a number (FR-20a).
 
 ### Validation corpus — `tests/corpus/*.yaml`
-Hand-constructed boundary cases sitting just inside/outside each tier edge, per
-hazard — the oracle for "passing internal validation."
+The oracle for "passing internal validation," in the two halves the roadmap
+defines:
+- **Boundary cases** (`flash_flood`/`lightning`/`heat`/`cold_wet`/`confidence`
+  `.yaml`, run by `test_engine_corpus.py`): hand-constructed inputs sitting just
+  inside/outside each tier edge, per hazard — the backbone.
+- **Historical replay** (`historical_replay.yaml`, run by `test_engine_replay.py`):
+  documented events (Antelope Canyon 1997, Keyhole/Zion 2015, Grand Canyon heat,
+  cold-water slots) plus a clear-day control, run whole-mission through
+  `engine.assess` and asserted to flag the right overall + dominant-hazard tier.
+  Each carries provenance naming the event and the conditions its inputs encode.
 
 ### Watershed promotion — `upstreamwx.watershed.resolve_and_trace_cached`
 Wraps the M0.0 resolve + trace with an on-disk GeoJSON cache (keyed by rounded
