@@ -1,25 +1,25 @@
 ---
-project: CaveTak Weather
+project: UpstreamWX
 type: PRD
 status: draft
 version: 0.8
 date: 2026-06-16
-host: weather.cavetak.com
+host: upstreamwx.com
 author: Chris Lee
 ---
 
-# CaveTak Weather — Product Requirements Document (Draft v0.8)
+# UpstreamWX — Product Requirements Document (Draft v0.8)
 
 ## 0. Document Control
 
 | Field | Value |
 |---|---|
-| Product | CaveTak Weather |
-| Host | `weather.cavetak.com` |
+| Product | UpstreamWX |
+| Host | `upstreamwx.com` |
 | Form factor | Progressive Web App (PWA); no native app |
-| Status | Draft v0.8 — compute environment resolved (existing CaveTak EC2); all decision items in §13 now resolved |
+| Status | Draft v0.8 — compute environment resolved (existing UpstreamWX EC2); all decision items in §13 now resolved |
 
-**Changelog v0.7 → v0.8:** Compute environment resolved — small always-on backend on the existing CaveTak EC2 (scalable), recurring SREF/AFD refresh server-side, one-time/batch pre-processing on a dev machine (§7, §13 M). Cost model updated: hosting reuses provisioned infrastructure, so recurring cash cost at hundreds of users is near-zero beyond the existing instance; the real constraint is EC2 headroom for the SREF job (§11.3–11.4).
+**Changelog v0.7 → v0.8:** Compute environment resolved — small always-on backend on the existing UpstreamWX EC2 (scalable), recurring SREF/AFD refresh server-side, one-time/batch pre-processing on a dev machine (§7, §13 M). Cost model updated: hosting reuses provisioned infrastructure, so recurring cash cost at hundreds of users is near-zero beyond the existing instance; the real constraint is EC2 headroom for the SREF job (§11.3–11.4).
 
 **Changelog v0.6 → v0.7:** Added FR-20a requiring all hazard thresholds to live in externalized, versioned configuration with provenance — never hard-coded — so values change without code changes. The Appendix B matrices are now the **accepted initial configuration**, tuned through field testing rather than a pre-build redline (§13 B resolved; Appendix B retitled accordingly). Companion development roadmap created (roadmap.md) with build milestones M0.0–M0.5, including an M0.0 foundation/de-risk phase ahead of the core build.
 
@@ -27,7 +27,7 @@ author: Chris Lee
 
 **Changelog v0.4 → v0.5:** Flash flood logic rescoped. The quantitative QPF-vs-FFG ratio (R) and FFG ingestion are **deferred to v1.x** — disproportionate build effort (fragmented RFC-level FFG distribution, areal QPF aggregation over the watershed polygon, duration/grid alignment). v1 flood logic now runs on active NWS flood products (near-term authoritative anchor) plus SREF ensemble probability over the upstream domain (planning horizon), with the antecedent-wetness modifier and the conservative slot fallback. Rationale: an active Flash Flood Watch/Warning already encodes the professional QPF-vs-FFG determination, so v1 ships defensibly without computing R in-house.
 | Owner | Chris Lee |
-| Brand | CaveTak (community-service tool; not a SEM product at this time) |
+| Brand | UpstreamWX (community-service tool; not a SEM product at this time) |
 
 This draft reflects the discovery answers of 2026-06-16. Where an answer was not given or where two answers conflict, the assumption is stated inline and tagged **[ASSUMPTION]** or **[CONFLICT]** and carried into §13 Open Questions.
 
@@ -41,7 +41,7 @@ This draft reflects the discovery answers of 2026-06-16. Where an answer was not
 
 ## 1. Summary
 
-CaveTak Weather is a free, donation-supported PWA that produces a mission-specific weather briefing for caving and canyoneering trips across the contiguous United States. It synthesizes National Weather Service (NWS) forecast-office products, derived numerical model output, and Short-Range Ensemble Forecast (SREF) probability fields into a structured, BLUF-format situation report (SITREP) covering the four weather hazards that govern these sports: **flash flooding, lightning, heat stress, and cold/wet hypothermia**. The product is explicitly a **reference-only decision-support tool**: it surfaces a structured hazard assessment and links to authoritative source data for user verification. It does not issue go/no-go decisions and does not assume decision authority.
+UpstreamWX is a free, donation-supported PWA that produces a mission-specific weather briefing for caving and canyoneering trips across the contiguous United States. It synthesizes National Weather Service (NWS) forecast-office products, derived numerical model output, and Short-Range Ensemble Forecast (SREF) probability fields into a structured, BLUF-format situation report (SITREP) covering the four weather hazards that govern these sports: **flash flooding, lightning, heat stress, and cold/wet hypothermia**. The product is explicitly a **reference-only decision-support tool**: it surfaces a structured hazard assessment and links to authoritative source data for user verification. It does not issue go/no-go decisions and does not assume decision authority.
 
 The hazards are assessed by **mission phase**, and the technical span differs by activity type:
 
@@ -69,7 +69,7 @@ Existing tools do not address these as a set:
 - Climbing-specific tools (Climbit, the now-unmaintained ClimbingWeather.com) are point/crag oriented, with no flash flood model and no caving/canyoneering framing.
 - The only watershed-aware product, the NWS Salt Lake City Southern Utah Flash Flood Outlook, is a static regional graphic — flood only, no national coverage, no mission framing, no ensemble or model drill-down.
 
-The synthesis a meteorologically literate trip leader performs manually — reading the Area Forecast Discussion (AFD), checking HRRR for convective timing, checking SREF for probability and confidence, aggregating precipitation over the upstream drainage, and separately reasoning about lightning, heat, and post-exit cold — has no automated equivalent. CaveTak Weather automates that synthesis across all four hazards and presents it in a phase-structured briefing format suited to consequential field decisions.
+The synthesis a meteorologically literate trip leader performs manually — reading the Area Forecast Discussion (AFD), checking HRRR for convective timing, checking SREF for probability and confidence, aggregating precipitation over the upstream drainage, and separately reasoning about lightning, heat, and post-exit cold — has no automated equivalent. UpstreamWX automates that synthesis across all four hazards and presents it in a phase-structured briefing format suited to consequential field decisions.
 
 ---
 
@@ -211,7 +211,7 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
 
 ```
             ┌─────────────────────────────────────────────┐
-            │              weather.cavetak.com (PWA)        │
+            │              upstreamwx.com (PWA)        │
             │  Static frontend · service worker · IndexedDB │
             │  Mission store (client) · cached briefing      │
             │  PDF export (client-side render)               │
@@ -249,7 +249,7 @@ Visual direction (dark, glanceable, field-oriented "weather briefing" chrome) is
 - The **SREF processor** is a scheduled backend job: it pulls native GRIB2 on the SREF run cycle, extracts the ensemble probability fields over each active upstream domain, and caches the result for the rule engine. This is the heaviest backend component and the main recurring compute load.
 - Open-Meteo supplies the remaining derived fields by REST/JSON; no GRIB handling is needed for those.
 - Briefings are generated server-side and cached; the client fetches the latest cached briefing and stores it for offline review. This caps LLM and API cost regardless of how often a user reopens the app.
-- Backend is a **small always-on service on the existing CaveTak EC2 instance** (already provisioned, scalable on demand), with a scheduler on that instance driving recurring SREF/AFD refresh and briefing regeneration. **One-time and batch pre-processing** — watershed trace cache warming, validation-corpus preparation, threshold-config builds, and SREF extraction-tooling development — runs **on a dev machine**, with results deployed to the backend. The recurring SREF extraction itself runs server-side so briefings stay current on the SREF cycle.
+- Backend is a **small always-on service on the existing UpstreamWX EC2 instance** (already provisioned, scalable on demand), with a scheduler on that instance driving recurring SREF/AFD refresh and briefing regeneration. **One-time and batch pre-processing** — watershed trace cache warming, validation-corpus preparation, threshold-config builds, and SREF extraction-tooling development — runs **on a dev machine**, with results deployed to the backend. The recurring SREF extraction itself runs server-side so briefings stay current on the SREF cycle.
 
 ---
 
@@ -296,7 +296,7 @@ Scale basis: **hundreds of users at 12 months**, free with optional donation.
 ### 11.1 One-Time Capital (Infrastructure / Data)
 - USGS WBD (HUC-12) acquisition and hosting setup — free data, modest storage.
 - No location catalog to precompute (free-form placement, per §13 G). Upstream-contributing-area traces are computed on demand per pin and cached; cache warming for popular areas is an optional, low-cost background task, not an upfront catalog build.
-- Domain already held (`cavetak.com`).
+- Domain registration (`upstreamwx.com`) — nominal.
 - **Net capital outlay is low**; dominated by storage, not licensing or catalog construction.
 
 ### 11.2 One-Time Labor (Development)
@@ -316,7 +316,7 @@ Deferred to v1.x (removed from v1 to keep scope tight): FFG ingestion across RFC
 |---|---|---|
 | NWS API | Request volume | $0 |
 | USGS WBD hosting | Storage | Negligible |
-| App hosting (always-on backend + static + scheduler) | Runs on the **existing CaveTak EC2** | Marginal — reuses provisioned infrastructure; incremental cost is scaling headroom if needed, not a new instance |
+| App hosting (always-on backend + static + scheduler) | Runs on the **existing UpstreamWX EC2** | Marginal — reuses provisioned infrastructure; incremental cost is scaling headroom if needed, not a new instance |
 | Open-Meteo (derived fields) | API calls | $0 (free non-commercial use) |
 | SREF processing compute | Scheduled GRIB2 pulls + extraction per active upstream domain, on the existing EC2 | **Largest recurring workload**, but on already-provisioned hardware — cost is CPU time and the scaling headroom it consumes, not a separate bill. Bounded by run cadence and active-domain count, not user count |
 | Claude Haiku 4.5 (SITREP framing) | Briefings generated | **Small.** See §11.4 |
@@ -326,7 +326,7 @@ Published rates: **$1.00 / million input tokens, $5.00 / million output tokens**
 
 Per-briefing estimate (structured hazard object + bounded AFD excerpt in, BLUF prose out): on the order of ~4,000 input + ~800 output tokens ≈ **$0.008 per briefing** at standard rates, lower with prompt caching on the fixed system/rule prompt and lower again via batch generation of scheduled briefings.
 
-At hundreds of users generating, conservatively, a few hundred briefings per day, Haiku spend is in the **low tens of dollars per month** — not the cost driver. With Open-Meteo and the NWS API free, the SREF workload running on the already-provisioned CaveTak EC2, and Haiku small, the **recurring cash cost at hundreds of users is near-zero beyond the existing instance**. The real constraint is EC2 headroom for the SREF job, not a monthly bill; scale the instance if active-domain count grows.
+At hundreds of users generating, conservatively, a few hundred briefings per day, Haiku spend is in the **low tens of dollars per month** — not the cost driver. With Open-Meteo and the NWS API free, the SREF workload running on the already-provisioned UpstreamWX EC2, and Haiku small, the **recurring cash cost at hundreds of users is near-zero beyond the existing instance**. The real constraint is EC2 headroom for the SREF job, not a monthly bill; scale the instance if active-domain count grows.
 
 ---
 
@@ -349,7 +349,7 @@ The residual trade-off to keep in view: Open-Meteo is best-effort (no commercial
 All v0.2 open items are now resolved. Decisions recorded below for traceability.
 
 - **A. Phase-1 sport split and hazard set. — RESOLVED (v0.4):** caving + canyoneering, with the four hazards (flash flood, lightning, heat, cold/wet hypothermia) as the **confirmed v1 set**. Wind, water-temperature drop, and other candidates are deferred beyond v1.
-- **B. Hazard tier scales and thresholds. — RESOLVED (v0.7):** the Appendix B matrices plus confidence qualifier are **accepted as the initial configured values**, to be tuned through field testing rather than a pre-build redline. All thresholds are externalized config, never hard-coded (FR-20a), so tuning never requires a code change. The numeric cut points remain CaveTak-origin (vs the established category systems they sit on) and field testing is the mechanism for refining them.
+- **B. Hazard tier scales and thresholds. — RESOLVED (v0.7):** the Appendix B matrices plus confidence qualifier are **accepted as the initial configured values**, to be tuned through field testing rather than a pre-build redline. All thresholds are externalized config, never hard-coded (FR-20a), so tuning never requires a code change. The numeric cut points remain UpstreamWX-origin (vs the established category systems they sit on) and field testing is the mechanism for refining them.
 - **B2. Phase inference. — RESOLVED (v0.4):** inference is acceptable as default; approach = first hour, egress = last hour, technical span = the remainder (FR-9a).
 - **C. Derived API decision. — RESOLVED (v0.3):** Open-Meteo selected for derived fields. See §12.
 - **D. Raw SREF sourcing. — RESOLVED (v0.3):** SREF processed in-house from native GRIB2; the prior conflict is closed because derived fields come from Open-Meteo while SREF is handled directly. See §6.2 FR-7 and §12.
@@ -362,7 +362,7 @@ All v0.2 open items are now resolved. Decisions recorded below for traceability.
 - **K. Persistent vs windowed hazards. — RESOLVED (v0.6):** display-only distinction; no change to the hazard model (FR-37).
 - **L. Radar/nowcast layer. — RESOLVED (v0.6):** deferred beyond v1; v1 map shows watershed overlay, alert polygons, and point conditions (FR-38).
 - **Mockup elements explicitly dropped (v0.6):** alpine hazards (high winds, icing, blowing snow), non-weather "rough terrain," the Low/Moderate/Elevated/Extreme legend, "All Systems Go" status, "Add as Alert" push notifications, and multi-waypoint routes. Severity ladder remains the PRD's Minimal/Elevated/High/Extreme (FR-35).
-- **M. Compute environment. — RESOLVED (v0.8):** small always-on backend on the **existing CaveTak EC2 instance** (scalable on demand); recurring SREF/AFD refresh runs server-side via a scheduler; one-time/batch pre-processing runs on a dev machine. No serverless, no new instance for v1 (§7, §11.3).
+- **M. Compute environment. — RESOLVED (v0.8):** small always-on backend on the **existing UpstreamWX EC2 instance** (scalable on demand); recurring SREF/AFD refresh runs server-side via a scheduler; one-time/batch pre-processing runs on a dev machine. No serverless, no new instance for v1 (§7, §11.3).
 
 ---
 
@@ -378,7 +378,7 @@ All v0.2 open items are now resolved. Decisions recorded below for traceability.
 ## 15. Appendix — SITREP Output Skeleton (illustrative)
 
 ```
-CAVETAK WEATHER — MISSION BRIEFING
+UPSTREAMWX — MISSION BRIEFING
 Mission: <name>  |  Type: Canyon/Cave  |  Window: <date/time range>
 Location: <coords>  |  Upstream domain: HUC-12 <ids>
 
@@ -422,7 +422,7 @@ DISCLAIMER
 
 ## 16. Appendix B — Hazard Threshold Matrices (initial configured values)
 
-These are the **accepted initial configuration**, loaded by the engine as versioned config (FR-20a) and tuned through field testing rather than a pre-build redline. Two kinds of cut point appear below: those that ride on an **established category system** (NWS Heat Index categories, SPC convective outlook, active NWS warnings/watches, the QPF-vs-FFG comparison technique) are noted as such; the **numeric probability and temperature cut points are CaveTak-origin** and are the values field testing will most likely refine. All tiers use the common scale Minimal / Elevated / High / Extreme except heat, which uses the NWS categories directly per FR-15.
+These are the **accepted initial configuration**, loaded by the engine as versioned config (FR-20a) and tuned through field testing rather than a pre-build redline. Two kinds of cut point appear below: those that ride on an **established category system** (NWS Heat Index categories, SPC convective outlook, active NWS warnings/watches, the QPF-vs-FFG comparison technique) are noted as such; the **numeric probability and temperature cut points are UpstreamWX-origin** and are the values field testing will most likely refine. All tiers use the common scale Minimal / Elevated / High / Extreme except heat, which uses the NWS categories directly per FR-15.
 
 ### 16.1 Flash Flood
 
@@ -443,7 +443,7 @@ Why this is enough for v1: an active **Flash Flood Watch/Warning already encodes
 
 **v1.x quantitative refinement (deferred — QPF/FFG ratio).** Once FFG ingestion and areal QPF aggregation exist, add a basin-specific ratio R = (forecast QPF over the upstream domain, for the FFG duration) ÷ (FFG for that duration), with proposed tiers Extreme at R ≥ 1.0, High at 0.5 ≤ R < 1.0, Elevated at 0.25 ≤ R < 0.5. This sharpens the assessment *before* a watch is issued. It is out of v1 scope because: (1) gridded FFG is fragmented across RFCs with no single clean national API; (2) "QPF over the upstream domain" requires sampling and aggregating forecast precip across the watershed polygon, layered on the watershed trace; and (3) QPF and FFG must be aligned on duration, grid, and projection. The active-warning anchor covers the near term in the meantime.
 
-Established vs proposed: warning/watch overrides and the eventual QPF-vs-FFG technique are standard NWS operational practice; the probability cut points, the 0.5 in/hr slot fallback, and the R break points are **CaveTak proposals**.
+Established vs proposed: warning/watch overrides and the eventual QPF-vs-FFG technique are standard NWS operational practice; the probability cut points, the 0.5 in/hr slot fallback, and the R break points are **UpstreamWX proposals**.
 
 ### 16.2 Lightning (approach and egress only)
 
@@ -459,7 +459,7 @@ Primary basis is SREF probability of thunderstorms over the exposure window at t
 Supporting context (instability), used to modulate confidence/severity, not to set the tier:
 - CAPE < 500 J/kg: minimal instability; 500–1000: marginal; 1000–2500: moderate; > 2500: strong.
 
-Established components: SPC outlook categories and the active-warning override are standard. The P(tstm) cut points (15 / 40 / 70%) are **CaveTak proposals**. Note in-product: the forecast is for planning; in the field, "when thunder roars, go indoors" and direct observation govern.
+Established components: SPC outlook categories and the active-warning override are standard. The P(tstm) cut points (15 / 40 / 70%) are **UpstreamWX proposals**. Note in-product: the forecast is for planning; in the field, "when thunder roars, go indoors" and direct observation govern.
 
 ### 16.3 Heat Stress (NWS Heat Index categories, per FR-15)
 
@@ -472,11 +472,11 @@ Uses the **established NWS Heat Index categories** directly rather than the Mini
 | **Danger** | 103–124 °F | Heat exhaustion likely; heat stroke possible |
 | **Extreme Danger** | ≥ 125 °F | Heat stroke highly likely |
 
-Modifier (CaveTak proposal): because the approach phase involves **exertion under load**, the briefing shall add an advisory that effective heat strain runs one category hotter than the ambient heat index suggests, and shall surface heat at **Caution or above** as a phase-relevant line on approach. The category bands themselves are the NWS standard and are not changed.
+Modifier (UpstreamWX proposal): because the approach phase involves **exertion under load**, the briefing shall add an advisory that effective heat strain runs one category hotter than the ambient heat index suggests, and shall surface heat at **Caution or above** as a phase-relevant line on approach. The category bands themselves are the NWS standard and are not changed.
 
 ### 16.4 Cold / Wet Hypothermia (egress-weighted; assumes wet party)
 
-There is no single official "wet hypothermia index," so this matrix is a **CaveTak proposal grounded in wilderness-medicine reasoning** and is the one most in need of your review. It is built on **apparent temperature** (air temperature adjusted for wind) at the relevant window, under the assumption the party is wet on egress (FR-16). Bands are intentionally warmer than dry-condition cold thresholds, because wet clothing loses most of its insulating value and drives evaporative and conductive heat loss.
+There is no single official "wet hypothermia index," so this matrix is a **UpstreamWX proposal grounded in wilderness-medicine reasoning** and is the one most in need of your review. It is built on **apparent temperature** (air temperature adjusted for wind) at the relevant window, under the assumption the party is wet on egress (FR-16). Bands are intentionally warmer than dry-condition cold thresholds, because wet clothing loses most of its insulating value and drives evaporative and conductive heat loss.
 
 | Tier | Apparent temperature (wet party) | Rationale |
 |---|---|---|
@@ -500,7 +500,7 @@ Derived from SREF ensemble agreement and cross-source consistency. Proposed oper
 | **Moderate** | 40–75% member support, or partial disagreement among sources |
 | **Low** | < 40% member support, or sources materially conflict |
 
-The agreement fractions (40% / 75%) are **CaveTak proposals**.
+The agreement fractions (40% / 75%) are **UpstreamWX proposals**.
 
 ---
 
@@ -510,7 +510,7 @@ Written as plain product copy, not legalese, per your instruction. Three placeme
 
 ### 17.1 First-run acknowledgment (shown once; must tap to continue)
 
-> **Before you use CaveTak Weather — read this.**
+> **Before you use UpstreamWX — read this.**
 >
 > This tool gathers National Weather Service data, weather-model output, and ensemble probabilities and summarizes them for caving and canyoneering trips. It exists to save you time and to flag hazards worth a closer look.
 >
@@ -526,7 +526,7 @@ Written as plain product copy, not legalese, per your instruction. Three placeme
 
 ### 17.3 PDF export footer (every page or final block)
 
-> CaveTak Weather — planning reference only. Generated &lt;timestamp&gt; from NWS, Open-Meteo, and SREF data. Not an official forecast or warning. Verify against official NWS sources. The go/no-go decision is the user's and the party's.
+> UpstreamWX — planning reference only. Generated &lt;timestamp&gt; from NWS, Open-Meteo, and SREF data. Not an official forecast or warning. Verify against official NWS sources. The go/no-go decision is the user's and the party's.
 
 ### 17.4 Note to Chris (not user-facing)
 
@@ -539,7 +539,7 @@ The text above is intentionally plain and is product copy, not legal advice. The
 The reference mockups contribute **visual chrome and layout only** (dark theme, hex-mark header, tabbed IA, metric cards, timeline Gantt, map waypoint cards). The hazard set, severity ladder, phase organization, watershed overlay, confidence rendering, and disclaimer below are governed by this PRD. Mockup elements with no PRD basis (alpine hazards such as high winds / icing / blowing snow, the Low/Moderate/Elevated/Extreme legend, "All Systems Go," radar layer, "Add as Alert," multi-waypoint routes) are intentionally absent in v1.
 
 ### 18.1 Global chrome
-- Header: product mark + "CaveTak Weather," mission title (editable), date and time window, and the **cave/canyon** indicator (FR-33).
+- Header: product mark + "UpstreamWX," mission title (editable), date and time window, and the **cave/canyon** indicator (FR-33).
 - Overall posture summary (max across applicable hazards, FR-19) shown top-right as information, never as a recommendation (FR-39).
 - Persistent reference-only disclaimer line visible on Overview (FR-40).
 - Tab bar: Overview · Forecast · Map · Hazards · Resources (FR-32).

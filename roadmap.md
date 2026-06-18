@@ -1,15 +1,15 @@
 ---
-project: CaveTak Weather
+project: UpstreamWX
 type: roadmap
 status: draft
 version: 0.3
 date: 2026-06-16
-host: weather.cavetak.com
+host: upstreamwx.com
 owner: Chris Lee
-related: CaveTak Weather PRD v0.8
+related: UpstreamWX PRD v0.8
 ---
 
-# CaveTak Weather — Development Roadmap (Draft)
+# UpstreamWX — Development Roadmap (Draft)
 
 ## Purpose
 
@@ -54,7 +54,7 @@ Build milestones M0.0–M0.5 lead up to **product v1**. The "M" prefix is delibe
 - Repo scaffolding, CI, test harness, secrets handling.
 - **Spike A — SREF over a polygon:** retrieve native SREF GRIB2, extract the ensemble probability fields (P(precip), P(thunder), member spread), and aggregate them over a sample watershed polygon. Confirm data availability and retention for the run cadence.
 - **Spike B — upstream HUC-12 trace:** given an arbitrary CONUS lat/lon, resolve the containing HUC-12 and trace the upstream contributing watershed from the hosted USGS WBD (PRD FR-2, FR-3).
-- Backend decided: **small always-on service on the existing CaveTak EC2** (scalable). The M0.0 spike no longer chooses the architecture — it characterizes the SREF job's resource profile (memory, runtime, cadence) to size EC2 headroom. One-time/batch pre-processing runs on a dev machine; recurring SREF/AFD refresh runs on the EC2 scheduler (PRD §7).
+- Backend decided: **small always-on service on the existing UpstreamWX EC2** (scalable). The M0.0 spike no longer chooses the architecture — it characterizes the SREF job's resource profile (memory, runtime, cadence) to size EC2 headroom. One-time/batch pre-processing runs on a dev machine; recurring SREF/AFD refresh runs on the EC2 scheduler (PRD §7).
 
 **Exit criteria.** Both spikes run on sample inputs and produce plausible output; SREF data-availability risk is resolved yes/no.
 
