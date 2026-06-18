@@ -204,16 +204,46 @@ def _geom_area_km2(geom: dict) -> float | None:
     return None
 
 
-def nldi_basin_area_sqkm(lat: float, lon: float) -> float | None:
-    """Upstream drainage-basin area (km²) from NLDI split-catchment, or None if unsnapped."""
+def nldi_raindrop_snap(lat: float, lon: float) -> tuple[float, float, int | None, str | None]:
+    """Snap a raw point onto the NHD network via the flowtrace raindrop path.
+
+    This is the principled fix for the snapping problem (replacing a blind
+    lat/lon grid nudge): flowtrace follows the 30 m NHDPlus V2 flow-direction
+    grid downhill until it hits a stream line. The end of the ``raindropPath``
+    is the on-network point; ``nhdFlowline`` carries the comid/name it hit.
+    Verified to snap Zion's raw point onto the North Fork Virgin River main stem
+    where the str900 grid snap fails. Returns (lat, lon, comid, gnis_name).
+    """
+    fc = flowtrace(lat, lon, "none")
+    feats = {f.get("id"): f for f in fc.get("features", [])}
+    rp = feats.get("raindropPath")
+    snapped_lon, snapped_lat = (
+        rp["geometry"]["coordinates"][-1] if rp else (lon, lat)
+    )
+    line = (feats.get("nhdFlowline") or {}).get("properties", {})
+    return snapped_lat, snapped_lon, line.get("comid"), line.get("gnis_name")
+
+
+def nldi_basin_area_sqkm(lat: float, lon: float) -> tuple[float | None, dict]:
+    """Upstream basin area (km²) via raindrop-snap → split-catchment from a RAW point.
+
+    Two-step pour-point delineation that needs no pre-snapping and no state code:
+    raindrop-snap the raw point onto the network, then split the catchment there.
+    Returns (area_km2 or None, snap_metadata).
+    """
+    meta: dict = {}
     try:
-        fc = split_catchment(lat, lon, upstream=True)
+        s_lat, s_lon, comid, gnis = nldi_raindrop_snap(lat, lon)
+        meta = {"snapped_lat": round(s_lat, 6), "snapped_lon": round(s_lon, 6),
+                "comid": comid, "flowline": gnis}
+        fc = split_catchment(s_lat, s_lon, upstream=True)
         feat = next((f for f in fc.get("features", []) if f.get("id") == "drainageBasin"), None)
         if feat is None:
-            return None  # no drainageBasin == point did not snap
-        return round(_geom_area_km2(feat["geometry"]), 1)
-    except Exception:  # noqa: BLE001
-        return None
+            return None, meta  # no drainageBasin == split failed at snapped point
+        return round(_geom_area_km2(feat["geometry"]), 1), meta
+    except Exception as exc:  # noqa: BLE001
+        meta["error"] = f"{type(exc).__name__}: {exc}"
+        return None, meta
 
 
 def chars_to_dict(chars: list[dict]) -> dict[str, float]:
@@ -300,6 +330,7 @@ class PointResult:
     workspace_id: str
     area_sqkm: float | None
     nldi_area_sqkm: float | None
+    nldi_snap: dict
     chars: dict[str, float]
     composite_cn: float | None
     cn_method: str
@@ -340,21 +371,26 @@ def probe_point(p: dict, regime: str) -> PointResult:
         print(f"  flowtrace failed: {exc}")
     print(f"  CN={cn} ({cn_method}); impervious={imp}%; flowline={fname} comid={comid}")
 
-    # Stateless delineation cross-check: NLDI split-catchment on the same point.
-    nldi_area = nldi_basin_area_sqkm(s_lat, s_lon)
+    # Stateless delineation cross-check: NLDI raindrop-snap + split-catchment,
+    # run from the *raw* point (no pre-snapping) to show it handles unsnappable
+    # points the str900 grid rejects.
+    nldi_area, nldi_meta = nldi_basin_area_sqkm(p["lat"], p["lon"])
     delta = (
         f"{abs(nldi_area - area_sqkm) / area_sqkm * 100:.1f}%"
         if (nldi_area and area_sqkm)
         else "n/a"
     )
-    print(f"  NLDI split-catchment basin: {nldi_area} km^2 (vs SS {area_sqkm}; Δ {delta})")
+    print(
+        f"  NLDI raindrop+split basin: {nldi_area} km^2 (vs SS {area_sqkm}; Δ {delta}); "
+        f"snapped to {nldi_meta.get('flowline')} comid={nldi_meta.get('comid')}"
+    )
 
     vintages = sorted({_nlcd_year(code) for code in c if _nlcd_year(code)})
     return PointResult(
         name=p["name"], region=p["region"], raw_lat=p["lat"], raw_lon=p["lon"],
         snapped_lat=s_lat, snapped_lon=s_lon, nudged=nudged, workspace_id=ws,
-        area_sqkm=area_sqkm, nldi_area_sqkm=nldi_area, chars=c, composite_cn=cn,
-        cn_method=cn_method, impervious_frac=imp, carbonate_rock_frac=carb,
+        area_sqkm=area_sqkm, nldi_area_sqkm=nldi_area, nldi_snap=nldi_meta, chars=c,
+        composite_cn=cn, cn_method=cn_method, impervious_frac=imp, carbonate_rock_frac=carb,
         travel_time=tt, flowline_comid=comid, flowline_name=fname, nlcd_vintages=vintages,
     )
 
@@ -380,6 +416,7 @@ def cache_record(r: PointResult, *, ttl_days: int = 365) -> dict:
         "region": r.region,
         "basin_area_sqkm": r.area_sqkm,
         "nldi_splitcatchment_area_sqkm": r.nldi_area_sqkm,
+        "nldi_raindrop_snap": r.nldi_snap,
         "basin_characteristics": r.chars,
         "composite_cn": r.composite_cn,
         "composite_cn_method": r.cn_method,

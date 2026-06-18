@@ -268,15 +268,15 @@ delineation geometry, we tested the obvious stateless alternative:
 **The geometries match to ~1 %** — unsurprising, since both trace NHDPlus. Two
 findings worth recording:
 
-1. **Snap fragility is shared, not a StreamStats quirk.** Zion's *raw* point
-   `37.2794,-112.9481` fails on NLDI too — it returns only a 1.9 km² local
-   catchment and a 0.01 km² `splitCatchment`, **no `drainageBasin`**. The
-   snapped point recovers the full 747 km². So *any* delineator needs the
-   snap-and-nudge step; it is not avoidable by switching to NLDI.
-2. **NLDI fails more quietly.** StreamStats flags an unsnappable point with an
-   explicit `WarningMsg`; NLDI just omits the `drainageBasin` feature. If we use
-   NLDI we must treat "no `drainageBasin` in the response" as the failure
-   signal and trigger the nudge.
+1. **`splitcatchment` alone is snap-fragile on a raw point — but the raindrop
+   trace fixes it (see next section).** Calling `splitcatchment` directly on
+   Zion's *raw* point returns only a 1.9 km² local catchment and a 0.01 km²
+   `splitCatchment`, **no `drainageBasin`**. The fix is *not* a blind lat/lon
+   nudge: run `flowtrace` first to raindrop-snap the point onto the network,
+   then `splitcatchment` from there.
+2. **NLDI fails more quietly than StreamStats.** StreamStats flags an unsnappable
+   point with an explicit `WarningMsg`; NLDI just omits the `drainageBasin`
+   feature. Treat "no `drainageBasin` in the response" as the failure signal.
 
 **Conclusion:** for the *geometry alone*, SS-Delineate buys us essentially
 nothing over NLDI split-catchment — NLDI is faster, needs no state code, and is
@@ -300,8 +300,8 @@ test points against NLDI split-catchment:
 | Linville area | **175.6 km²** (origin `030501010302`, 2 HUC-12) | 114.3 km² |
 | Over-inclusion vs NLDI | **+24 % (Zion), +54 % (Linville)** | baseline (pour-point exact) |
 | Spatial unit | whole HUC-12 polygons | exact pour-point split |
-| Snapping | **none needed** (HUC containment) | required (raw Zion → degenerate) |
-| Raw Zion point | ✅ 926 km² | ❌ needs nudge |
+| Snapping | **none needed** (HUC containment) | raindrop trace (handles raw Zion) |
+| Raw Zion point | ✅ 926 km² | ✅ 747 km² (via raindrop snap) |
 | Determinism | deterministic (WBD snapshot) | NHDPlus, stateless |
 | Latency | 2.6–8.3 s | ~0.9 s |
 
@@ -314,11 +314,53 @@ the true contributing area.
 **This is not cosmetic for Effective QPF.** An inflated contributing area
 inflates aggregated upstream QPF — the same over-warning bias the redesign
 exists to remove — so the coarse HUC-12 method works *against* the goal and
-should not be the primary domain. Its genuine virtues are that it is
-**snap-free and deterministic** (it resolved Zion's raw point to a sensible
-926 km² where NLDI/SS-Delineate returned a degenerate basin until nudged, and is
-reproducible from a WBD snapshot), which make it a sound coarse fallback when a
-point will not snap — but not the right pour-point domain.
+should not be the primary domain. Its genuine virtue is being
+**deterministic and snap-free** (reproducible from a WBD snapshot, no pour-point
+snap to get wrong), which keeps it useful as a coarse cross-check / fallback —
+but not the right pour-point domain.
+
+-----
+
+## Follow-up — solving the snap problem with the raindrop trace (`nldi-flowtools`)
+
+The earlier sections treated snap fragility as an inherent cost of pixel-level
+delineation. It is not. The fix is the **raindrop trace** — the terrain-following
+snap inside `flowtrace` (and packaged as the `nldi-flowtools` library, the same
+USGS code behind these pygeoapi processes; `flowtrace(lon, lat, dir)` /
+`splitcatchment(lon, lat, upstream, simplified)`, deps `rasterio`/`pyproj`/
+`shapely`/`numpy`, fetching a 30 m NHDPlus V2 flow-direction grid + NLDI).
+
+The crude lat/lon grid nudge used earlier in this spike is the wrong tool: it
+moves the point blindly and can land on the wrong channel. The raindrop trace
+instead follows the flow-direction grid **downhill until it hits a stream line**,
+which is a hydrologically correct snap. Verified live:
+
+| | str900 grid snap | raindrop trace (`flowtrace`) |
+| --- | --- | --- |
+| Zion **raw** `37.2794,-112.9481` | ❌ `couldSnap:false` | ✅ snaps 300 m downhill to **North Fork Virgin River** (comid 10025834) |
+
+**Recommended two-step (no pre-snap, no state code, handles raw activity
+points):**
+
+1. `flowtrace(lon, lat, "none")` → take the end of the `raindropPath` as the
+   on-network point (and the `nhdFlowline` comid/name it hit, for a sanity check).
+2. `splitcatchment(snapped_lon, snapped_lat, upstream=True, …)` → `drainageBasin`.
+
+Run from the **raw** points this yields Zion **747.2 km²** (snapped to North Fork
+Virgin River, comid 10025834) and Linville **114.3 km²** (Linville River, comid
+9751596) — matching the manually-nudged and SS-Delineate areas to ~1 %, with
+**no nudge step**. The probe script now uses this two-step for its NLDI
+cross-check (`nldi_raindrop_snap` → `split_catchment`), and records the snapped
+point + comid in `nldi_raindrop_snap`.
+
+Residual caveat: the raindrop trace snaps to the *nearest downhill* flowline, so
+a point near a confluence could still pick a minor tributary; the returned comid
++ a non-degenerate `drainageBasin` area are the sanity checks. On both test
+points it picked the correct main stem. Whether to vendor `nldi-flowtools`
+(adds `rasterio`; removes the hosted rate limit / availability dependency) or
+just chain the two **hosted** calls (no new deps; subject to the 4-concurrent
+limit) is an implementation choice — both run the identical algorithm. For
+cache-on-miss volume, chaining the hosted calls is the lighter default.
 
 -----
 
@@ -352,8 +394,11 @@ Changes from the brief's proposed schema, each traceable to a finding above:
   flowtrace ~7–33 s.
 - **POST quirk:** SS-Hydro POSTs need an explicit empty body (`Content-Length: 0`)
   or return HTTP 411.
-- **Snap-first** always, and nudge onto the channel if `couldSnap == false`,
-  before delineating — otherwise you get a degenerate single-cell basin.
+- **Snap with the raindrop trace, not a grid nudge.** Run `flowtrace` first to
+  snap the raw point onto the network (terrain-following, hydrologically
+  correct), then `splitcatchment` from the snapped point — otherwise a raw
+  activity point can yield a degenerate single-cell basin. The str900 grid snap
+  is only needed for the SS-Delineate path (it snaps internally).
 - **Data currency** is uneven and only loosely datable: the practical vintage
   signal is the NLCD year embedded in the land-cover characteristic codes
   (UT: 1992/2011; NC: 1992/2001/2006/2011). SSURGO carries no date in the
@@ -361,11 +406,13 @@ Changes from the brief's proposed schema, each traceable to a finding above:
 
 ## Recommendation
 
-1. **Delineate with NLDI split-catchment, not SS-Delineate.** The head-to-head
-   shows matching geometry (~1 %), but NLDI is faster (~0.9 s), needs no state
-   code, is stateless, and is already a dependency. Treat "no `drainageBasin` in
-   the response" as the unsnappable signal and run the snap-and-nudge step
-   (shared by both delineators — it is not a StreamStats-only problem). This
+1. **Delineate with NLDI, not SS-Delineate**, using the **raindrop two-step**:
+   `flowtrace` to snap the raw point onto the network, then `splitcatchment` for
+   the `drainageBasin`. The head-to-head shows matching geometry (~1 %), but NLDI
+   is faster (~0.9 s), needs no state code, is stateless, already a dependency,
+   and the raindrop snap handles raw activity points (Zion 747 km² with no
+   nudge). Use `nldi-flowtools` if we want to drop the hosted rate limit (adds
+   `rasterio`); otherwise chain the two hosted calls. This
    upgrades pour-point accuracy over the current WBD HUC-12 trace, which
    over-includes the contributing area by **24–54 %** on the test points. Keep
    the WBD trace as the **snap-free deterministic fallback** for points that
