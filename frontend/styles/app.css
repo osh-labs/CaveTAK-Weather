@@ -37,11 +37,18 @@ button {
 .app {
   max-width: var(--app-max-width);
   margin: 0 auto;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
+  overflow: hidden;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 @media (min-width: 1024px) {
@@ -65,9 +72,7 @@ button {
 
 /* ── 7.1 App header ────────────────────────────────────────────────── */
 .app-header {
-  position: sticky;
-  top: 0;
-  z-index: 30;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -87,6 +92,13 @@ button {
   width: 28px;
   height: 28px;
   color: var(--color-brand);
+}
+
+.brand__logo {
+  height: 38px;
+  width: auto;
+  display: block;
+  border-radius: var(--radius-sm);
 }
 
 .brand__name {
@@ -122,9 +134,7 @@ button {
 
 /* ── 7.2 Tab bar ───────────────────────────────────────────────────── */
 .tab-bar {
-  position: sticky;
-  top: 54px;
-  z-index: 20;
+  flex-shrink: 0;
   display: flex;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -606,36 +616,35 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .chart-caption { font-size: var(--text-caption); color: var(--color-text-muted); text-align: center; }
 
 /* ── 7.11 Map ──────────────────────────────────────────────────────── */
-.map-card { position: relative; padding: 0; overflow: hidden; min-height: 360px; }
-.map-canvas { display: block; width: 100%; height: auto; background: var(--color-surface-2); }
-.map-legend {
-  position: absolute;
-  top: var(--space-3);
-  left: var(--space-3);
-  background: var(--color-overlay);
+#view-map {
+  padding: 0;
+  gap: 0;
+  height: 100%;
+}
+
+#leaflet-map {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: var(--color-surface-2);
+}
+
+.map-tooltip {
+  background: var(--color-overlay) !important;
   backdrop-filter: blur(6px);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-caption);
-  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-strong) !important;
+  color: var(--color-text) !important;
+  font-family: var(--font-sans);
+  font-size: var(--text-label);
+  font-weight: 600;
+  padding: 4px 10px !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--shadow-pop) !important;
 }
-.point-callout {
-  position: absolute;
-  left: var(--space-3);
-  right: var(--space-3);
-  bottom: var(--space-3);
-  background: var(--color-overlay);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-pop);
-  padding: var(--space-3);
+
+.map-tooltip::before {
+  border-top-color: var(--color-border-strong) !important;
 }
-.point-callout__head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
-.point-callout__cond { display: flex; gap: var(--space-4); }
-.point-callout__cond div { font-size: var(--text-caption); color: var(--color-text-muted); }
-.point-callout__cond strong { display: block; font-family: var(--font-mono); font-size: var(--text-label); color: var(--color-text); }
 
 /* ── 7.12 Resources ────────────────────────────────────────────────── */
 .resource-link {

@@ -19,7 +19,7 @@ const ACK_KEY = "uwx.ack.v1"; // first-run acknowledgment (FR-31)
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-let state = { briefing: null, fromCache: false, tab: "overview" };
+let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized: false };
 
 /* ── Data load ─────────────────────────────────────────────────────── */
 async function loadBriefing() {
@@ -55,8 +55,7 @@ function renderHeader(b) {
   const actIcon = m.activity === "cave" ? icon("cave", "brand__mark") : icon("canyon", "brand__mark");
   document.getElementById("header").innerHTML = `
     <div class="brand">
-      ${icon("flash_flood", "brand__mark")}
-      <span><span class="brand__name">UpstreamWX</span><span class="brand__tagline">Weather Briefing</span></span>
+      <img src="icons/logo.jpg" class="brand__logo" alt="UpstreamWX Weather Briefing" />
     </div>
     <div class="app-header__spacer"></div>
     <span class="activity-pill">${actIcon}${esc(m.activity)}</span>
@@ -107,7 +106,10 @@ function selectTab(id) {
     el.setAttribute("aria-selected", String(el.dataset.tab === id))
   );
   document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== `view-${id}`));
-  document.querySelector(".app").scrollTo({ top: 0 });
+  document.querySelector("main").scrollTo({ top: 0 });
+  if (id === "map" && state.briefing) {
+    requestAnimationFrame(() => initLeafletMap(state.briefing));
+  }
 }
 
 /* ── 7.4 Overview ──────────────────────────────────────────────────── */
@@ -285,39 +287,39 @@ function renderHazards(b) {
 
 /* ── 7.11 Map ──────────────────────────────────────────────────────── */
 function renderMap(b) {
-  const m = b.mission;
   document.getElementById("view-map").innerHTML = `
-    <section class="card map-card">
-      ${mapSvg()}
-      <div class="map-legend">Upstream watershed (HUC-12) · alert polygon · mission point</div>
-      <div class="point-callout">
-        <div class="point-callout__head">${icon("pin", "")}<strong>${esc(m.name)}</strong>
-          <span class="activity-pill" style="margin-left:auto">${esc(m.activity)}</span>
-        </div>
-        <div class="point-callout__cond">
-          <div>Temp<strong>84°F</strong></div><div>Wind<strong>NW 12</strong></div>
-          <div>Precip<strong>45%</strong></div><div>HUC-12<strong>${esc(m.huc12[0])}</strong></div>
-        </div>
-      </div>
-    </section>
-    <div class="disclaimer">Planning map: the traced upstream contributing watershed is the flash-flood overlay (FR-38). Single free-form point; no radar layer in v1.</div>`;
+    <div id="leaflet-map" aria-label="Mission area satellite map"></div>
+    <div class="disclaimer">Planning map — satellite imagery via Esri. Mission point marks entry coordinates. No radar layer in v1.</div>`;
 }
 
-// Schematic watershed overlay (placeholder for a Leaflet/MapLibre layer in M0.4).
-function mapSvg() {
-  return `<svg class="map-canvas" viewBox="0 0 480 360" role="img" aria-label="Upstream watershed overlay">
-    <rect width="480" height="360" fill="var(--color-surface-2)"/>
-    <g stroke="var(--color-border)" stroke-width="1">
-      ${Array.from({ length: 9 }, (_, i) => `<line x1="${i * 60}" y1="0" x2="${i * 60}" y2="360"/>`).join("")}
-      ${Array.from({ length: 7 }, (_, i) => `<line x1="0" y1="${i * 60}" x2="480" y2="${i * 60}"/>`).join("")}
-    </g>
-    <path d="M120 40 L300 60 L360 150 L320 250 L220 300 L130 240 L90 140 Z"
-      fill="var(--color-brand-dim)" stroke="var(--color-brand)" stroke-width="2"/>
-    <path d="M150 80 Q220 140 250 210 T280 290" fill="none" stroke="var(--color-brand)" stroke-width="2.5" opacity="0.8"/>
-    <path d="M120 40 L220 90 M300 60 L240 130" fill="none" stroke="var(--color-brand)" stroke-width="1.5" opacity="0.5"/>
-    <polygon points="60,40 150,30 170,110 80,120" fill="var(--sev-elevated-wash)" stroke="var(--sev-elevated)" stroke-width="1.5" stroke-dasharray="4 3"/>
-    <circle cx="280" cy="290" r="7" fill="var(--color-brand)" stroke="#fff" stroke-width="2"/>
-  </svg>`;
+let _leafletMap = null;
+
+function initLeafletMap(b) {
+  const container = document.getElementById("leaflet-map");
+  if (!container || !window.L) return;
+  if (_leafletMap) { _leafletMap.invalidateSize(); return; }
+
+  const m = b.mission;
+  _leafletMap = L.map(container, { zoomControl: true, attributionControl: true })
+    .setView([m.lat, m.lon], 13);
+
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "Tiles &copy; Esri &mdash; Esri, i-cubed, USDA, USGS, AEX, GeoEye", maxZoom: 18 }
+  ).addTo(_leafletMap);
+
+  // Place-name / boundary labels on top of satellite
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 18, opacity: 0.9 }
+  ).addTo(_leafletMap);
+
+  L.circleMarker([m.lat, m.lon], {
+    radius: 9, fillColor: "#38bdf8", color: "#fff", weight: 2.5, fillOpacity: 1,
+  }).addTo(_leafletMap)
+    .bindTooltip(esc(m.name), { permanent: true, direction: "top", className: "map-tooltip" });
+
+  state.mapInitialized = true;
 }
 
 /* ── 7.12 Resources ────────────────────────────────────────────────── */
