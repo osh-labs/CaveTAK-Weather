@@ -1,0 +1,35 @@
+# Flash Flood hazard thresholds — PRD v0.8 Appendix B §16.1.
+# Externalized, versioned config (FR-20a): the engine loads these at runtime and
+# references them by key; no threshold is hard-coded in engine logic. Tune through
+# field testing by editing this file — never a code change.
+hazard: flash_flood
+version: "1.0.0"
+provenance:
+  effective_date: "2026-06-18"
+  rationale: >-
+    Accepted initial configuration. v1 flood logic is driven by active NWS flood
+    products (authoritative near-term anchor) plus SREF ensemble probability over
+    the upstream domain (planning horizon). Probability cut points and the slot
+    fallback are UpstreamWX proposals; warning/watch overrides are standard NWS
+    practice. To be tuned via field testing (FR-20a).
+  source: "UpstreamWX PRD v0.8 §16.1"
+
+# Active NWS products override SREF probability (they already encode QPF-vs-FFG).
+products:
+  flash_flood_warning_tier: extreme   # active Flash Flood Warning -> Extreme
+  flash_flood_watch_tier: high        # active Flash Flood Watch   -> High
+
+# SREF P(precip/thunderstorm) over the upstream domain, percent [0, 100].
+# Highest matching band wins; below elevated_min -> minimal.
+sref_probability:
+  high_min: 60        # >=60% (with a meaningful convective-rate proxy) -> High
+  elevated_min: 20    # 20-60% with measurable forecast precip          -> Elevated
+                      # <20% / dry / no products                         -> Minimal
+
+modifiers:
+  # Significant rainfall in the prior 24-72h (saturated soils) bumps tier up one.
+  antecedent_wetness_bump_tiers: 1
+  # Slot canyons flood at low totals: forecast convective rate over the upstream
+  # domain exceeding this (in/hr) forces at least the given tier. Conservative; flagged.
+  slot_rate_in_per_hr: 0.5
+  slot_fallback_min_tier: high

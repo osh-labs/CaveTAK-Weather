@@ -23,6 +23,7 @@ dependencies = [
     "networkx",
     "requests",
     "pydantic-settings",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]

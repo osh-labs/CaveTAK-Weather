@@ -1,0 +1,33 @@
+# Confidence qualifier boundary cases — PRD Appendix B §16.5.
+# Member-support edges: high>=0.75, moderate>=0.40; partial caps at Moderate;
+# material conflict forces Low; no ensemble info defaults to Moderate.
+hazard: confidence
+cases:
+  - id: high_lower_edge
+    for_hazard: flash_flood
+    inputs: {member_support: {flash_flood: 0.75}, source_agreement: consistent}
+    expect: high
+  - id: just_below_high
+    for_hazard: flash_flood
+    inputs: {member_support: {flash_flood: 0.74}, source_agreement: consistent}
+    expect: moderate
+  - id: moderate_lower_edge
+    for_hazard: flash_flood
+    inputs: {member_support: {flash_flood: 0.40}, source_agreement: consistent}
+    expect: moderate
+  - id: just_below_moderate
+    for_hazard: flash_flood
+    inputs: {member_support: {flash_flood: 0.39}, source_agreement: consistent}
+    expect: low
+  - id: partial_disagreement_caps_high_to_moderate
+    for_hazard: lightning
+    inputs: {member_support: {lightning: 0.90}, source_agreement: partial}
+    expect: moderate
+  - id: material_conflict_forces_low
+    for_hazard: lightning
+    inputs: {member_support: {lightning: 0.90}, source_agreement: conflict}
+    expect: low
+  - id: no_ensemble_defaults_moderate
+    for_hazard: flash_flood
+    inputs: {member_support: {}, source_agreement: consistent}
+    expect: moderate
