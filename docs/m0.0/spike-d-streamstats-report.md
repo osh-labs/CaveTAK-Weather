@@ -417,6 +417,9 @@ Changes from the brief's proposed schema, each traceable to a finding above:
    over-includes the contributing area by **24–54 %** on the test points. Keep
    the WBD trace as the **snap-free deterministic fallback** for points that
    won't snap (it handled Zion's raw point where both pixel methods degenerated).
+   **Implemented** as `upstreamwx.watershed.pourpoint` (`delineate` /
+   `delineate_cached`, with the WBD fallback wired in); chains the two hosted
+   NLDI calls (no new deps). See `docs/m0.1/README.md`.
 2. Compute CN **ourselves** (TR-55 lookup over NLCD × SSURGO). Because the
    SSURGO/NLCD bundle is SS-Delineate's only real residual value yet is
    regionally uneven (absent for UT), source soil/land cover from a

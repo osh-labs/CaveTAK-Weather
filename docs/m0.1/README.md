@@ -52,6 +52,17 @@ defines:
 Wraps the M0.0 resolve + trace with an on-disk GeoJSON cache (keyed by rounded
 lat/lon) under `Settings.data_dir`, plus retry/backoff on transient USGS failures.
 
+### Pour-point delineation — `upstreamwx.watershed.pourpoint` (Spike D → module)
+Pour-point-exact upstream delineation via the NLDI raindrop two-step
+(`flowtrace` snap → `splitcatchment`), the refinement Spike D recommended over
+the coarse HUC-12 trace (`docs/m0.0/spike-d-streamstats-report.md`). `delineate()`
+returns a `PourpointBasin` and falls back to the deterministic WBD `tohuc` trace
+when a point will not snap; `delineate_cached()` adds the on-disk GeoJSON cache.
+The raindrop snap fixes the activity-point snapping problem (verified live on
+Zion's raw point → North Fork Virgin River, ~750 km²), and the result matches
+StreamStats SS-Delineate to ~1 % while needing no state code and no self-hosted
+hydrography. Covered by `tests/test_pourpoint.py` (8 hermetic + 2 live).
+
 ### Data ingest — `upstreamwx.ingest`
 Provider abstraction (`base.py`: `IngestBundle` + `to_hazard_inputs`) so sources
 are swappable (§12). Live adapters: NWS alerts + AFD (`nws.py`, FR-5), Open-Meteo

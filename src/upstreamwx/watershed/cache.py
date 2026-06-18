@@ -19,6 +19,7 @@ from shapely.geometry import mapping, shape
 
 from ..config import Settings, get_settings
 from .huc import resolve_huc12
+from .pourpoint import PourpointBasin, delineate
 from .upstream import UpstreamTrace, trace_upstream
 
 # Rounding precision for the cache key (~100 m at CONUS latitudes is plenty for a
@@ -94,3 +95,65 @@ def resolve_and_trace_cached(
     trace = _resolve_and_trace(lat, lon)
     path.write_text(json.dumps(_to_feature(trace)))
     return trace
+
+
+# --------------------------------------------------------------------------- #
+# Pour-point basin cache (NLDI raindrop two-step, with WBD fallback).
+# --------------------------------------------------------------------------- #
+def _pourpoint_dir(settings: Settings) -> Path:
+    d = settings.data_dir / "watershed" / "pourpoint"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _basin_to_feature(basin: PourpointBasin) -> dict:
+    return {
+        "type": "Feature",
+        "geometry": mapping(basin.polygon),
+        "properties": {
+            "lat": basin.lat,
+            "lon": basin.lon,
+            "snapped_lat": basin.snapped_lat,
+            "snapped_lon": basin.snapped_lon,
+            "area_km2": basin.area_km2,
+            "method": basin.method,
+            "comid": basin.comid,
+            "flowline_name": basin.flowline_name,
+            "notes": basin.notes,
+        },
+    }
+
+
+def _basin_from_feature(feature: dict) -> PourpointBasin:
+    props = feature["properties"]
+    return PourpointBasin(
+        lat=props["lat"],
+        lon=props["lon"],
+        snapped_lat=props["snapped_lat"],
+        snapped_lon=props["snapped_lon"],
+        polygon=shape(feature["geometry"]),
+        area_km2=props["area_km2"],
+        method=props["method"],
+        comid=props.get("comid"),
+        flowline_name=props.get("flowline_name"),
+        notes=props.get("notes", []),
+    )
+
+
+def delineate_cached(
+    lat: float,
+    lon: float,
+    *,
+    settings: Settings | None = None,
+    refresh: bool = False,
+) -> PourpointBasin:
+    """Return the pour-point basin for a point, using the on-disk cache when present."""
+    settings = settings or get_settings()
+    path = _pourpoint_dir(settings) / f"{_key(lat, lon)}.geojson"
+
+    if path.is_file() and not refresh:
+        return _basin_from_feature(json.loads(path.read_text()))
+
+    basin = delineate(lat, lon)
+    path.write_text(json.dumps(_basin_to_feature(basin)))
+    return basin
