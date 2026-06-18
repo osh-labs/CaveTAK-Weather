@@ -1,7 +1,7 @@
 {
   "name": "UpstreamWX — Weather Briefing",
   "short_name": "UpstreamWX",
-  "description": "Mission-specific, multi-hazard weather briefings for caving and canyoneering. Reference only.",
+  "description": "Expedition-specific, multi-hazard weather briefings for caving and canyoneering. Reference only.",
   "id": "/",
   "start_url": "./index.html",
   "scope": "./",

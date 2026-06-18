@@ -273,9 +273,9 @@ function missionCard(b) {
   return `
     <section class="card mission-card">
       <div class="mission-card__main">
-        <div class="eyebrow">Mission</div>
+        <div class="eyebrow">Expedition</div>
         <h1 class="mission-card__title">${esc(m.name)}
-          <button class="mission-card__edit" aria-label="Edit mission">${icon("edit", "")}</button>
+          <button class="mission-card__edit" aria-label="Edit expedition">${icon("edit", "")}</button>
         </h1>
         <div class="mission-card__meta">${fmtD} · ${fmtT(start)}–${fmtT(end)} ${esc(m.timezone)}</div>
         <div class="mission-card__meta"><span class="mono">${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}</span></div>
@@ -366,7 +366,7 @@ function renderOverview(b) {
       <div class="hazard-list">${hazards}</div>
     </section>
     <div class="metric-grid">${metrics}</div>
-    <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-3)">Mission Phases</h2>
+    <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-3)">Expedition Phases</h2>
       <div class="phase-strip">${phases}</div>
       ${b.mission.phases_inferred ? '<div class="phase-seg__note" style="margin-top:var(--space-3)">Phases inferred from the overall window: approach = first hour, egress = last hour.</div>' : ""}
     </section>
@@ -663,8 +663,8 @@ function renderMap(b) {
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
   state.mapInitialized = false;
   document.getElementById("view-map").innerHTML = `
-    <div id="leaflet-map" aria-label="Mission area topographic map"></div>
-    <div class="disclaimer">Planning map. The shaded basin is the approximate upstream watershed feeding the mission point. Tap either for details.</div>`;
+    <div id="leaflet-map" aria-label="Expedition area topographic map"></div>
+    <div class="disclaimer">Planning map. The shaded basin is the approximate upstream watershed feeding the expedition point. Tap either for details.</div>`;
 }
 
 let _leafletMap = null;
@@ -892,8 +892,8 @@ function renderAbout(b) {
       <p class="about-p">Every hazard posture, confidence level, and window of concern is decided by a deterministic, documented rule engine. Identical inputs always produce an identical result. The Claude language model only frames the wording of the summary. It can never compute, raise, or lower a posture.</p>
       <ul class="about-list">
         <li>Four hazards are scored independently on a common scale (Minimal, Elevated, High, Extreme), except heat, which uses the NWS Heat Index categories.</li>
-        <li>Each hazard applies only in the mission phases where it is relevant (approach, technical span, egress) and per activity type. A cave technical span is treated as isolated from surface weather and shows flash flood only.</li>
-        <li>The overall mission posture is the maximum across all applicable hazards, and every hazard stays visible, so a high lightning posture on approach is never hidden behind a low flood posture.</li>
+        <li>Each hazard applies only in the expedition phases where it is relevant (approach, technical span, egress) and per activity type. A cave technical span is treated as isolated from surface weather and shows flash flood only.</li>
+        <li>The overall expedition posture is the maximum across all applicable hazards, and every hazard stays visible, so a high lightning posture on approach is never hidden behind a low flood posture.</li>
         <li>A confidence qualifier per hazard comes from SREF ensemble agreement and cross-source consistency, including SREF and HREF agreement on same-day windows.</li>
       </ul>
     </section>
@@ -1038,7 +1038,7 @@ function setPlannerStatus(msg, isError = false) {
 
 function mpNamePopupHtml() {
   return `<div class="mp-name-pop">
-    <label class="mp-name-pop__label" for="mp-name-input">Mission name</label>
+    <label class="mp-name-pop__label" for="mp-name-input">Expedition name</label>
     <input id="mp-name-input" class="mp-name-pop__input" value="${esc(_mpSpec.name || "")}" />
   </div>`;
 }
@@ -1052,7 +1052,7 @@ function placeOrMoveMarker(latlng, openPopup = true) {
     _mpMarker.setLatLng(latlng);
   } else {
     _mpMarker = L.marker(latlng, { draggable: true }).addTo(_mpMap);
-    _mpMarker.bindTooltip(esc(_mpSpec.name || "Mission"), {
+    _mpMarker.bindTooltip(esc(_mpSpec.name || "Expedition"), {
       permanent: true, direction: "top", className: "map-tooltip",
     });
     // Function content so each open reflects the current name.
@@ -1068,7 +1068,7 @@ function placeOrMoveMarker(latlng, openPopup = true) {
       input.focus();
       input.addEventListener("input", () => {
         _mpSpec.name = input.value;
-        _mpMarker.setTooltipContent(esc(input.value || "Mission"));
+        _mpMarker.setTooltipContent(esc(input.value || "Expedition"));
       });
     });
   }
@@ -1216,7 +1216,7 @@ function initPlannerControls() {
       lat: _mpSpec.lat,
       lon: _mpSpec.lon,
       activity: document.getElementById("mp-activity").value,
-      name: _mpSpec.name || "mission",
+      name: _mpSpec.name || "expedition",
       start: document.getElementById("mp-start").value,
       end: document.getElementById("mp-end").value,
       slot: document.getElementById("mp-slot").checked,
