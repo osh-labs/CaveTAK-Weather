@@ -83,6 +83,14 @@ spikes/                runnable de-risk CLIs
 tests/                 hermetic suite + committed fixtures
 docs/m0.0-m0.2/        spike reports, milestone findings
 frontend/              reserved for the PWA (M0.4)
+deploy/                always-on backend deploy (systemd + nginx) -> EC2
 ```
+
+## Deploy
+
+The always-on briefing backend (FastAPI `upstreamwx-api`, serving the PWA single-origin
+with the SREF-cycle refresh scheduler) deploys to the EC2 host via `deploy/`: run
+`deploy/bootstrap.sh` once on the host, then `deploy/remote-deploy.sh <ref>` per release.
+See [`deploy/README.md`](deploy/README.md).
 
 Licensed under GPL-3.0 (see `LICENSE`).

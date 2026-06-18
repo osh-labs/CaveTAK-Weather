@@ -16,6 +16,10 @@ venv/
 .env.*
 !.env.example
 
+# Deploy: host-specific config + rendered runtime env (examples ARE committed)
+/deploy/config.env
+/deploy/upstreamwx.env
+
 # Runtime data cache (raw GRIB2/WBD downloads never committed)
 /data/
 /cache/
