@@ -1,0 +1,8 @@
+{
+  "tier_labels": {
+    "Minimal": "Low Exposure",
+    "Elevated": "Moderate Exposure",
+    "High": "High Exposure",
+    "Extreme": "Extreme Exposure"
+  }
+}

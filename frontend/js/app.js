@@ -54,6 +54,21 @@ function specFromBriefing(b) {
   };
 }
 
+// ── Tier display-label config ────────────────────────────────────────
+// Maps backend API tier strings ("Minimal", "Elevated", "High", "Extreme") to
+// user-facing display names.  Populated from data/display-config.json at startup;
+// the identity mapping below is the safe fallback when that file is absent.
+let TIER_LABELS = { Minimal: "Minimal", Elevated: "Elevated", High: "High", Extreme: "Extreme" };
+
+function displayTier(t) {
+  return TIER_LABELS[t] ?? t;
+}
+
+// Remaps the tier portion of a "Hazard — Tier" lead-label string.
+function displayLeadLabel(s) {
+  return s.replace(/— (.+)$/, (_, t) => `— ${displayTier(t)}`);
+}
+
 /* ── Acronym glossary (Resources card + tap-to-define) ─────────────────
  * Definitions for the acronyms that show up in the BLUF/SITREP and hazard
  * cards. Surfaced two ways: a glossary card in Resources and inline
@@ -283,7 +298,7 @@ function missionCard(b) {
       </div>
       <div class="mission-card__posture">
         <div class="eyebrow">Overall posture</div>
-        ${postureChip(b.overall_posture, overallSevClass(b), true)}
+        ${postureChip(displayTier(b.overall_posture), overallSevClass(b), true)}
         ${confidenceTag(b.overall_confidence, true)}
       </div>
     </section>`;
@@ -328,7 +343,7 @@ function renderOverview(b) {
         <div class="hazard-line__body">
           <div class="hazard-line__name">${HAZARD_LABELS[h.hazard]}</div>${win}
         </div>
-        <div class="hazard-line__right">${postureChip(h.label, h.severity_class)}${confidenceTag(h.confidence)}</div>
+        <div class="hazard-line__right">${postureChip(displayTier(h.label), h.severity_class)}${confidenceTag(h.confidence)}</div>
       </button>`;
     })
     .join("");
@@ -348,7 +363,7 @@ function renderOverview(b) {
       (p) => `<div class="phase-seg">
         <div class="phase-seg__name">${PHASE_LABELS[p.phase]}</div>
         <div class="phase-seg__time">${esc(fmtClock(p.window))}</div>
-        <div class="phase-seg__lead">${esc(p.lead_label)}</div>
+        <div class="phase-seg__lead">${esc(displayLeadLabel(p.lead_label))}</div>
         <div class="phase-seg__hazards">${esc(p.applicable)}</div>
         ${p.note ? `<div class="phase-seg__note">${esc(p.note)}</div>` : ""}
       </div>`
@@ -628,7 +643,7 @@ function renderHazards(b) {
       <summary class="hazard-detail__summary">
         ${icon(h.hazard, "icon")}
         <span class="hazard-detail__name">${HAZARD_LABELS[h.hazard]}</span>
-        ${postureChip(h.label, h.severity_class)}
+        ${postureChip(displayTier(h.label), h.severity_class)}
         ${icon("chevron", "hazard-detail__chev")}
       </summary>
       <div class="hazard-detail__body">
@@ -652,7 +667,7 @@ function renderHazards(b) {
       ${legend}
     </section>
     <div style="display:flex;flex-direction:column;gap:var(--space-2)">${details}</div>
-    <div class="disclaimer">Severity on the UpstreamWX ladder (Minimal / Elevated / High / Extreme); heat uses NWS Heat Index categories. Confidence shown as hatching and an explicit label; bar length distinguishes persistent from windowed hazards (display only).</div>`;
+    <div class="disclaimer">Severity on the UpstreamWX ladder (${["Minimal", "Elevated", "High", "Extreme"].map(displayTier).join(" / ")}); heat uses NWS Heat Index categories. Confidence shown as hatching and an explicit label; bar length distinguishes persistent from windowed hazards (display only).</div>`;
   linkifyAcronyms(document.getElementById("view-hazards"));
 }
 
@@ -873,7 +888,7 @@ function renderAbout(b) {
       <div class="about-haz__basis">${esc(basis)}</div>
       <div class="about-matrix">${rows
         .map(([tier, cls, cond]) => `<div class="about-matrix__row">
-          <span class="posture-chip ${cls} about-matrix__tier">${esc(tier)}</span>
+          <span class="posture-chip ${cls} about-matrix__tier">${esc(displayTier(tier))}</span>
           <span class="about-matrix__cond">${esc(cond)}</span>
         </div>`)
         .join("")}</div>
@@ -885,13 +900,13 @@ function renderAbout(b) {
     <button class="about-back" id="close-about">${icon("arrow_left", "about-back__icon")}Resources</button>
     <h1 class="about-title">About &amp; Methodology</h1>
     <p class="about-lede">UpstreamWX is a planning-reference briefing for caving and canyoneering. It gathers official and modeled weather, assesses four life-safety hazards (flash flooding, lightning, heat, and cold/wet hypothermia), and shows the reasoning. It never tells you whether to go.</p>
-    <p class="about-p">The hazard posture labels (Minimal, Elevated, High, Extreme) follow standard risk-management terminology. As outdoor adventurers, our internal risk assessment is calibrated differently than most, so a posture like "High" or "Extreme" may read as stronger than you expect. Treat it as a prompt to look closer, not as a verdict.</p>
+    <p class="about-p">The hazard posture labels (${["Minimal", "Elevated", "High", "Extreme"].map(displayTier).join(", ")}) follow standard risk-management terminology. As outdoor adventurers, our internal risk assessment is calibrated differently than most, so a posture like "${displayTier("High")}" or "${displayTier("Extreme")}" may read as stronger than you expect. Treat it as a prompt to look closer, not as a verdict.</p>
 
     <section class="card">
       <div class="eyebrow">The deterministic engine</div>
       <p class="about-p">Every hazard posture, confidence level, and window of concern is decided by a deterministic, documented rule engine. Identical inputs always produce an identical result. The Claude language model only frames the wording of the summary. It can never compute, raise, or lower a posture.</p>
       <ul class="about-list">
-        <li>Four hazards are scored independently on a common scale (Minimal, Elevated, High, Extreme), except heat, which uses the NWS Heat Index categories.</li>
+        <li>Four hazards are scored independently on a common scale (${["Minimal", "Elevated", "High", "Extreme"].map(displayTier).join(", ")}), except heat, which uses the NWS Heat Index categories.</li>
         <li>Each hazard applies only in the expedition phases where it is relevant (approach, technical span, egress) and per activity type. A cave technical span is treated as isolated from surface weather and shows flash flood only.</li>
         <li>The overall expedition posture is the maximum across all applicable hazards, and every hazard stays visible, so a high lightning posture on approach is never hidden behind a low flood posture.</li>
         <li>A confidence qualifier per hazard comes from SREF ensemble agreement and cross-source consistency, including SREF and HREF agreement on same-day windows.</li>
@@ -1243,6 +1258,10 @@ function renderAll(b) {
 }
 
 async function main() {
+  try {
+    const cfg = await fetch("data/display-config.json").then((r) => r.json());
+    if (cfg?.tier_labels) Object.assign(TIER_LABELS, cfg.tier_labels);
+  } catch (_) { /* keep identity defaults */ }
   renderTabs();
   initGlossaryInteractions();
   initPlannerControls();
