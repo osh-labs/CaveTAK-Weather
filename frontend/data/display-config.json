@@ -4,5 +4,12 @@
     "Elevated": "Moderate Exposure",
     "High": "High Exposure",
     "Extreme": "Extreme Exposure"
+  },
+  "heat_labels": {
+    "None": "None",
+    "Caution": "Low Exposure",
+    "Extreme Caution": "Moderate Exposure",
+    "Danger": "High Exposure",
+    "Extreme Danger": "Extreme Exposure"
   }
 }

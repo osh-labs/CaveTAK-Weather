@@ -1261,6 +1261,7 @@ async function main() {
   try {
     const cfg = await fetch("data/display-config.json").then((r) => r.json());
     if (cfg?.tier_labels) Object.assign(TIER_LABELS, cfg.tier_labels);
+    if (cfg?.heat_labels) Object.assign(TIER_LABELS, cfg.heat_labels);
   } catch (_) { /* keep identity defaults */ }
   renderTabs();
   initGlossaryInteractions();

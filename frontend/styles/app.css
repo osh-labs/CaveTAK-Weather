@@ -271,15 +271,6 @@ main {
   color: var(--color-text-secondary);
 }
 
-.posture-chip::before {
-  content: "";
-  position: absolute;
-  left: var(--space-3);
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
-}
 
 .posture-chip.is-lg {
   width: var(--pill-w-lg);
