@@ -69,6 +69,21 @@ function displayLeadLabel(s) {
   return s.replace(/— (.+)$/, (_, t) => `— ${displayTier(t)}`);
 }
 
+// Single-pass replacement of all configured label strings in backend-authored text
+// (threshold logic, driver copy). Sorts longest key first so "Extreme Caution"
+// matches before "Extreme", avoiding double-substitution.
+function displayLogic(s) {
+  const entries = Object.entries(TIER_LABELS)
+    .filter(([k, v]) => k !== v)
+    .sort(([a], [b]) => b.length - a.length);
+  if (!entries.length) return s;
+  const re = new RegExp(
+    `\\b(${entries.map(([k]) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
+    "g"
+  );
+  return s.replace(re, (m) => TIER_LABELS[m] ?? m);
+}
+
 /* ── Acronym glossary (Resources card + tap-to-define) ─────────────────
  * Definitions for the acronyms that show up in the BLUF/SITREP and hazard
  * cards. Surfaced two ways: a glossary card in Resources and inline
@@ -605,7 +620,7 @@ function barClass(cell) {
 // Render the engine's threshold logic as one tier per line, with the internal
 // appendix/section citation stripped (user-facing copy carries no references).
 function thresholdLogicHtml(logic) {
-  const lines = String(logic)
+  const lines = displayLogic(String(logic))
     .replace(/\s*\((?:Appendix B|§)[^)]*\)/g, "")
     .split(";")
     .map((s) => s.trim())
@@ -630,8 +645,8 @@ function renderHazards(b) {
     .join("");
 
   const legend = `<div class="legend">
-    ${["minimal", "elevated", "high", "extreme"]
-      .map((s) => `<span class="legend__item"><span class="legend__swatch bar-${s}"></span>${s[0].toUpperCase() + s.slice(1)}</span>`)
+    ${["Minimal", "Elevated", "High", "Extreme"]
+      .map((s) => `<span class="legend__item"><span class="legend__swatch bar-${s.toLowerCase()}"></span>${esc(displayTier(s))}</span>`)
       .join("")}
     <span class="legend__item"><span class="legend__swatch" style="background:var(--color-text-secondary)"></span>Solid = higher confidence</span>
     <span class="legend__item"><span class="legend__swatch legend__swatch--conf-low" style="background:var(--color-text-secondary)"></span>Striped = lower confidence</span>

@@ -274,7 +274,7 @@ main {
 
 .posture-chip.is-lg {
   width: var(--pill-w-lg);
-  font-size: var(--text-h2);
+  font-size: 14px;
   padding: var(--space-2) var(--space-4);
 }
 
