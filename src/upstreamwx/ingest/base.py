@@ -77,7 +77,7 @@ class IngestBundle:
     href_p_lightning: float | None = None
     href_in_range: bool = False
     href_cycle: str | None = None
-    href_fhour: int | None = None
+    href_fhour: str | None = None  # range label, e.g. "f11" or "f11-f16"; display only
 
     # SREF<->HREF cross-ensemble agreement (FR-17, §16.5); feeds the confidence
     # qualifier. "consistent" unless an in-range HREF materially diverges from SREF.

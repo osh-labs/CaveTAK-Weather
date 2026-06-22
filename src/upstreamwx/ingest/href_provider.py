@@ -8,10 +8,9 @@ range the engine takes the higher hazard tier (FR-19); this provider also record
 SREF<->HREF agreement as the cross-ensemble confidence cue (FR-17, §16.5).
 
 Because HREF publishes one file per forecast hour, ingestion is **conditional and
-window-scoped**: we resolve the forecast hour covering the mission window, fetch
-just the neighborhood-probability fields that hour needs, and aggregate the
-conservative max over the upstream polygon. Heavy/scheduled orchestration is
-deferred to M0.1.1 alongside the SREF scheduler.
+window-scoped**: we resolve every forecast hour covering the mission window, fetch
+each one, and aggregate the conservative max over the upstream polygon across all
+hours. Heavy/scheduled orchestration is deferred to M0.1.1 alongside the SREF scheduler.
 """
 
 from __future__ import annotations
@@ -61,33 +60,40 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-def forecast_hour_for_window(
+def forecast_hours_for_window(
     cycle_init: datetime,
     window_start: datetime,
     window_end: datetime,
     *,
     now: datetime | None = None,
-) -> tuple[int | None, bool]:
-    """Resolve the HREF forecast hour covering a mission window, and in-range flag.
+) -> tuple[list[int], bool]:
+    """Resolve all HREF forecast hours covering a mission window, and in-range flag.
 
-    Returns ``(fhour, in_range)``. ``fhour`` is the cycle-relative hour nearest the
-    window midpoint, clamped to ``[1, MAX_FHOUR]``. ``in_range`` is True only when
-    the window's lead from ``now`` falls in the same-day supplement band and the
-    forecast hour is within the HREF horizon; otherwise SREF alone covers it.
+    Returns ``(fhours, in_range)``. ``fhours`` is the sorted list of cycle-relative
+    forecast hours spanning the window, each clamped to ``[1, MAX_FHOUR]``.
+    ``in_range`` is True only when the window's lead from ``now`` falls in the
+    same-day supplement band and the window overlaps the HREF horizon; otherwise
+    ``fhours`` is empty and SREF alone covers the window.
     """
     now = _as_utc(now) if now is not None else datetime.now(UTC)
     cycle_init = _as_utc(cycle_init)
     window_start = _as_utc(window_start)
     window_end = _as_utc(window_end)
-    mid = window_start + (window_end - window_start) / 2
-    fhour = round((mid - cycle_init).total_seconds() / 3600.0)
 
+    raw_start = round((window_start - cycle_init).total_seconds() / 3600.0)
+    raw_end = round((window_end - cycle_init).total_seconds() / 3600.0)
+
+    in_horizon = raw_start <= MAX_FHOUR and raw_end >= 1
     lead_start_h = (window_start - now).total_seconds() / 3600.0
-    in_horizon = 1 <= fhour <= MAX_FHOUR
     in_band = lead_start_h <= MAX_LEAD_H and (window_end - now).total_seconds() > 0
     in_range = in_horizon and in_band
-    fhour = min(max(fhour, 1), MAX_FHOUR)
-    return (fhour if in_range else None), in_range
+
+    if not in_range:
+        return [], False
+
+    fhour_start = min(max(raw_start, 1), MAX_FHOUR)
+    fhour_end = min(max(raw_end, 1), MAX_FHOUR)
+    return list(range(fhour_start, fhour_end + 1)), True
 
 
 def cross_ensemble_agreement(
@@ -112,8 +118,10 @@ def cross_ensemble_agreement(
     return "consistent"
 
 
-def _domain_max(cycle, fhour, var, prob, polygon, *, fcst=None) -> float | None:
-    """HREF neighborhood-probability domain max for one field, or None if absent."""
+def _domain_max(
+    cycle, fhour: int, var: str, prob: str, polygon, *, fcst: str | None = None
+) -> float | None:
+    """HREF neighborhood-probability domain max for one forecast hour, or None if absent."""
     try:
         field = load_probability_field(cycle, fhour, var=var, prob=prob, fcst=fcst)
     except LookupError:
@@ -137,7 +145,7 @@ def fetch(
         bundle.notes.append("HREF: no available cycle on NOMADS (retention/lag).")
         return
 
-    fhour, in_range = forecast_hour_for_window(
+    fhours, in_range = forecast_hours_for_window(
         cycle.init_time, mission.window_start, mission.window_end, now=now
     )
     bundle.href_in_range = in_range
@@ -149,20 +157,35 @@ def fetch(
         )
         return
 
-    # Flash flood: max of the 1 h (>=0.5 in) and 3 h (>=1 in) neighborhood QPF.
-    p1 = _domain_max(cycle, fhour, PRECIP_VAR, PRECIP_1H_PROB, polygon, fcst=accum_window(fhour, 1))
-    p3 = _domain_max(cycle, fhour, PRECIP_VAR, PRECIP_3H_PROB, polygon, fcst=accum_window(fhour, 3))
-    href_precip = max([v for v in (p1, p3) if v is not None], default=None)
+    # Collect per-hour domain maxima; take the worst case across the window.
+    precip_vals: list[float] = []
+    ltng_vals: list[float] = []
+    for fhour in fhours:
+        p1 = _domain_max(
+            cycle, fhour, PRECIP_VAR, PRECIP_1H_PROB, polygon, fcst=accum_window(fhour, 1)
+        )
+        p3 = _domain_max(
+            cycle, fhour, PRECIP_VAR, PRECIP_3H_PROB, polygon, fcst=accum_window(fhour, 3)
+        )
+        hour_precip = max((v for v in (p1, p3) if v is not None), default=None)
+        if hour_precip is not None:
+            precip_vals.append(hour_precip)
 
-    # Lightning: explicit P(lightning); fall back to the reflectivity proxy.
-    href_ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, polygon)
-    if href_ltng is None:
-        href_ltng = _domain_max(cycle, fhour, REFC_VAR, REFC_PROB, polygon)
+        ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, polygon)
+        if ltng is None:
+            ltng = _domain_max(cycle, fhour, REFC_VAR, REFC_PROB, polygon)
+        if ltng is not None:
+            ltng_vals.append(ltng)
+
+    href_precip = max(precip_vals, default=None)
+    href_ltng = max(ltng_vals, default=None)
 
     bundle.href_p_precip = href_precip
     bundle.href_p_lightning = href_ltng
     bundle.href_cycle = f"{cycle.date}/{cycle.hh}Z"
-    bundle.href_fhour = fhour
+    bundle.href_fhour = (
+        f"f{fhours[0]:02d}" if len(fhours) == 1 else f"f{fhours[0]:02d}-f{fhours[-1]:02d}"
+    )
 
     # Neighborhood probability is itself a member-exceedance fraction; let the
     # stronger ensemble inform member support for the confidence qualifier (§16.5).
@@ -178,10 +201,11 @@ def fetch(
         bundle.sref_p_precip, bundle.sref_p_tstm, href_precip, href_ltng
     )
 
-    cold = fhour < MIN_USEFUL_LEAD_H
+    cold_start = fhours[0] < MIN_USEFUL_LEAD_H
     bundle.notes.append(
-        f"HREF cycle {bundle.href_cycle} f{fhour:02d}; neighborhood P(QPF) and "
+        f"HREF cycle {bundle.href_cycle} {bundle.href_fhour}; neighborhood P(QPF) and "
         "P(lightning) over the upstream domain (~3 km same-day supplement)."
-        + (" Note: within HREF spin-up window (<6 h); treat as supporting only." if cold else "")
+        + (" Note: window begins within HREF spin-up (<6 h); treat as supporting only."
+           if cold_start else "")
     )
     bundle.sources_ok[NAME] = True

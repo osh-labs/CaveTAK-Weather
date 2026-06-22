@@ -1,6 +1,6 @@
 """Offline tests for the HREF provider (FR-7a) and the engine HREF overlay.
 
-The pure helpers (in-range/forecast-hour resolution, cross-ensemble agreement) are
+The pure helpers (in-range/forecast-hours resolution, cross-ensemble agreement) are
 tested directly. The flash-flood and lightning evaluators are tested with the
 ``href_*`` inputs set, confirming "show both, higher tier wins" (FR-19) without
 touching the SREF-only corpus. A ``network``-marked end-to-end test exercises the
@@ -18,22 +18,43 @@ from upstreamwx.engine.models import HazardInputs, Tier
 from upstreamwx.engine.thresholds import load_thresholds
 from upstreamwx.ingest.href_provider import (
     cross_ensemble_agreement,
-    forecast_hour_for_window,
+    forecast_hours_for_window,
 )
 
 CONFIG = load_thresholds()
 
 
-# --- in-range / forecast-hour resolution ------------------------------------
+# --- in-range / forecast-hours resolution ------------------------------------
 
-def test_forecast_hour_in_same_day_window() -> None:
+def test_forecast_hours_in_same_day_window() -> None:
     now = datetime(2026, 6, 18, 6, tzinfo=UTC)
     cycle_init = datetime(2026, 6, 18, 0, tzinfo=UTC)  # 00Z cycle
     start = datetime(2026, 6, 18, 17, tzinfo=UTC)      # window ~11-13 h out
     end = datetime(2026, 6, 18, 19, tzinfo=UTC)
-    fhour, in_range = forecast_hour_for_window(cycle_init, start, end, now=now)
+    fhours, in_range = forecast_hours_for_window(cycle_init, start, end, now=now)
     assert in_range
-    assert fhour == 18  # midpoint 18Z is f18 off the 00Z cycle
+    assert fhours == [17, 18, 19]  # covers f17, f18, f19 off the 00Z cycle
+
+
+def test_multi_hour_window_returns_full_range() -> None:
+    now = datetime(2026, 6, 18, 0, tzinfo=UTC)
+    cycle_init = datetime(2026, 6, 18, 0, tzinfo=UTC)
+    start = datetime(2026, 6, 18, 11, tzinfo=UTC)  # f11
+    end = datetime(2026, 6, 18, 17, tzinfo=UTC)    # f17
+    fhours, in_range = forecast_hours_for_window(cycle_init, start, end, now=now)
+    assert in_range
+    assert fhours == [11, 12, 13, 14, 15, 16, 17]
+
+
+def test_single_hour_window_returns_one_element() -> None:
+    now = datetime(2026, 6, 18, 0, tzinfo=UTC)
+    cycle_init = datetime(2026, 6, 18, 0, tzinfo=UTC)
+    # Window fits inside a single forecast hour (both endpoints round to f13).
+    start = datetime(2026, 6, 18, 13, 0, tzinfo=UTC)
+    end = datetime(2026, 6, 18, 13, 20, tzinfo=UTC)
+    fhours, in_range = forecast_hours_for_window(cycle_init, start, end, now=now)
+    assert in_range
+    assert fhours == [13]
 
 
 def test_naive_window_datetimes_are_treated_as_utc() -> None:
@@ -43,9 +64,9 @@ def test_naive_window_datetimes_are_treated_as_utc() -> None:
     cycle_init = datetime(2026, 6, 18, 0, tzinfo=UTC)
     start = datetime(2026, 6, 18, 17)  # naive
     end = datetime(2026, 6, 18, 19)    # naive
-    fhour, in_range = forecast_hour_for_window(cycle_init, start, end, now=now)
+    fhours, in_range = forecast_hours_for_window(cycle_init, start, end, now=now)
     assert in_range
-    assert fhour == 18
+    assert fhours == [17, 18, 19]
 
 
 def test_window_beyond_supplement_band_is_out_of_range() -> None:
@@ -53,8 +74,9 @@ def test_window_beyond_supplement_band_is_out_of_range() -> None:
     cycle_init = datetime(2026, 6, 18, 0, tzinfo=UTC)
     start = now + timedelta(hours=60)  # well past the ~36 h band and HREF horizon
     end = start + timedelta(hours=2)
-    fhour, in_range = forecast_hour_for_window(cycle_init, start, end, now=now)
-    assert not in_range and fhour is None
+    fhours, in_range = forecast_hours_for_window(cycle_init, start, end, now=now)
+    assert not in_range
+    assert fhours == []
 
 
 def test_past_window_is_out_of_range() -> None:
@@ -62,8 +84,9 @@ def test_past_window_is_out_of_range() -> None:
     cycle_init = datetime(2026, 6, 18, 0, tzinfo=UTC)
     start = now - timedelta(hours=5)
     end = now - timedelta(hours=3)
-    _fhour, in_range = forecast_hour_for_window(cycle_init, start, end, now=now)
+    fhours, in_range = forecast_hours_for_window(cycle_init, start, end, now=now)
     assert not in_range
+    assert fhours == []
 
 
 # --- cross-ensemble agreement (FR-17, §16.5) --------------------------------
@@ -142,4 +165,4 @@ def test_live_provider_populates_bundle() -> None:
     fetch(mission, bundle, poly, cycle=cycle, now=start - timedelta(hours=11))
     assert bundle.sources_ok["href"] is True
     assert bundle.href_in_range
-    assert bundle.href_fhour is not None
+    assert isinstance(bundle.href_fhour, str) and bundle.href_fhour
