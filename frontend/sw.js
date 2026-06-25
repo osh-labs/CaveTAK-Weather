@@ -1,16 +1,17 @@
 /*
  * UpstreamWX service worker — offline shell + last-briefing cache (FR-26, FR-28).
  * Strategy:
- *   - App shell (HTML/CSS/JS/icons): stale-while-revalidate — serve the cached
- *     copy instantly (offline-capable, FR-26), but always fetch a fresh copy in
- *     the background and update the cache so the next load converges on the
- *     latest deploy without needing a service-worker version bump.
+ *   - App shell (HTML/CSS/JS/icons): network-first — serve the freshly deployed copy
+ *     when online (so a deploy shows up on the next reload, no version bump or double
+ *     reload needed) and fall back to the cached copy offline (FR-26). The previous
+ *     stale-while-revalidate strategy served the cached shell first, so a deploy was
+ *     invisible until a second reload — surprising during active iteration.
  *   - Briefing data: network-first, fall back to the cached copy when offline so
  *     the most recent fully generated briefing is reviewable with zero connectivity.
  * New briefing generation requires connectivity (FR-28); offline is review-only.
  */
 
-const VERSION = "uwx-v8";
+const VERSION = "uwx-v9";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
@@ -68,19 +69,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Shell: stale-while-revalidate. Serve cache immediately; refresh it in the
-  // background so the next navigation picks up new CSS/JS without a version bump.
+  // Shell: network-first. Fetch the deployed copy when online and refresh the cache;
+  // fall back to the cached shell only when the network is unavailable (FR-26).
   event.respondWith(
-    caches.open(SHELL).then((cache) =>
-      cache.match(request).then((cached) => {
-        const network = fetch(request)
-          .then((res) => {
-            if (res && res.ok && res.type === "basic") cache.put(request, res.clone());
-            return res;
-          })
-          .catch(() => cached);
-        return cached || network;
-      })
-    )
+    caches.open(SHELL).then(async (cache) => {
+      try {
+        const res = await fetch(request);
+        if (res && res.ok && res.type === "basic") cache.put(request, res.clone());
+        return res;
+      } catch (e) {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        throw e;
+      }
+    })
   );
 });

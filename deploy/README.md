@@ -151,6 +151,7 @@ manylinux wheels that bundle them.
 | `deploy.sh` warns `cfgrib failed to import` | ecCodes missing — see the Amazon Linux note above |
 | Service flaps / restarts | `journalctl -u upstreamwx-api -n 80`; usually a bad value in the env file |
 | `/v1/health` 502 from nginx | service down or wrong `DEPLOY_BIND_PORT`; check `systemctl status` |
+| Deploy succeeds but the PWA looks unchanged in the browser | The server *is* updated — it's the client service-worker cache. Confirm the server first: `curl -s https://<host>/sw.js \| grep VERSION` and `curl -s https://<host>/js/app.js \| head`. If those show the new code, do a hard reload (or DevTools → Application → Service Workers → Unregister, then reload). As of the network-first shell, deploys propagate on the next reload automatically — this only bites the one transition onto that SW. |
 | NWS ingest empty / 403 | set a real contact in `UPSTREAMWX_NWS_USER_AGENT` (FR-5) and restart |
 | No framed summary in briefings | `ANTHROPIC_API_KEY` unset — expected; the structured posture is unaffected |
 | `certbot` can't bind :80 | open the security group / firewall on 80 and 443 |

@@ -1347,6 +1347,16 @@ async function main() {
 }
 
 if ("serviceWorker" in navigator) {
+  // When a freshly deployed service worker takes control, reload once so the page runs
+  // the new shell instead of the one this tab booted with. Guarded so it fires only on
+  // an UPDATE (a controller was already active), never on the first-ever registration.
+  let _swRefreshing = false;
+  const _hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (_swRefreshing || !_hadController) return;
+    _swRefreshing = true;
+    window.location.reload();
+  });
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 }
 
