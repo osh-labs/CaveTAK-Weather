@@ -71,7 +71,8 @@ ok "user + directories ready"
 # --- 4. Source checkout --------------------------------------------------------------
 if [ ! -d "$DEPLOY_APP_DIR/.git" ]; then
     log "cloning $DEPLOY_REPO_URL ($DEPLOY_BRANCH) -> $DEPLOY_APP_DIR"
-    sudo -u "$DEPLOY_USER" git clone --branch "$DEPLOY_BRANCH" "$DEPLOY_REPO_URL" "$DEPLOY_APP_DIR"
+    # -H so git runs with the service user's HOME, not the invoking sudoer's (see deploy.sh).
+    sudo -u "$DEPLOY_USER" -H git clone --branch "$DEPLOY_BRANCH" "$DEPLOY_REPO_URL" "$DEPLOY_APP_DIR"
 else
     ok "repo already present at $DEPLOY_APP_DIR (deploy.sh will update it)"
 fi
