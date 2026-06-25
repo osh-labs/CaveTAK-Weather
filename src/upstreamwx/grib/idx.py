@@ -16,6 +16,7 @@ code drives both ensembles.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -90,8 +91,14 @@ def parse_idx(text: str) -> list[IdxEntry]:
     return entries
 
 
-def fetch_idx(idx_url: str, timeout: float = 30.0) -> list[IdxEntry]:
-    """Download and parse a ``.idx`` sidecar."""
+def fetch_idx(
+    idx_url: str, timeout: float | tuple[float, float] = (10.0, 30.0)
+) -> list[IdxEntry]:
+    """Download and parse a ``.idx`` sidecar.
+
+    ``timeout`` is a ``(connect, read)`` pair so an unreachable NOMADS fails fast on
+    connect rather than blocking the whole briefing's latency budget (NFR-6).
+    """
     resp = requests.get(idx_url, headers=_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return parse_idx(resp.text)
@@ -123,20 +130,38 @@ def download_subset(
     grib_url: str,
     selected: list[IdxEntry],
     out_path: str | Path,
-    timeout: float = 120.0,
+    timeout: float | tuple[float, float] = (10.0, 30.0),
+    max_seconds: float = 60.0,
 ) -> Path:
     """Fetch the byte spans for ``selected`` messages and write a valid GRIB2 file.
 
     Returns the output path. Issues one Range request per message (NOMADS does not
     reliably support multipart ranges) and concatenates in index order.
+
+    ``timeout`` is a ``(connect, read)`` pair so an unreachable NOMADS fails fast on
+    connect rather than blocking. Because we loop one request per message, a slow but
+    reachable host could still stack well past any single timeout, so ``max_seconds``
+    caps the *total* wall-clock for the whole subset: once exceeded we raise
+    ``TimeoutError`` and let the caller degrade that ensemble gracefully (NFR-6)
+    rather than overrun the briefing's latency budget (and the front proxy timeout).
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("wb") as fh:
+    deadline = time.monotonic() + max_seconds
+    # One Session for the whole subset so keep-alive reuses a single TCP+TLS
+    # connection across all ~N range requests, instead of a fresh handshake per
+    # message (the dominant cost when a field spans the full forecast horizon).
+    with requests.Session() as session, out_path.open("wb") as fh:
+        session.headers.update(_HEADERS)
         for entry in sorted(selected, key=lambda e: e.start):
-            resp = requests.get(
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"GRIB subset exceeded {max_seconds:.0f}s budget "
+                    f"({grib_url}); degrading this ensemble."
+                )
+            resp = session.get(
                 grib_url,
-                headers={**_HEADERS, "Range": entry.range_header()},
+                headers={"Range": entry.range_header()},
                 timeout=timeout,
                 stream=True,
             )

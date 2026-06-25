@@ -214,17 +214,25 @@ function initGlossaryInteractions() {
 // static-only deployment with no backend) fall back to the bundled sample so the PWA
 // still renders. The render layer is identical either way — both shapes are the same
 // structured contract.
+// POST the mission spec and return the freshly generated briefing, or throw with a
+// useful message. This is the live path; it never substitutes other data on failure.
+async function postBriefing(spec) {
+  const res = await fetch(API_BRIEFING, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  if (!res.ok) throw new Error(`server returned ${res.status}`);
+  state.fromCache = res.headers.get("x-from-sw-cache") === "1" || !navigator.onLine;
+  return await res.json();
+}
+
+// Initial load only: try the live briefing, else fall back to the cached/sample copy
+// so the app still opens for offline review (FR-26). NOT used for edits — see refresh().
 async function loadBriefing(spec) {
   if (spec) {
     try {
-      const res = await fetch(API_BRIEFING, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(spec),
-      });
-      if (!res.ok) throw new Error(res.status);
-      state.fromCache = res.headers.get("x-from-sw-cache") === "1" || !navigator.onLine;
-      return await res.json();
+      return await postBriefing(spec);
     } catch (e) {
       // fall through to the offline sample below
     }
@@ -245,15 +253,21 @@ async function loadBriefing(spec) {
 }
 
 // Re-fetch and re-render for an updated mission spec (point move / mission edit).
+// A failed live fetch must NOT silently swap in the sample briefing — that reads as
+// "the edit did nothing". Surface the failure and keep the current briefing on screen.
 async function refresh(spec) {
   persistSpec(spec);
   const status = document.getElementById("status");
   if (status) status.innerHTML = `<span class="status-line__currency">Updating briefing…</span>`;
   let b;
   try {
-    b = await loadBriefing(spec);
+    b = await postBriefing(spec);
   } catch (e) {
-    if (status) status.innerHTML = `<span class="status-line__currency">Could not update briefing.</span>`;
+    if (status) {
+      status.innerHTML =
+        `<span class="status-line__currency">Could not update briefing (${esc(String(e.message || e))}). ` +
+        `Showing the previous briefing — try again in a moment.</span>`;
+    }
     return;
   }
   renderAll(b);

@@ -77,8 +77,12 @@ class SrefCycle:
         return self.product_url(**kw) + ".idx"
 
 
-def _exists(url: str, timeout: float = 30.0) -> bool:
-    """True if a HEAD/GET on ``url`` returns HTTP 200."""
+def _exists(url: str, timeout: float | tuple[float, float] = (8.0, 15.0)) -> bool:
+    """True if a HEAD/GET on ``url`` returns HTTP 200.
+
+    A ``(connect, read)`` pair so probing back through several candidate cycles
+    fails fast when NOMADS is unreachable instead of stacking full timeouts (NFR-6).
+    """
     try:
         # NOMADS sometimes 405s on HEAD; a tiny ranged GET is reliable.
         resp = requests.get(
