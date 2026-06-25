@@ -27,6 +27,7 @@ from pathlib import Path
 import yaml
 
 from ..engine.models import ActivityType, HazardInputs, Mission
+from ..timezones import localize_window
 from .generate import generate_briefing
 
 
@@ -46,14 +47,18 @@ def _load_inputs(path: Path) -> HazardInputs:
 
 
 def _build_mission(args: argparse.Namespace) -> Mission:
+    # Interpret the naive --start/--end as local wall-clock time at the point (FR-9).
+    start, end, approach_end, egress_start = localize_window(
+        args.lat, args.lon, args.start, args.end, args.approach_end, args.egress_start
+    )
     return Mission(
         activity_type=ActivityType(args.activity),
         lat=args.lat,
         lon=args.lon,
-        window_start=args.start,
-        window_end=args.end,
-        approach_end=args.approach_end,
-        egress_start=args.egress_start,
+        window_start=start,
+        window_end=end,
+        approach_end=approach_end,
+        egress_start=egress_start,
         party_size=args.party_size,
         route_note=args.route_note,
         is_slot=args.slot,

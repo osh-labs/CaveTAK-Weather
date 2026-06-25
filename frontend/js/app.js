@@ -298,8 +298,11 @@ function renderHeader(b) {
 function missionCard(b) {
   const m = b.mission;
   const start = new Date(m.window_start), end = new Date(m.window_end);
-  const fmtD = start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  const fmtT = (d) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  // Render the window in the mission's own zone (tz_name), not the viewer's browser
+  // zone, so a trip planned from another timezone still reads as local wall-clock (FR-9).
+  const tz = m.tz_name || undefined;
+  const fmtD = start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: tz });
+  const fmtT = (d) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz });
   return `
     <section class="card mission-card">
       <div class="mission-card__main">
@@ -973,7 +976,9 @@ function closeAbout() {
 /* ── Status / currency line (FR-39, FR-41) ─────────────────────────── */
 function renderStatus(b) {
   const gen = new Date(b.generated_at);
-  const t = gen.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  // Show currency in the mission's local zone to match the window/label (FR-9, FR-41).
+  const tz = b.mission.tz_name || undefined;
+  const t = gen.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz });
   const cached = b.cached || state.fromCache;
   document.getElementById("status").innerHTML = `
     ${cached ? `<span class="cached-badge">${icon("wifi_off", "")} Cached</span>` : ""}

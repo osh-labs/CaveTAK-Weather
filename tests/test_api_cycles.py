@@ -135,8 +135,10 @@ def test_scheduler_drops_ended_missions(monkeypatch):
     )
     service.get_briefing(spec, now=_utc(2026, 6, 19, 12))
     assert service.active_count == 1
-    # A pass after the window has ended drops the mission and refreshes nothing.
-    assert service.refresh_active(now=_utc(2026, 6, 21, 0)) == 0
+    # A pass after the window has ended drops the mission and refreshes nothing. The
+    # 18:00 window end is local (this point is Mountain time), so it ends ~00:00-01:00Z
+    # on the 21st; use a later UTC `now` that is unambiguously past it.
+    assert service.refresh_active(now=_utc(2026, 6, 21, 12)) == 0
     assert service.active_count == 0
 
 

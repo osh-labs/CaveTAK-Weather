@@ -77,7 +77,7 @@ SREF ensemble (upstream domain):
 - Convective rate: n/a
 - CAPE: 1200 J/kg
 
-HREF same-day supplement (cycle 20260620/12Z f009):
+HREF same-day supplement (cycle 20260620/12Z f09-f16):
 - Neighborhood P(QPF): 45%
 - Neighborhood P(lightning): 35%
 

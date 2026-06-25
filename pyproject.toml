@@ -25,6 +25,11 @@ dependencies = [
     "pydantic-settings",
     "pyyaml",
     "anthropic",
+    # Mission-local time: resolve the IANA zone for a lat/lon offline so the mission
+    # window is interpreted as local wall-clock (timezones.py). tzdata guarantees a
+    # zoneinfo database even on minimal hosts.
+    "timezonefinder",
+    "tzdata",
     # M0.3 API: always-on briefing service on the existing EC2 (PRD §7).
     "fastapi",
     "uvicorn[standard]",

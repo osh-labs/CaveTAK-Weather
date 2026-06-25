@@ -10,7 +10,8 @@
     "window_start": "2026-06-18T13:00:00-04:00",
     "window_end": "2026-06-18T22:00:00-04:00",
     "phases_inferred": true,
-    "timezone": "EDT"
+    "timezone": "EDT",
+    "tz_name": "America/New_York"
   },
   "watershed": {
     "huc12": [],

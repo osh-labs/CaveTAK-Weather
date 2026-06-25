@@ -13,6 +13,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from ..engine.models import ActivityType, HazardInputs, Mission
+from ..timezones import localize_window
 
 
 class MissionSpec(BaseModel):
@@ -39,14 +40,19 @@ class MissionSpec(BaseModel):
     )
 
     def to_mission(self) -> Mission:
+        # The window is entered as local wall-clock time at the trip point; attach the
+        # point's IANA zone so the engine's UTC math and the local-time display agree (FR-9).
+        start, end, approach_end, egress_start = localize_window(
+            self.lat, self.lon, self.start, self.end, self.approach_end, self.egress_start
+        )
         return Mission(
             activity_type=self.activity,
             lat=self.lat,
             lon=self.lon,
-            window_start=self.start,
-            window_end=self.end,
-            approach_end=self.approach_end,
-            egress_start=self.egress_start,
+            window_start=start,
+            window_end=end,
+            approach_end=approach_end,
+            egress_start=egress_start,
             party_size=self.party_size,
             route_note=self.route_note,
             is_slot=self.slot,

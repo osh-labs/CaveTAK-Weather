@@ -46,7 +46,7 @@ def canyon_href_case() -> tuple[dict, str]:
     bundle = IngestBundle(
         sref_p_precip=65, sref_p_tstm=50, measurable_precip=True, cape_jkg=1200,
         href_p_precip=45, href_p_lightning=35, href_in_range=True,
-        href_cycle="20260620/12Z", href_fhour=9, source_agreement="partial",
+        href_cycle="20260620/12Z", href_fhour="f09-f16", source_agreement="partial",
         heat_index_f=95, apparent_temp_f=92, wind_mph=8, spc_category="slight",
         afd_convective_mention=True, notes=["openmeteo: ok"],
     )

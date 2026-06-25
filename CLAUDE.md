@@ -50,6 +50,7 @@ These are load-bearing. Violating one is a correctness bug, not a style nit.
 ```
 src/upstreamwx/        backend package (importable as `upstreamwx`)
   config.py              pydantic-settings Settings (env prefix UPSTREAMWX_, reads .env)
+  timezones.py           lat/lon -> IANA zone (timezonefinder, offline); localizes the mission window to local wall-clock (FR-9)
   engine/                deterministic decision engine (the product's spine)
     models.py              Mission, HazardInputs, HazardPosture, BriefingResult; Tier/HeatCategory/Confidence enums
     assess.py              orchestrator: assess(mission, inputs, config) -> BriefingResult

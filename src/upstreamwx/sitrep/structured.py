@@ -92,14 +92,19 @@ def _fmt_window(window: tuple[datetime, datetime] | None) -> str | None:
 
 
 def _tz_label(dt: datetime) -> str:
-    """Display timezone label from a window datetime's UTC offset (e.g. ``UTC-04:00``)."""
-    off = dt.utcoffset()
-    if off is None:
-        return "UTC"
-    total = int(off.total_seconds())
-    sign = "+" if total >= 0 else "-"
-    total = abs(total)
-    return f"UTC{sign}{total // 3600:02d}:{(total % 3600) // 60:02d}"
+    """Short display timezone label for a window datetime (e.g. ``MDT``); ``UTC`` if naive.
+
+    The window is localized to the mission's own zone at the request boundary
+    (:mod:`upstreamwx.timezones`), so the abbreviation reflects the trip location and
+    its DST state on the window date — not the server's clock.
+    """
+    return dt.tzname() or "UTC"
+
+
+def _tz_name(dt: datetime) -> str | None:
+    """IANA zone key for the window datetime, so the PWA can format in the mission's
+    local time regardless of the viewer's browser timezone (FR-9). None if unzoned."""
+    return getattr(dt.tzinfo, "key", None)
 
 
 def _area_sq_mi(area_km2: float) -> float:
@@ -338,6 +343,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
             "window_end": mission.window_end.isoformat(),
             "phases_inferred": result.phases_inferred,
             "timezone": _tz_label(mission.window_start),
+            "tz_name": _tz_name(mission.window_start),
         },
         "watershed": _watershed(upstream),
         "overall_posture": result.overall_tier.label,

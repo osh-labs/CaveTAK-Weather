@@ -281,7 +281,7 @@ def _render_source_data(lines: list[str], bundle: IngestBundle | None) -> None:
     lines.append(f"- CAPE: {_num(bundle.cape_jkg, 'J/kg')}")
 
     if bundle.href_in_range:
-        fhour = "n/a" if bundle.href_fhour is None else f"f{bundle.href_fhour:03d}"
+        fhour = bundle.href_fhour or "n/a"
         lines.append("")
         lines.append(f"HREF same-day supplement (cycle {bundle.href_cycle or 'n/a'} {fhour}):")
         lines.append(f"- Neighborhood P(QPF): {_pct(bundle.href_p_precip)}")
