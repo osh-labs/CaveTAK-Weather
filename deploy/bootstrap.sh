@@ -91,15 +91,28 @@ log "installing systemd unit and nginx site"
 render_template "$DEPLOY_APP_DIR/deploy/systemd/upstreamwx-api.service" \
                 "/etc/systemd/system/${DEPLOY_SERVICE}.service"
 
+# Render the nginx site ONLY if it doesn't already exist. Re-running bootstrap must not
+# clobber a certbot-managed config: `certbot --nginx` rewrites this file in place to add
+# the :443/TLS block, and overwriting it back to the HTTP-only template silently breaks
+# HTTPS (browsers then fall back to the cached service worker and deploys never appear).
+install_nginx_site() {
+    local dest="$1"
+    if [ -f "$dest" ]; then
+        warn "nginx site already exists at $dest — preserving it (keeps any certbot TLS)."
+        warn "  delete it and re-run bootstrap to re-render from the template."
+    else
+        render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" "$dest"
+        ok "rendered nginx site -> $dest"
+    fi
+}
+
 if [ -d /etc/nginx/sites-available ]; then
-    render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" \
-                    "/etc/nginx/sites-available/upstreamwx.conf"
+    install_nginx_site "/etc/nginx/sites-available/upstreamwx.conf"
     ln -sf /etc/nginx/sites-available/upstreamwx.conf /etc/nginx/sites-enabled/upstreamwx.conf
     [ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
 else
     # Amazon Linux / RHEL nginx uses conf.d, not sites-available.
-    render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" \
-                    "/etc/nginx/conf.d/upstreamwx.conf"
+    install_nginx_site "/etc/nginx/conf.d/upstreamwx.conf"
 fi
 systemctl daemon-reload
 if nginx -t >/dev/null 2>&1; then
