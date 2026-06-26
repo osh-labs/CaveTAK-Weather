@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # contact (FR-5). Override via UPSTREAMWX_NWS_USER_AGENT to your own contact.
     nws_user_agent: str = "UpstreamWX/0.1 (+https://upstreamwx.com)"
 
+    # Number of recent SREF cycles to retain in the on-disk grid cache before pruning
+    # (roadmap §M0.1.1). 4 covers NOMADS's ~2-day retention (4 cycles/day at 03/09/15/21Z).
+    sref_cache_keep_cycles: int = 4
+
     # Start the M0.3 API's background refresh scheduler on app startup (FR-12). Default
     # on for the always-on EC2 service; set UPSTREAMWX_API_ENABLE_SCHEDULER=0 to run the
     # API without the recurring loop (e.g. tests, or a worker-less deployment).

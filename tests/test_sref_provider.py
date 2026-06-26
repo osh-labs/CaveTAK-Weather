@@ -138,7 +138,10 @@ def test_domain_max_applies_window_filter() -> None:
     window_end = CYCLE_INIT + timedelta(hours=6)
 
     with (
-        patch("upstreamwx.ingest.sref_provider.load_probability_field", return_value=mock_field),
+        patch(
+            "upstreamwx.ingest.sref_provider.load_probability_field_cached",
+            return_value=mock_field,
+        ),
         patch(
             "upstreamwx.ingest.sref_provider.aggregate_over_polygon",
             side_effect=lambda da_, polygon, **kw: MagicMock(max_value=float(da_.max())),
@@ -164,7 +167,10 @@ def test_domain_max_without_window_args_uses_all_steps() -> None:
     mock_cycle = MagicMock()
 
     with (
-        patch("upstreamwx.ingest.sref_provider.load_probability_field", return_value=mock_field),
+        patch(
+            "upstreamwx.ingest.sref_provider.load_probability_field_cached",
+            return_value=mock_field,
+        ),
         patch(
             "upstreamwx.ingest.sref_provider.aggregate_over_polygon",
             side_effect=lambda da_, polygon, **kw: MagicMock(max_value=float(da_.max())),
