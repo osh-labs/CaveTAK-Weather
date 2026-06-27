@@ -887,9 +887,11 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 /* ── 7.14 Status / currency line ───────────────────────────────────── */
 .status-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  /* Right and bottom respect iPhone safe-area insets (viewport-fit=cover). */
+  padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right, 0px))
+           max(var(--space-2), env(safe-area-inset-bottom, 0px)) var(--space-4);
   background: var(--color-bg);
   font-size: var(--text-caption);
   color: var(--color-text-muted);
@@ -901,8 +903,11 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   gap: var(--space-2);
   flex: 1;
   min-width: 0;
+  /* Nudge text to align with the gear icon's visual center on the first line. */
+  padding-top: 6px;
 }
-/* Persistent settings gear, pinned to the status bar's bottom-right (always reachable). */
+/* Persistent settings gear, pinned to the status bar's top-right (always reachable).
+   padding: 4px gives the SVG breathing room near iPhone screen corners. */
 .status-line__gear {
   flex-shrink: 0;
   display: inline-flex;
@@ -910,7 +915,7 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   justify-content: center;
   width: 32px;
   height: 32px;
-  padding: 0;
+  padding: 4px;
   margin-left: auto;
   border: none;
   background: transparent;
@@ -1153,12 +1158,13 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .mp-actions .btn-primary { flex: 1; margin: 0; }
 
 /* Settings modal — reuses the mp-sheet/mp-roc chrome; the LAoC slider is yellow to match
-   its map ring (distinct from the orange RoC slider). */
+   its map ring (distinct from the orange RoC/phase sliders). Yellow is scoped by ID so the
+   approach/egress sliders remain orange. */
 .settings-body { padding-bottom: var(--space-2); }
-#settings-modal .mp-roc__value { color: #facc15; }
-#settings-modal .mp-roc__slider::-webkit-slider-thumb { background: #facc15; }
-#settings-modal .mp-roc__slider::-moz-range-thumb { background: #facc15; }
-#settings-modal .mp-roc__slider:focus-visible { outline-color: #facc15; }
+#settings-laoc-value { color: #facc15; }
+#settings-laoc::-webkit-slider-thumb { background: #facc15; }
+#settings-laoc::-moz-range-thumb { background: #facc15; }
+#settings-laoc:focus-visible { outline-color: #facc15; }
 
 /* Mission name field — sits above the search bar, separated by a thin rule. */
 .mp-name-field {
@@ -1178,6 +1184,11 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   border-radius: var(--radius-md);
   color: var(--color-text);
   font-size: 16px; /* ≥16px suppresses iOS auto-zoom on focus */
+}
+/* Italic grey state shown when the name hasn't been user-set yet (cleared on focus). */
+.mp-name-field__input.is-placeholder-name {
+  color: var(--color-text-secondary);
+  font-style: italic;
 }
 .mp-divider {
   border: none;

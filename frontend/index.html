@@ -162,6 +162,46 @@
             </div>
             <p class="mp-roc__hint">Lightning risk is assessed within this radius of the activity, rather than across the whole upstream watershed.</p>
           </div>
+          <div class="mp-roc">
+            <div class="mp-roc__head">
+              <span class="mp-roc__label">Default approach time</span>
+              <span class="mp-roc__value" id="settings-approach-value">1 hr</span>
+            </div>
+            <input
+              id="settings-approach"
+              class="mp-roc__slider"
+              type="range"
+              min="0"
+              max="4"
+              step="1"
+              value="1"
+              aria-label="Default approach time"
+            />
+            <div class="mp-roc__ticks" aria-hidden="true">
+              <span>30m</span><span>1 hr</span><span>1½ hr</span><span>2 hr</span><span>3 hr</span>
+            </div>
+            <p class="mp-roc__hint">Time before the in-cave/canyon window used for approach-phase hazard weighting.</p>
+          </div>
+          <div class="mp-roc">
+            <div class="mp-roc__head">
+              <span class="mp-roc__label">Default egress time</span>
+              <span class="mp-roc__value" id="settings-egress-value">1 hr</span>
+            </div>
+            <input
+              id="settings-egress"
+              class="mp-roc__slider"
+              type="range"
+              min="0"
+              max="4"
+              step="1"
+              value="1"
+              aria-label="Default egress time"
+            />
+            <div class="mp-roc__ticks" aria-hidden="true">
+              <span>30m</span><span>1 hr</span><span>1½ hr</span><span>2 hr</span><span>3 hr</span>
+            </div>
+            <p class="mp-roc__hint">Time after the in-cave/canyon window used for egress-phase hazard weighting.</p>
+          </div>
         </div>
         <footer class="mp-actions">
           <button id="settings-save" class="btn-primary" type="button">Save settings</button>
