@@ -54,17 +54,23 @@ function rocMiFromSpec(spec) {
 }
 
 /* ── User preferences (modular, localStorage) ──────────────────────────
- * App-wide settings kept separate from the per-mission spec, so a future
- * settings panel can grow new keys without touching the mission contract.
- * Today it holds the Lightning Area of Concern radius (PRD §16.1): the disk
- * around the activity the backend aggregates the lightning signal over instead
- * of the upstream watershed. Stored in km; the slider works in miles. UI yellow
- * is distinct from the orange RoC ring and the amber mission marker. */
+ * App-wide settings kept separate from the per-mission spec, so the settings
+ * panel can grow new keys without touching the mission contract.
+ * • laoc_radius_km: Lightning Area of Concern disk (PRD §16.1). Stored in km;
+ *   slider in miles. UI yellow is distinct from orange RoC/phase sliders.
+ * • approach_hrs / egress_hrs: phase-marker defaults sent to the API; the
+ *   backend infers 1 h each when null, so the shipped defaults match exactly. */
 const PREFS_KEY = "uwx.prefs.v1";
 const LAOC_STOPS_MI = [10, 15, 25, 50, 100];
 const LAOC_DEFAULT_MI = 15;
 const UI_YELLOW = "#facc15";
-const DEFAULT_PREFS = { laoc_radius_km: LAOC_DEFAULT_MI * MI_TO_KM };
+const PHASE_STOPS_HR = [0.5, 1, 1.5, 2, 3];
+const PHASE_DEFAULT_HR = 1;
+const DEFAULT_PREFS = {
+  laoc_radius_km: LAOC_DEFAULT_MI * MI_TO_KM,
+  approach_hrs: PHASE_DEFAULT_HR,
+  egress_hrs: PHASE_DEFAULT_HR,
+};
 
 function loadPrefs() {
   let saved = null;
@@ -85,6 +91,16 @@ function laocMiFromPrefs(prefs) {
   if (prefs && Number.isFinite(prefs.laoc_radius_km)) return prefs.laoc_radius_km / MI_TO_KM;
   return LAOC_DEFAULT_MI;
 }
+function nearestPhaseIndex(hrs) {
+  let best = 0;
+  for (let i = 1; i < PHASE_STOPS_HR.length; i++) {
+    if (Math.abs(PHASE_STOPS_HR[i] - hrs) < Math.abs(PHASE_STOPS_HR[best] - hrs)) best = i;
+  }
+  return best;
+}
+function phaseLabel(hrs) {
+  return hrs < 1 ? `${Math.round(hrs * 60)} min` : `${hrs} hr`;
+}
 
 const DEFAULT_SPEC = {
   lat: 34.665, lon: -85.361667, activity: "cave",
@@ -92,6 +108,8 @@ const DEFAULT_SPEC = {
   name: "Pettyjohn's Cave", slot: false, frame: false,
   radius_km: ROC_DEFAULT_MI * MI_TO_KM,
 };
+// Canonical default name shown italic/grey in the planner until the user types their own.
+const DEFAULT_NAME = DEFAULT_SPEC.name;
 
 function savedSpec() {
   try { return JSON.parse(localStorage.getItem(MISSION_KEY)); } catch (e) { return null; }
@@ -283,9 +301,18 @@ const DEMO_MODE =
 // POST the mission spec and return the freshly generated briefing, or throw with a
 // useful message. This is the live path; it never substitutes other data on failure.
 async function postBriefing(spec) {
-  // Fold the user's Lightning Area of Concern pref into the request without persisting it
-  // into the mission spec — it is an app-wide setting, not per-mission (PRD §16.1).
-  const body = { ...spec, lightning_radius_km: loadPrefs().laoc_radius_km };
+  // Fold app-wide prefs into the request without persisting them into the mission spec.
+  // approach_end / egress_start (FR-9a) are computed from the user's phase-time pref and
+  // sent explicitly so the backend uses the user's preference rather than the 1-hr default.
+  const prefs = loadPrefs();
+  const approachEnd = addHoursLocal(spec.start, prefs.approach_hrs ?? PHASE_DEFAULT_HR);
+  const egressStart = addHoursLocal(spec.end, -(prefs.egress_hrs ?? PHASE_DEFAULT_HR));
+  const body = {
+    ...spec,
+    approach_end: approachEnd,
+    egress_start: egressStart,
+    lightning_radius_km: prefs.laoc_radius_km,
+  };
   const res = await fetch(API_BRIEFING, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -948,6 +975,49 @@ function ensureHatchPattern(map) {
   svg.insertBefore(defs, svg.firstChild);
 }
 
+// Return a fresh set of Leaflet tile-layer instances for a map. Each call produces
+// independent instances — Leaflet binds a layer to one map at a time, so both the
+// briefing map and the mission planner map each need their own set.
+function makeTileLayers() {
+  const esri = (svc, attr) =>
+    L.tileLayer(
+      `https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`,
+      { maxZoom: 17, attribution: attr }
+    );
+  return {
+    dark: L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      {
+        subdomains: "abcd", maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+          '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+      }
+    ),
+    hillshade: L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade_Dark/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 16, opacity: 0.4, attribution: "Tiles &copy; Esri" }
+    ),
+    usgsTopo: L.tileLayer(
+      "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxZoom: 16,
+        attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>',
+      }
+    ),
+    esriTopo: esri("World_Topo_Map", "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, USGS, NPS"),
+    aerial:   esri("World_Imagery", "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"),
+    street:   esri("World_Street_Map", "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, USGS, NGA"),
+    openTopo: L.tileLayer(
+      "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+      {
+        subdomains: "abc", maxZoom: 17,
+        attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+          '<a href="http://viewfinderpanoramas.com">SRTM</a> | Style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+      }
+    ),
+  };
+}
+
 function initLeafletMap(b) {
   const container = document.getElementById("leaflet-map");
   if (!container || !window.L) return;
@@ -957,22 +1027,23 @@ function initLeafletMap(b) {
   _leafletMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 19 })
     .setView([m.lat, m.lon], 13);
 
-  // High-resolution dark basemap: CartoDB DarkMatter (maxZoom 19) with an Esri dark
-  // hillshade overlay for terrain relief. CartoDB includes labels; hillshade is capped
-  // at its native maxZoom and fades out gracefully at higher zoom levels.
-  L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+  // Basemap layer switcher: default to CartoDB Dark + Esri hillshade (matches app chrome).
+  // Hillshade is an overlay so it can be toggled off when using light topos (top-right
+  // Leaflet control). All providers are free / attribution-only.
+  const layers = makeTileLayers();
+  layers.dark.addTo(_leafletMap);
+  layers.hillshade.addTo(_leafletMap);
+  L.control.layers(
     {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-        '&copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: "abcd",
-      maxZoom: 19,
-    }
-  ).addTo(_leafletMap);
-  L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade_Dark/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 16, opacity: 0.4 }
+      "Dark": layers.dark,
+      "USGS Topo": layers.usgsTopo,
+      "Esri Topo": layers.esriTopo,
+      "Aerial": layers.aerial,
+      "Street": layers.street,
+      "OpenTopo": layers.openTopo,
+    },
+    { "Hillshade": layers.hillshade },
+    { position: "topright" }
   ).addTo(_leafletMap);
 
   // Upstream watershed: the kept (clipped) basin in 20%-opacity blue, the portion outside
@@ -1327,6 +1398,8 @@ let _mpSpec = null;
 // True once the user has manually edited the end field; suppresses the auto-follow
 // that keeps end = start + 4 h while the end is still at its default.
 let _mpEndUserSet = false;
+// True while the name input still holds DEFAULT_NAME untouched; cleared on first keystroke.
+let _nameIsDefault = false;
 // Fallback view (CONUS center) when no point is set yet.
 const MP_DEFAULT_CENTER = [39.5, -111.5];
 
@@ -1507,20 +1580,21 @@ function initPlannerMap() {
     return;
   }
 
-  // Readable, switchable Esri basemaps (free, attributed): topo / aerial / street.
-  const esri = (svc, attr) =>
-    L.tileLayer(
-      `https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`,
-      { maxZoom: 17, attribution: attr }
-    );
-  const topo = esri("World_Topo_Map", "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, USGS, NPS");
-  const aerial = esri("World_Imagery", "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community");
-  const street = esri("World_Street_Map", "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, USGS, NGA");
-
+  // Switchable basemaps — USGS Topo default (best for CONUS caving/canyoneering nav).
+  const layers = makeTileLayers();
   _mpMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 17 })
     .setView(start, hasPoint ? 12 : 6);
-  topo.addTo(_mpMap);
-  L.control.layers({ Topo: topo, Aerial: aerial, Street: street }, null, { position: "topright" }).addTo(_mpMap);
+  layers.usgsTopo.addTo(_mpMap);
+  L.control.layers(
+    {
+      "USGS Topo": layers.usgsTopo,
+      "Esri Topo": layers.esriTopo,
+      "Aerial": layers.aerial,
+      "Street": layers.street,
+      "OpenTopo": layers.openTopo,
+    },
+    null, { position: "topright" }
+  ).addTo(_mpMap);
 
   initPlannerLongPress(container);
 
@@ -1534,9 +1608,14 @@ function openMissionPlanner(spec) {
   hideGlossaryPopover();
   _mpSpec = { ...(spec || DEFAULT_SPEC) };
 
-  // Mission name — dedicated field above the search bar.
+  // Mission name — dedicated field above the search bar. Show the default in italic/grey
+  // to signal it hasn't been explicitly named yet; tap clears it for quick entry.
   const nameEl = document.getElementById("mp-name");
-  if (nameEl) nameEl.value = _mpSpec.name || "";
+  if (nameEl) {
+    nameEl.value = _mpSpec.name || DEFAULT_NAME;
+    _nameIsDefault = !_mpSpec.name || _mpSpec.name === DEFAULT_NAME;
+    nameEl.classList.toggle("is-placeholder-name", _nameIsDefault);
+  }
 
   document.getElementById("mp-activity").value = _mpSpec.activity || "canyon";
   document.getElementById("mp-slot").checked = !!_mpSpec.slot;
@@ -1639,10 +1718,27 @@ function initPlannerControls() {
   // End time: once the user touches this field it stops auto-following start.
   document.getElementById("mp-end").addEventListener("change", () => { _mpEndUserSet = true; });
 
-  // Name field: sync to spec + update tooltip on every keystroke.
+  // Name field: clear default placeholder on focus, restore on blur if empty, sync to spec.
   const nameInput = document.getElementById("mp-name");
   if (nameInput) {
+    nameInput.addEventListener("focus", () => {
+      if (_nameIsDefault) {
+        nameInput.value = "";
+        nameInput.classList.remove("is-placeholder-name");
+      }
+    });
+    nameInput.addEventListener("blur", () => {
+      if (!nameInput.value.trim()) {
+        nameInput.value = DEFAULT_NAME;
+        _nameIsDefault = true;
+        nameInput.classList.add("is-placeholder-name");
+        if (_mpSpec) _mpSpec.name = DEFAULT_NAME;
+        if (_mpMarker) _mpMarker.setTooltipContent(esc(DEFAULT_NAME));
+      }
+    });
     nameInput.addEventListener("input", () => {
+      _nameIsDefault = false;
+      nameInput.classList.remove("is-placeholder-name");
       _mpSpec.name = nameInput.value;
       if (_mpMarker) _mpMarker.setTooltipContent(esc(nameInput.value || "Expedition"));
     });
@@ -1659,7 +1755,7 @@ function initPlannerControls() {
       lat: _mpSpec.lat,
       lon: _mpSpec.lon,
       activity: document.getElementById("mp-activity").value,
-      name: (document.getElementById("mp-name")?.value || "").trim() || "expedition",
+      name: (document.getElementById("mp-name")?.value || "").trim() || DEFAULT_NAME,
       start: document.getElementById("mp-start").value,
       end: document.getElementById("mp-end").value,
       slot: document.getElementById("mp-slot").checked,
@@ -1677,14 +1773,31 @@ function updateLaocReadout(idx) {
   const el = document.getElementById("settings-laoc-value");
   if (el) el.textContent = `${LAOC_STOPS_MI[idx]} mi`;
 }
+function updatePhaseReadout(id, idx) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = phaseLabel(PHASE_STOPS_HR[idx]);
+}
 
-// Open the settings sheet, seeding the LAoC slider from the saved pref.
+// Open the settings sheet, seeding all sliders from saved prefs.
 function openSettings() {
   hideGlossaryPopover();
-  const idx = nearestLaocIndex(laocMiFromPrefs(loadPrefs()));
-  const slider = document.getElementById("settings-laoc");
-  if (slider) slider.value = String(idx);
-  updateLaocReadout(idx);
+  const prefs = loadPrefs();
+  const laocIdx = nearestLaocIndex(laocMiFromPrefs(prefs));
+  const approachIdx = nearestPhaseIndex(prefs.approach_hrs ?? PHASE_DEFAULT_HR);
+  const egressIdx = nearestPhaseIndex(prefs.egress_hrs ?? PHASE_DEFAULT_HR);
+
+  const laocSlider = document.getElementById("settings-laoc");
+  if (laocSlider) laocSlider.value = String(laocIdx);
+  updateLaocReadout(laocIdx);
+
+  const approachSlider = document.getElementById("settings-approach");
+  if (approachSlider) approachSlider.value = String(approachIdx);
+  updatePhaseReadout("settings-approach-value", approachIdx);
+
+  const egressSlider = document.getElementById("settings-egress");
+  if (egressSlider) egressSlider.value = String(egressIdx);
+  updatePhaseReadout("settings-egress-value", egressIdx);
+
   document.getElementById("settings-modal").hidden = false;
 }
 
@@ -1706,20 +1819,32 @@ function initSettingsControls() {
     if (e.target === e.currentTarget) closeSettings();
   });
 
-  const slider = document.getElementById("settings-laoc");
-  slider?.addEventListener("input", () => {
-    updateLaocReadout(parseInt(slider.value, 10) || 0);
+  const laocSlider = document.getElementById("settings-laoc");
+  laocSlider?.addEventListener("input", () => {
+    updateLaocReadout(parseInt(laocSlider.value, 10) || 0);
+  });
+
+  const approachSlider = document.getElementById("settings-approach");
+  approachSlider?.addEventListener("input", () => {
+    updatePhaseReadout("settings-approach-value", parseInt(approachSlider.value, 10) || 0);
+  });
+
+  const egressSlider = document.getElementById("settings-egress");
+  egressSlider?.addEventListener("input", () => {
+    updatePhaseReadout("settings-egress-value", parseInt(egressSlider.value, 10) || 0);
   });
 
   document.getElementById("settings-save")?.addEventListener("click", () => {
-    const idx = parseInt(slider?.value ?? "1", 10) || 0;
+    const laocIdx = parseInt(laocSlider?.value ?? "1", 10) || 0;
+    const approachIdx = parseInt(approachSlider?.value ?? "1", 10) || 0;
+    const egressIdx = parseInt(egressSlider?.value ?? "1", 10) || 0;
     const prefs = loadPrefs();
-    prefs.laoc_radius_km = LAOC_STOPS_MI[idx] * MI_TO_KM;
+    prefs.laoc_radius_km = LAOC_STOPS_MI[laocIdx] * MI_TO_KM;
+    prefs.approach_hrs = PHASE_STOPS_HR[approachIdx];
+    prefs.egress_hrs = PHASE_STOPS_HR[egressIdx];
     savePrefs(prefs);
     closeSettings();
-    // Re-generate so the new lightning domain takes effect (live path only; demo renders
-    // the frozen sample). The current mission drives the request; postBriefing folds in
-    // the freshly-saved pref.
+    // Re-generate so changes take effect (live path only; demo renders the frozen sample).
     if (!DEMO_MODE) {
       const spec = savedSpec() || (state.briefing ? specFromBriefing(state.briefing) : DEFAULT_SPEC);
       refresh(spec);
