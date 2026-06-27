@@ -3,38 +3,34 @@
 Thin wrapper over the Spike C HREF pipeline (``upstreamwx.href``), the sibling of
 :mod:`upstreamwx.ingest.sref_provider`. HREF is NCEP's ~3 km convection-allowing
 ensemble; it sharpens the flash-flood and lightning signal inside the **same-day
-window (~6-36 h)** while SREF keeps the longer planning horizon. Where both are in
+window (~36 h)** while SREF keeps the longer planning horizon. Where both are in
 range the engine takes the higher hazard tier (FR-19); this provider also records
 SREF<->HREF agreement as the cross-ensemble confidence cue (FR-17, §16.5).
 
-Because HREF publishes one file per forecast hour, ingestion is **conditional and
-window-scoped**: we resolve every forecast hour covering the mission window, fetch
-each one, and aggregate the conservative max over the upstream polygon across all
-hours. Heavy/scheduled orchestration is deferred to M0.1.1 alongside the SREF scheduler.
+Ingestion reads through the **persistent multi-run cache** (roadmap §M0.1.1). The scheduler
+warms f06-f48 of each HREF run and keeps several recent runs; for each valid hour in the
+mission window, :mod:`upstreamwx.ingest.href_selection` picks the freshest cached run whose
+forecast hour is >= 6, so the current run's spin-up hours are served from the *previous*
+run's mature forecast (no separate spin-up model needed). The provider then fetches each
+distinct ``(cycle, fhour)`` from the cache and aggregates the conservative max over the
+upstream polygon across the window.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from shapely.geometry.base import BaseGeometry
 
+from ..config import Settings, get_settings
 from ..engine.models import Mission
-from ..href import (
-    accum_window,
-    aggregate_over_polygon,
-    latest_available_cycle,
-    load_probability_field,
-)
-from ..href.sources import MAX_FHOUR
+from ..href import accum_window, aggregate_over_polygon, load_probability_field_cached
+from ..href.sources import HrefCycle
 from .base import IngestBundle
+from .href_selection import MAX_LEAD_H, cached_cycles, resolve_valid_time_sources
 
 NAME = "href"
-
-# Same-day supplement band (hours of lead from "now"): HREF's 0-6 h is left to the
-# HRRR-derived Open-Meteo layer (spin-up), and beyond ~36 h SREF takes over.
-MIN_USEFUL_LEAD_H = 6.0
-MAX_LEAD_H = 36.0
 
 # Flash-flood neighborhood QPF: P(>=0.5 in/1 h) and P(>=1 in/3 h) over the domain.
 PRECIP_VAR = "APCP"
@@ -48,52 +44,6 @@ REFC_VAR, REFC_PROB = "REFC", ">40"   # composite reflectivity >= 40 dBZ
 # with the other near "absent" is a material divergence (caps confidence; §16.5).
 AGREE_PRESENT_PCT = 20.0
 AGREE_STRONG_PCT = 50.0
-
-
-def _as_utc(value: datetime) -> datetime:
-    """Treat a naive datetime as UTC so it can be compared with the cycle/now clock.
-
-    Mission windows from the engine and CLI are timezone-naive, while the HREF cycle
-    init time and ``now`` are UTC-aware; without this the subtraction raises a
-    TypeError (offset-naive vs offset-aware).
-    """
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
-def forecast_hours_for_window(
-    cycle_init: datetime,
-    window_start: datetime,
-    window_end: datetime,
-    *,
-    now: datetime | None = None,
-) -> tuple[list[int], bool]:
-    """Resolve all HREF forecast hours covering a mission window, and in-range flag.
-
-    Returns ``(fhours, in_range)``. ``fhours`` is the sorted list of cycle-relative
-    forecast hours spanning the window, each clamped to ``[1, MAX_FHOUR]``.
-    ``in_range`` is True only when the window's lead from ``now`` falls in the
-    same-day supplement band and the window overlaps the HREF horizon; otherwise
-    ``fhours`` is empty and SREF alone covers the window.
-    """
-    now = _as_utc(now) if now is not None else datetime.now(UTC)
-    cycle_init = _as_utc(cycle_init)
-    window_start = _as_utc(window_start)
-    window_end = _as_utc(window_end)
-
-    raw_start = round((window_start - cycle_init).total_seconds() / 3600.0)
-    raw_end = round((window_end - cycle_init).total_seconds() / 3600.0)
-
-    in_horizon = raw_start <= MAX_FHOUR and raw_end >= 1
-    lead_start_h = (window_start - now).total_seconds() / 3600.0
-    in_band = lead_start_h <= MAX_LEAD_H and (window_end - now).total_seconds() > 0
-    in_range = in_horizon and in_band
-
-    if not in_range:
-        return [], False
-
-    fhour_start = min(max(raw_start, 1), MAX_FHOUR)
-    fhour_end = min(max(raw_end, 1), MAX_FHOUR)
-    return list(range(fhour_start, fhour_end + 1)), True
 
 
 def cross_ensemble_agreement(
@@ -119,15 +69,37 @@ def cross_ensemble_agreement(
 
 
 def _domain_max(
-    cycle, fhour: int, var: str, prob: str, polygon, *, fcst: str | None = None
+    cycle: HrefCycle,
+    fhour: int,
+    var: str,
+    prob: str,
+    polygon: BaseGeometry,
+    *,
+    fcst: str | None = None,
+    settings: Settings | None = None,
 ) -> float | None:
-    """HREF neighborhood-probability domain max for one forecast hour, or None if absent."""
+    """HREF neighborhood-probability domain max for one cached forecast hour, or None.
+
+    Reads through the persistent cache; a miss (e.g. a hour not warmed yet) re-fetches
+    transparently. Returns None when the field is absent (``LookupError``).
+    """
     try:
-        field = load_probability_field(cycle, fhour, var=var, prob=prob, fcst=fcst)
+        field = load_probability_field_cached(
+            cycle, fhour, var=var, prob=prob, fcst=fcst, settings=settings
+        )
     except LookupError:
         return None
     agg = aggregate_over_polygon(field.data, polygon, field_name=var, threshold=prob)
     return agg.max_value
+
+
+def _run_label(cycle: HrefCycle) -> str:
+    return f"{cycle.date}/{cycle.hh}Z"
+
+
+def _fhour_range(fhours: list[int]) -> str:
+    lo, hi = min(fhours), max(fhours)
+    return f"f{lo:02d}" if lo == hi else f"f{lo:02d}-f{hi:02d}"
 
 
 def fetch(
@@ -135,45 +107,54 @@ def fetch(
     bundle: IngestBundle,
     polygon: BaseGeometry,
     *,
-    cycle=None,
     now: datetime | None = None,
+    settings: Settings | None = None,
 ) -> None:
     """Populate HREF neighborhood probabilities over the upstream domain (if in range)."""
-    cycle = cycle or latest_available_cycle()
-    if cycle is None:
+    settings = settings or get_settings()
+    now = now if now is not None else datetime.now(UTC)
+
+    cycles = cached_cycles(now, settings=settings)
+    if not cycles:
+        # Source of truth is the cache: nothing warmed yet (cold start / before first tick).
         bundle.sources_ok[NAME] = False
-        bundle.notes.append("HREF: no available cycle on NOMADS (retention/lag).")
+        bundle.notes.append("HREF: no warmed cycle in cache yet (awaiting scheduler warm).")
         return
 
-    fhours, in_range = forecast_hours_for_window(
-        cycle.init_time, mission.window_start, mission.window_end, now=now
+    sources = resolve_valid_time_sources(
+        mission.window_start, mission.window_end, now=now, cycles=cycles
     )
-    bundle.href_in_range = in_range
-    if not in_range:
+    bundle.href_in_range = bool(sources)
+    if not sources:
         bundle.sources_ok[NAME] = True
         bundle.notes.append(
-            "HREF: mission window outside the same-day supplement range "
-            f"(~{MIN_USEFUL_LEAD_H:.0f}-{MAX_LEAD_H:.0f} h); SREF covers this horizon."
+            f"HREF: mission window outside the same-day supplement range (~{MAX_LEAD_H:.0f} h); "
+            "SREF covers this horizon."
         )
         return
 
-    # Collect per-hour domain maxima; take the worst case across the window.
+    # Fetch each distinct (cycle, fhour) once; aggregate the conservative max across the
+    # window (the worst case any covered hour shows over the upstream domain).
     precip_vals: list[float] = []
     ltng_vals: list[float] = []
-    for fhour in fhours:
+    for cycle, fhour in sorted(
+        {(s.cycle, s.fhour) for s in sources}, key=lambda cf: (cf[0].init_time, cf[1])
+    ):
         p1 = _domain_max(
-            cycle, fhour, PRECIP_VAR, PRECIP_1H_PROB, polygon, fcst=accum_window(fhour, 1)
+            cycle, fhour, PRECIP_VAR, PRECIP_1H_PROB, polygon,
+            fcst=accum_window(fhour, 1), settings=settings,
         )
         p3 = _domain_max(
-            cycle, fhour, PRECIP_VAR, PRECIP_3H_PROB, polygon, fcst=accum_window(fhour, 3)
+            cycle, fhour, PRECIP_VAR, PRECIP_3H_PROB, polygon,
+            fcst=accum_window(fhour, 3), settings=settings,
         )
         hour_precip = max((v for v in (p1, p3) if v is not None), default=None)
         if hour_precip is not None:
             precip_vals.append(hour_precip)
 
-        ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, polygon)
+        ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, polygon, settings=settings)
         if ltng is None:
-            ltng = _domain_max(cycle, fhour, REFC_VAR, REFC_PROB, polygon)
+            ltng = _domain_max(cycle, fhour, REFC_VAR, REFC_PROB, polygon, settings=settings)
         if ltng is not None:
             ltng_vals.append(ltng)
 
@@ -182,10 +163,28 @@ def fetch(
 
     bundle.href_p_precip = href_precip
     bundle.href_p_lightning = href_ltng
-    bundle.href_cycle = f"{cycle.date}/{cycle.hh}Z"
-    bundle.href_fhour = (
-        f"f{fhours[0]:02d}" if len(fhours) == 1 else f"f{fhours[0]:02d}-f{fhours[-1]:02d}"
-    )
+
+    # Provenance: which run(s) and forecast hours actually fed the signal. Group valid times
+    # by run; the **freshest** run is primary, older runs only ever cover the freshest run's
+    # spin-up hours (for any later valid time the freshest run is in-band and wins), so they
+    # are labelled spin-up backfills.
+    by_cycle: dict[HrefCycle, list[int]] = defaultdict(list)
+    for s in sources:
+        by_cycle[s.cycle].append(s.fhour)
+    ordered = sorted(by_cycle, key=lambda c: c.init_time, reverse=True)  # freshest first
+    primary, backfills = ordered[0], ordered[1:]
+
+    bundle.href_cycle = _run_label(primary)
+    if backfills:
+        extra = ", ".join(
+            f"{c.hh}Z {_fhour_range(by_cycle[c])} spin-up backfill" for c in backfills
+        )
+        bundle.href_fhour = f"{_fhour_range(by_cycle[primary])} (+ {extra})"
+    else:
+        bundle.href_fhour = _fhour_range(by_cycle[primary])
+    bundle.href_runs = [
+        (_run_label(c), min(by_cycle[c]), max(by_cycle[c])) for c in ordered
+    ]
 
     # Neighborhood probability is itself a member-exceedance fraction; let the
     # stronger ensemble inform member support for the confidence qualifier (§16.5).
@@ -201,11 +200,15 @@ def fetch(
         bundle.sref_p_precip, bundle.sref_p_tstm, href_precip, href_ltng
     )
 
-    cold_start = fhours[0] < MIN_USEFUL_LEAD_H
-    bundle.notes.append(
+    note = (
         f"HREF cycle {bundle.href_cycle} {bundle.href_fhour}; neighborhood P(QPF) and "
         "P(lightning) over the upstream domain (~3 km same-day supplement)."
-        + (" Note: window begins within HREF spin-up (<6 h); treat as supporting only."
-           if cold_start else "")
     )
+    if backfills:
+        note += (
+            " Spin-up hours backfilled from the prior "
+            + ", ".join(f"{c.hh}Z" for c in backfills)
+            + " run (mature forecast hours)."
+        )
+    bundle.notes.append(note)
     bundle.sources_ok[NAME] = True

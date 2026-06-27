@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from .. import href
 from ..config import get_settings
 from ..engine.models import Mission
 from ..sitrep.generate import GeneratedBriefing, generate_briefing
@@ -67,21 +68,30 @@ class BriefingService:
 
     # -- scheduled refresh ----------------------------------------------------------
     def warm_and_prune(self, *, now: datetime | None = None) -> int:
-        """Pre-pull the live SREF cycle into the persistent cache and prune old cycles.
+        """Pre-pull the live SREF + HREF cycles into the persistent cache and prune old ones.
 
-        Run by the scheduler each cycle boundary before :meth:`refresh_active`, so the
-        cycle's CONUS subset is downloaded once and every domain aggregates from the cached
-        grid (roadmap §M0.1.1, FR-7, FR-12). Returns the number of fields warmed; 0 if no
-        cycle is live yet on NOMADS (production lag), which is non-fatal — refresh still runs
-        from whatever is cached (NFR-6).
+        Run by the scheduler each cycle boundary before :meth:`refresh_active`. SREF's CONUS
+        subset is downloaded once so every domain aggregates from the cached grid; HREF's
+        f06-f48 are warmed so a mission's spin-up hours are served from a prior run's mature
+        forecast (roadmap §M0.1.1, FR-7, FR-12). Each ensemble is warmed independently — a
+        missing/unpublished cycle for one does not block the other. Returns the total number
+        of fields warmed; 0 when neither is live yet (production lag), which is non-fatal —
+        refresh still runs from whatever is cached (NFR-6).
         """
-        cycle = latest_available_cycle(now=now)
-        if cycle is None:
-            return 0
         settings = get_settings()
-        warmed = warm_cycle(cycle, settings=settings)
-        prune_old_cycles(settings=settings, keep=settings.sref_cache_keep_cycles)
-        return len(warmed)
+        warmed = 0
+
+        scycle = latest_available_cycle(now=now)
+        if scycle is not None:
+            warmed += len(warm_cycle(scycle, settings=settings))
+            prune_old_cycles(settings=settings, keep=settings.sref_cache_keep_cycles)
+
+        hcycle = href.latest_available_cycle(now=now)
+        if hcycle is not None:
+            warmed += len(href.warm_cycle(hcycle, settings=settings))
+            href.prune_old_cycles(settings=settings, keep=settings.href_cache_keep_cycles)
+
+        return warmed
 
     def refresh_active(self, *, now: datetime | None = None) -> int:
         """Regenerate every in-range active mission into the current cycle (FR-12).

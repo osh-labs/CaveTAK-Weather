@@ -78,8 +78,11 @@ class IngestBundle:
     href_p_precip: float | None = None
     href_p_lightning: float | None = None
     href_in_range: bool = False
-    href_cycle: str | None = None
-    href_fhour: str | None = None  # range label, e.g. "f11" or "f11-f16"; display only
+    href_cycle: str | None = None  # primary run, "YYYYMMDD/HHZ"; display only
+    href_fhour: str | None = None  # range label, e.g. "f11" or "f06-f30 (+ 00Z f13-f17 ...)"
+    # Per contributing run: (run label, min fhour, max fhour), primary first then spin-up
+    # backfills. Multi-run when an older run backfills the current run's spin-up; display only.
+    href_runs: list[tuple[str, int, int]] | None = None
 
     # SREF<->HREF cross-ensemble agreement (FR-17, §16.5); feeds the confidence
     # qualifier. "consistent" unless an in-range HREF materially diverges from SREF.

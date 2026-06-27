@@ -19,11 +19,10 @@ a concurrent reader sees either no file or the complete one.
 
 from __future__ import annotations
 
-import os
-import uuid
 from pathlib import Path
 
 from ..config import Settings, get_settings
+from ..grib.cache import cached_subset, prune_cycle_dirs
 from .extract import SrefField, _primary_dataarray, open_subset
 from .fetch import download_subset, fetch_idx, select_messages
 from .sources import SrefCycle
@@ -77,35 +76,18 @@ def load_probability_field_cached(
     settings = settings or get_settings()
     path = _cycle_dir(settings, cycle) / _subset_name(var, prob, freq)
 
-    if path.is_file() and not refresh:
-        da = _primary_dataarray(open_subset(path))
-        return SrefField(
-            name=var,
-            threshold=prob,
-            data=da,
-            grib_path=path,
-            # On a hit the original message count is not re-derived from the network idx;
-            # the per-window message count equals the stacked step dimension for these
-            # single-threshold fields.
-            descriptor_count=int(da.sizes.get("step", 1)),
-            extras={"freq": freq, "grid": grid, "fcst": fcst, "cached": True},
-        )
-
-    idx = fetch_idx(cycle.idx_url(product="prob", grid=grid, freq=freq))
-    selected = select_messages(idx, var=var, prob=prob, fcst=fcst)
-    if not selected:
-        raise LookupError(f"No SREF messages match var={var!r} prob={prob!r} fcst={fcst!r}")
-
-    # Atomic write: download to a unique temp file in the same dir, then os.replace into
-    # place so a concurrent reader never sees a partial file and a failed download leaves
-    # no poisoned entry (NFR-6).
-    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
-    try:
-        download_subset(cycle.product_url(product="prob", grid=grid, freq=freq), selected, tmp)
-        os.replace(tmp, path)
-    finally:
-        if tmp.exists():
-            tmp.unlink()
+    path, selected = cached_subset(
+        path,
+        idx_url=cycle.idx_url(product="prob", grid=grid, freq=freq),
+        grib_url=cycle.product_url(product="prob", grid=grid, freq=freq),
+        select=lambda entries: select_messages(entries, var=var, prob=prob, fcst=fcst),
+        refresh=refresh,
+        what=f"var={var!r} prob={prob!r} fcst={fcst!r}",
+        # Pass this module's (patchable) network calls so tests patching
+        # ``upstreamwx.sref.cache.*`` still intercept (roadmap §M0.1.1).
+        fetch_idx=fetch_idx,
+        download_subset=download_subset,
+    )
 
     da = _primary_dataarray(open_subset(path))
     return SrefField(
@@ -113,8 +95,10 @@ def load_probability_field_cached(
         threshold=prob,
         data=da,
         grib_path=path,
-        descriptor_count=len(selected),
-        extras={"freq": freq, "grid": grid, "fcst": fcst, "cached": False},
+        # Miss -> the network message count; hit (selected is None) -> the per-window count,
+        # which equals the stacked step dimension for these single-threshold fields.
+        descriptor_count=len(selected) if selected is not None else int(da.sizes.get("step", 1)),
+        extras={"freq": freq, "grid": grid, "fcst": fcst, "cached": selected is None},
     )
 
 
@@ -145,12 +129,4 @@ def prune_old_cycles(*, settings: Settings | None = None, keep: int = 4) -> list
     removed dirs.
     """
     settings = settings or get_settings()
-    root = _cache_dir(settings)
-    cycle_dirs = sorted((d for d in root.iterdir() if d.is_dir()), reverse=True)
-    removed: list[Path] = []
-    for d in cycle_dirs[keep:]:
-        for f in d.iterdir():
-            f.unlink()
-        d.rmdir()
-        removed.append(d)
-    return removed
+    return prune_cycle_dirs(_cache_dir(settings), keep=keep)

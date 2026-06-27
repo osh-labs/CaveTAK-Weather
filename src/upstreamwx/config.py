@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # (roadmap §M0.1.1). 4 covers NOMADS's ~2-day retention (4 cycles/day at 03/09/15/21Z).
     sref_cache_keep_cycles: int = 4
 
+    # Number of recent HREF *runs* (00/12Z) to retain in the on-disk grid cache (roadmap
+    # §M0.1.1). 3 guarantees the previous run is present to backfill the current run's
+    # spin-up hours (f01-f05) even on a missed scheduler tick or a late publish.
+    href_cache_keep_cycles: int = 3
+
     # Start the M0.3 API's background refresh scheduler on app startup (FR-12). Default
     # on for the always-on EC2 service; set UPSTREAMWX_API_ENABLE_SCHEDULER=0 to run the
     # API without the recurring loop (e.g. tests, or a worker-less deployment).

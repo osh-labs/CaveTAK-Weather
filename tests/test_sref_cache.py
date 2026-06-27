@@ -168,6 +168,8 @@ def test_warm_and_prune_warms_live_cycle(settings: Settings, fixtures_dir: Path)
 
     with (
         patch("upstreamwx.api.service.latest_available_cycle", return_value=CYCLE),
+        # HREF is warmed independently in the same pass; isolate the SREF count here.
+        patch("upstreamwx.api.service.href.latest_available_cycle", return_value=None),
         patch("upstreamwx.sref.cache.fetch_idx", return_value=[]),
         patch("upstreamwx.sref.cache.select_messages", return_value=["msg"]),
         patch("upstreamwx.sref.cache.download_subset", side_effect=_fake_download(fixtures_dir)),
@@ -182,7 +184,10 @@ def test_warm_and_prune_no_live_cycle(settings: Settings) -> None:
     """No live cycle on NOMADS is non-fatal — warm reports 0 and does not raise (NFR-6)."""
     from upstreamwx.api.service import BriefingService
 
-    with patch("upstreamwx.api.service.latest_available_cycle", return_value=None):
+    with (
+        patch("upstreamwx.api.service.latest_available_cycle", return_value=None),
+        patch("upstreamwx.api.service.href.latest_available_cycle", return_value=None),
+    ):
         assert BriefingService().warm_and_prune() == 0
 
 
