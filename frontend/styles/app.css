@@ -862,9 +862,9 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   margin-bottom: var(--space-2);
 }
 .resource-link svg { width: 20px; height: 20px; color: var(--color-text-secondary); flex-shrink: 0; }
-.resource-link__body { flex: 1; }
-.resource-link__title { font-weight: 600; font-size: var(--text-label); }
-.resource-link__sub { font-size: var(--text-caption); color: var(--color-text-muted); }
+.resource-link__body { flex: 1; min-width: 0; }
+.resource-link__title { font-weight: 600; font-size: var(--text-label); overflow-wrap: anywhere; }
+.resource-link__sub { font-size: var(--text-caption); color: var(--color-text-muted); overflow-wrap: anywhere; }
 .resource-link__ext { color: var(--color-text-muted); }
 
 .btn-primary {
