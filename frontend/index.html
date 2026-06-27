@@ -92,6 +92,26 @@
           <label>Start<input id="mp-start" type="datetime-local" /></label>
           <label>End<input id="mp-end" type="datetime-local" /></label>
         </div>
+        <div class="mp-roc">
+          <div class="mp-roc__head">
+            <span class="mp-roc__label">Radius of Concern</span>
+            <span class="mp-roc__value" id="mp-radius-value">20 mi</span>
+          </div>
+          <input
+            id="mp-radius"
+            class="mp-roc__slider"
+            type="range"
+            min="0"
+            max="4"
+            step="1"
+            value="1"
+            aria-label="Radius of Concern (miles)"
+          />
+          <div class="mp-roc__ticks" aria-hidden="true">
+            <span>10</span><span>20</span><span>50</span><span>100</span><span>200</span>
+          </div>
+          <p class="mp-roc__hint">Caps the upstream watershed — the basin is clipped to this radius before weather data is gathered.</p>
+        </div>
         <footer class="mp-actions">
           <button id="mp-gps" class="btn-ghost" type="button">Use current location</button>
           <button id="mp-save" class="btn-primary" type="button">Save expedition</button>

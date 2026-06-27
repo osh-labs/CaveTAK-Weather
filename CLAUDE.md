@@ -66,6 +66,7 @@ src/upstreamwx/        backend package (importable as `upstreamwx`)
   sref/                  SREF ensemble processor (fetch/extract/aggregate over a polygon) — Spike A
   href/                  HREF ~3 km same-day supplement (~6-36 h), reuses grib/ — Spike C
   watershed/             HUC-12 resolution + upstream trace + pour-point delineation + on-disk cache — Spike B/D
+    roc.py                 Radius-of-Concern clip: bound the basin to a user-set disk before aggregation (FR-3)
   sitrep/                M0.2 SITREP layer + `upstreamwx` CLI
     generate.py            generate_briefing(...) — the ONE generation core the CLI and API both call
     render.py              deterministic Markdown render (golden-file tested)
@@ -171,6 +172,7 @@ The codebase is consistent — new code should be indistinguishable from existin
 ```
 Mission (point, window, cave/canyon)
   └─ watershed: resolve HUC-12 / pour-point trace -> upstream polygon
+       (optional Radius of Concern: clip the basin to a user-set disk — roc.py, FR-3)
   └─ ingest.orchestrator: NWS + Open-Meteo + SPC + SREF (+ HREF if in same-day range)
        aggregate ensemble probs over the upstream polygon (grib/ zonal) -> IngestBundle
   └─ to_hazard_inputs(bundle) -> HazardInputs   (normalized feature vector)
@@ -219,8 +221,12 @@ planned/edited in a map-based **mission planner** modal (`openMissionPlanner` in
 `frontend/js/app.js`; shown at first run and from the mission-card edit pencil): geocode
 an address or paste decimal/DMS coordinates, GPS "use current location", a switchable
 topo/aerial/street basemap, and a long-press to drop/move a marker whose tooltip edits the
-mission name (FR-1, FR-9). Saving persists the spec to `localStorage` (FR-10) and
-re-fetches. The Open-Meteo
+mission name (FR-1, FR-9), and a **Radius of Concern** slider (discrete stops 10/20/50/100/200
+mi; stored as `radius_km`) that caps the upstream watershed: the orchestrator clips the basin to
+that disk before SREF/HREF aggregation (`watershed/roc.py`, FR-3). The main-map watershed renders
+the kept (clipped) basin as before, the excluded remainder hatched, and the RoC as a fine dashed
+orange ring (`watershed.excluded_geometry` + top-level `roc` in the structured contract). Saving
+persists the spec to `localStorage` (FR-10) and re-fetches. The Open-Meteo
 adapter now also persists a per-hour display series (`IngestBundle.forecast_hourly`,
 display-only — never an engine input). Verified live end-to-end in-container.
 

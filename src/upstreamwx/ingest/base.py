@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Protocol
 from ..engine.models import HazardInputs, Mission
 
 if TYPE_CHECKING:
+    from shapely.geometry.base import BaseGeometry
+
     from ..watershed import PourpointBasin
 
 
@@ -91,6 +93,17 @@ class IngestBundle:
     # by the orchestrator unless an explicit polygon override is passed; carries the
     # provenance (method, area, snapped point, flowline) the SITREP header renders.
     upstream: PourpointBasin | None = None
+
+    # Radius of Concern (RoC, FR-3): the upstream watershed clipped to a user-set disk
+    # around the mission origin. ``aggregation_polygon`` is the polygon the SREF/HREF
+    # zonal aggregation actually ran over (the clipped ``kept`` when a RoC is set, else
+    # the full basin). ``roc_disk``/``roc_excluded`` drive the PWA's dashed-ring and
+    # hatched-exclusion rendering; ``roc_excluded`` is None when the basin fits the disk.
+    aggregation_polygon: BaseGeometry | None = None
+    roc_radius_km: float | None = None
+    roc_disk: BaseGeometry | None = None
+    roc_excluded: BaseGeometry | None = None
+    roc_kept_area_km2: float | None = None
 
     # Provenance / graceful-degradation tracking (NFR-6).
     sources_ok: dict[str, bool] = field(default_factory=dict)

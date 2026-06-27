@@ -92,6 +92,7 @@ class Mission:
     route_note: str | None = None
     is_slot: bool = False                  # slot canyon -> conservative flood fallback
     name: str = "mission"
+    radius_km: float | None = None         # Radius of Concern: caps the upstream watershed (FR-3)
 
 
 @dataclass

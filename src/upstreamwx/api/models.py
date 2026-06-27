@@ -30,6 +30,11 @@ class MissionSpec(BaseModel):
     party_size: int | None = None
     route_note: str | None = None
     slot: bool = False
+    radius_km: float | None = Field(
+        default=None,
+        ge=1,
+        description="Radius of Concern (km): caps the upstream watershed; null = unbounded (FR-3)",
+    )
     frame: bool | None = Field(
         default=None,
         description="add Haiku framing; null = frame iff ANTHROPIC_API_KEY is set (FR-21)",
@@ -57,6 +62,7 @@ class MissionSpec(BaseModel):
             route_note=self.route_note,
             is_slot=self.slot,
             name=self.name,
+            radius_km=self.radius_km,
         )
 
     def to_inputs(self) -> HazardInputs | None:
@@ -93,6 +99,7 @@ class BriefingResponse(BaseModel):
     # Structured view for the PWA (M0.4). See sample-briefing.json for the shape.
     mission: dict = Field(default_factory=dict)
     watershed: dict | None = None
+    roc: dict | None = Field(default=None, description="Radius-of-Concern ring; null = unbounded")
     summary: str | None = None
     bluf: list[dict] = Field(default_factory=list)
     metrics: list[dict] = Field(default_factory=list)

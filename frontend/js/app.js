@@ -32,10 +32,31 @@ let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized:
 const API_BRIEFING = "/v1/briefing";
 const MISSION_KEY = "uwx.mission.v1";
 // Seed mission used on first run when nothing is saved (a real CONUS point).
+// Radius of Concern (FR-3): discrete, non-linear slider stops in miles; the data
+// model stores km. UI orange = the --sev-high token (frontend/styles/tokens.css).
+const ROC_STOPS_MI = [10, 20, 50, 100, 200];
+const ROC_DEFAULT_MI = 20;
+const MI_TO_KM = 1.609344;
+const UI_ORANGE = "#f0883e";
+
+function nearestRocIndex(mi) {
+  let best = 0;
+  for (let i = 1; i < ROC_STOPS_MI.length; i++) {
+    if (Math.abs(ROC_STOPS_MI[i] - mi) < Math.abs(ROC_STOPS_MI[best] - mi)) best = i;
+  }
+  return best;
+}
+// Miles for the slider, defaulting when a spec carries no RoC (back-compat).
+function rocMiFromSpec(spec) {
+  if (spec && Number.isFinite(spec.radius_km)) return spec.radius_km / MI_TO_KM;
+  return ROC_DEFAULT_MI;
+}
+
 const DEFAULT_SPEC = {
   lat: 34.665, lon: -85.361667, activity: "cave",
   start: "2026-06-18T13:00", end: "2026-06-18T22:00",
   name: "Pettyjohn's Cave", slot: false, frame: false,
+  radius_km: ROC_DEFAULT_MI * MI_TO_KM,
 };
 
 function savedSpec() {
@@ -51,6 +72,7 @@ function specFromBriefing(b) {
     lat: m.lat, lon: m.lon, activity: m.activity,
     start: m.window_start, end: m.window_end,
     name: m.name, slot: m.is_slot, frame: false,
+    radius_km: m.radius_km ?? null,
   };
 }
 
@@ -748,6 +770,22 @@ function poiPopupHtml(m) {
   </div>`;
 }
 
+// Inject a 45° diagonal-hatch SVG <pattern> into the map's overlay <svg> once, so the
+// excluded-watershed polygon can fill with it (Leaflet has no native pattern fill). Mirrors
+// the --confidence-hatch token; keyed on #roc-hatch so it is added at most once.
+function ensureHatchPattern(map) {
+  const svg = map.getPanes().overlayPane.querySelector("svg");
+  if (!svg || svg.querySelector("#roc-hatch")) return;
+  const svgNS = "http://www.w3.org/2000/svg";
+  const defs = document.createElementNS(svgNS, "defs");
+  defs.innerHTML =
+    `<pattern id="roc-hatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">` +
+    `<rect width="7" height="7" fill="#38bdf8" fill-opacity="0.05"/>` +
+    `<line x1="0" y1="0" x2="0" y2="7" stroke="#7dd3fc" stroke-width="1.1" stroke-opacity="0.55"/>` +
+    `</pattern>`;
+  svg.insertBefore(defs, svg.firstChild);
+}
+
 function initLeafletMap(b) {
   const container = document.getElementById("leaflet-map");
   if (!container || !window.L) return;
@@ -772,7 +810,10 @@ function initLeafletMap(b) {
     { maxZoom: 16, opacity: 0.9 }
   ).addTo(_leafletMap);
 
-  // Upstream watershed: 20%-opacity blue fill, full-opacity thin border; tap for HUC + area.
+  // Upstream watershed: the kept (clipped) basin in 20%-opacity blue, the portion outside
+  // the Radius of Concern hatched, and the RoC itself a fine dashed orange ring (FR-3).
+  // Collect every overlay so fitBounds frames the whole concern area, not just the basin.
+  const overlays = [];
   if (b.watershed?.geometry) {
     const w = b.watershed;
     const layer = L.geoJSON(w.geometry, {
@@ -786,7 +827,47 @@ function initLeafletMap(b) {
       </div>`,
       { className: "map-popup" }
     );
-    _leafletMap.fitBounds(layer.getBounds(), { padding: [24, 24] });
+    overlays.push(layer);
+
+    // Excluded remainder (watershed beyond the RoC): hatched, muted dashed outline.
+    if (w.excluded_geometry) {
+      ensureHatchPattern(_leafletMap);
+      const ex = L.geoJSON(w.excluded_geometry, {
+        style: { color: "#64748b", weight: 1, opacity: 0.7, fillOpacity: 1, dashArray: "2 3" },
+      }).addTo(_leafletMap);
+      ex.eachLayer((l) => { if (l._path) l._path.setAttribute("fill", "url(#roc-hatch)"); });
+      ex.bindPopup(
+        `<div class="map-pop">
+          <div class="map-pop__title">Outside Radius of Concern</div>
+          <div class="map-pop__row">Excluded from the weather-data domain</div>
+        </div>`,
+        { className: "map-popup" }
+      );
+      overlays.push(ex);
+    }
+  }
+
+  // Radius of Concern ring: fine dashed orange (UI orange). Prefer the backend disk
+  // geometry so the ring matches the clip arc exactly; fall back to a drawn circle.
+  if (b.roc?.geometry) {
+    overlays.push(
+      L.geoJSON(b.roc.geometry, {
+        style: { color: UI_ORANGE, weight: 1, opacity: 1, dashArray: "4 4", fill: false },
+        interactive: false,
+      }).addTo(_leafletMap)
+    );
+  } else if (b.roc?.center && b.roc?.radius_km) {
+    overlays.push(
+      L.circle([b.roc.center[1], b.roc.center[0]], {
+        radius: b.roc.radius_km * 1000, color: UI_ORANGE, weight: 1, opacity: 1,
+        dashArray: "4 4", fill: false, interactive: false,
+      }).addTo(_leafletMap)
+    );
+  }
+
+  if (overlays.length) {
+    const group = L.featureGroup(overlays);
+    _leafletMap.fitBounds(group.getBounds(), { padding: [24, 24] });
   }
 
   // Mission point: tap for coordinates + a move-point action.
@@ -1046,9 +1127,33 @@ function maybeShowAck(onAccept) {
  * recommendation is shown here (FR-39). */
 let _mpMap = null;
 let _mpMarker = null;
+let _mpRoc = null;
 let _mpSpec = null;
 // Fallback view (CONUS center) when no point is set yet.
 const MP_DEFAULT_CENTER = [39.5, -111.5];
+
+// Reflect the slider index in the readout ("20 mi") and keep _mpSpec.radius_km in km.
+function updateRocReadout(idx) {
+  const el = document.getElementById("mp-radius-value");
+  if (el) el.textContent = `${ROC_STOPS_MI[idx]} mi`;
+}
+
+// Live preview of the Radius of Concern on the planner map: a fine dashed orange ring
+// centered on the current point, redrawn as the point or slider moves (FR-3).
+function drawPlannerRoc() {
+  if (!_mpMap || !_mpSpec || !Number.isFinite(_mpSpec.lat) || !_mpSpec.radius_km) return;
+  const center = [_mpSpec.lat, _mpSpec.lon];
+  const radiusM = _mpSpec.radius_km * 1000;
+  if (_mpRoc) {
+    _mpRoc.setLatLng(center);
+    _mpRoc.setRadius(radiusM);
+  } else {
+    _mpRoc = L.circle(center, {
+      radius: radiusM, color: UI_ORANGE, weight: 1, opacity: 0.95,
+      dashArray: "4 4", fill: false, interactive: false,
+    }).addTo(_mpMap);
+  }
+}
 
 function inLatLonRange(lat, lon) {
   return (
@@ -1119,6 +1224,7 @@ function placeOrMoveMarker(latlng, openPopup = true) {
   if (!_mpMap) return;
   _mpSpec.lat = latlng.lat;
   _mpSpec.lon = latlng.lng;
+  drawPlannerRoc();
   if (_mpMarker) {
     _mpMarker.setLatLng(latlng);
   } else {
@@ -1132,6 +1238,7 @@ function placeOrMoveMarker(latlng, openPopup = true) {
       const ll = _mpMarker.getLatLng();
       _mpSpec.lat = ll.lat;
       _mpSpec.lon = ll.lng;
+      drawPlannerRoc();
     });
     _mpMarker.on("popupopen", (e) => {
       const input = e.popup.getElement()?.querySelector("#mp-name-input");
@@ -1216,6 +1323,11 @@ function openMissionPlanner(spec) {
   document.getElementById("mp-start").value = String(_mpSpec.start || "").slice(0, 16);
   document.getElementById("mp-end").value = String(_mpSpec.end || "").slice(0, 16);
   document.getElementById("mp-slot").checked = !!_mpSpec.slot;
+  // Radius of Concern: snap the saved value to the nearest stop and store it back in km.
+  const rocIdx = nearestRocIndex(rocMiFromSpec(_mpSpec));
+  _mpSpec.radius_km = ROC_STOPS_MI[rocIdx] * MI_TO_KM;
+  document.getElementById("mp-radius").value = String(rocIdx);
+  updateRocReadout(rocIdx);
   document.getElementById("mp-search-input").value = "";
   setPlannerStatus("");
   document.getElementById("mission-planner").hidden = false;
@@ -1276,6 +1388,14 @@ function initPlannerControls() {
     });
   }
 
+  const rocSlider = document.getElementById("mp-radius");
+  rocSlider.addEventListener("input", () => {
+    const idx = parseInt(rocSlider.value, 10) || 0;
+    _mpSpec.radius_km = ROC_STOPS_MI[idx] * MI_TO_KM;
+    updateRocReadout(idx);
+    drawPlannerRoc();
+  });
+
   document.getElementById("mp-cancel").addEventListener("click", closeMissionPlanner);
 
   document.getElementById("mp-save").addEventListener("click", () => {
@@ -1292,6 +1412,7 @@ function initPlannerControls() {
       end: document.getElementById("mp-end").value,
       slot: document.getElementById("mp-slot").checked,
       party_size: _mpSpec.party_size ?? null,
+      radius_km: _mpSpec.radius_km ?? null,
       frame: false,
     };
     closeMissionPlanner();

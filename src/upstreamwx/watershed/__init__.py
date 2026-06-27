@@ -22,6 +22,7 @@ from .pourpoint import (
     delineate_pourpoint,
     raindrop_snap,
 )
+from .roc import ClipResult, clip_watershed, roc_disk
 from .upstream import UpstreamTrace, trace_upstream
 
 __all__ = [
@@ -36,4 +37,7 @@ __all__ = [
     "delineate_pourpoint",
     "raindrop_snap",
     "delineate_cached",
+    "ClipResult",
+    "clip_watershed",
+    "roc_disk",
 ]

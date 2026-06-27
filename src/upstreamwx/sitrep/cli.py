@@ -63,6 +63,7 @@ def _build_mission(args: argparse.Namespace) -> Mission:
         route_note=args.route_note,
         is_slot=args.slot,
         name=args.name,
+        radius_km=args.radius_mi * 1.609344 if args.radius_mi else None,
     )
 
 
@@ -82,6 +83,12 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--party-size", type=int, default=None)
     p.add_argument("--route-note", default=None)
     p.add_argument("--slot", action="store_true", help="slot canyon (conservative flood fallback)")
+    p.add_argument(
+        "--radius-mi",
+        type=float,
+        default=None,
+        help="Radius of Concern (mi): clip the upstream watershed to this radius (FR-3)",
+    )
     p.add_argument(
         "--inputs",
         type=Path,

@@ -202,13 +202,46 @@ def _hazard_detail(result: BriefingResult) -> list[dict]:
     return out
 
 
-def _watershed(upstream: UpstreamTrace | PourpointBasin | None) -> dict | None:
+_KM_PER_MI = 1.609344
+
+
+def _watershed(
+    upstream: UpstreamTrace | PourpointBasin | None, bundle: IngestBundle | None = None
+) -> dict | None:
     if upstream is None:
         return None
+    # When a Radius of Concern clipped the basin, surface the *clipped* geometry and area
+    # (the domain that actually fed the aggregation, FR-3) plus the excluded remainder so
+    # the PWA can hatch it; otherwise the full delineated watershed.
+    clipped = bundle is not None and bundle.roc_radius_km and bundle.aggregation_polygon is not None
+    if clipped:
+        geometry = mapping(bundle.aggregation_polygon)
+        area_km2 = (
+            bundle.roc_kept_area_km2
+            if bundle.roc_kept_area_km2 is not None
+            else upstream.area_km2
+        )
+    else:
+        geometry = mapping(upstream.polygon)
+        area_km2 = upstream.area_km2
+    excluded = bundle.roc_excluded if bundle is not None else None
     return {
         "huc12": _huc_ids(upstream),
-        "area_sq_mi": _area_sq_mi(upstream.area_km2),
-        "geometry": mapping(upstream.polygon),
+        "area_sq_mi": _area_sq_mi(area_km2),
+        "geometry": geometry,
+        "excluded_geometry": mapping(excluded) if excluded is not None else None,
+    }
+
+
+def _roc(bundle: IngestBundle | None, mission) -> dict | None:
+    """The Radius-of-Concern ring (FR-3): center + radius + disk geometry, or None."""
+    if bundle is None or not bundle.roc_radius_km or bundle.roc_disk is None:
+        return None
+    return {
+        "radius_km": round(bundle.roc_radius_km, 3),
+        "radius_mi": round(bundle.roc_radius_km / _KM_PER_MI, 1),
+        "center": [mission.lon, mission.lat],  # GeoJSON order (lon, lat)
+        "geometry": mapping(bundle.roc_disk),
     }
 
 
@@ -338,6 +371,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
             "is_slot": mission.is_slot,
             "lat": mission.lat,
             "lon": mission.lon,
+            "radius_km": mission.radius_km,
             "huc12": _huc_ids(upstream),
             "window_start": mission.window_start.isoformat(),
             "window_end": mission.window_end.isoformat(),
@@ -345,7 +379,8 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
             "timezone": _tz_label(mission.window_start),
             "tz_name": _tz_name(mission.window_start),
         },
-        "watershed": _watershed(upstream),
+        "watershed": _watershed(upstream, bundle),
+        "roc": _roc(bundle, mission),
         "overall_posture": result.overall_tier.label,
         "overall_confidence": result.overall_confidence.label,
         "threshold_version": result.threshold_version,

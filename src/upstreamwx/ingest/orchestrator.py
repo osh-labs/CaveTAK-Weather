@@ -15,7 +15,7 @@ from __future__ import annotations
 from shapely.geometry.base import BaseGeometry
 
 from ..engine.models import HazardInputs, Mission
-from ..watershed import delineate_cached
+from ..watershed import clip_watershed, delineate_cached
 from . import href_provider, nws, openmeteo, spc, sref_provider
 from .base import IngestBundle, to_hazard_inputs
 
@@ -59,6 +59,28 @@ def gather(
         except Exception as exc:  # noqa: BLE001
             bundle.sources_ok["watershed"] = False
             bundle.notes.append(f"watershed: delineation failed ({type(exc).__name__}).")
+
+        # Radius of Concern (FR-3): clip the delineated basin to the user's disk so the
+        # SREF/HREF aggregation runs over the bounded domain. Defensive — a clip failure
+        # must never crash the briefing (NFR-6); fall back to the full watershed.
+        if polygon is not None and mission.radius_km:
+            try:
+                clip = clip_watershed(polygon, mission.lat, mission.lon, mission.radius_km)
+                polygon = clip.kept
+                bundle.roc_radius_km = mission.radius_km
+                bundle.roc_disk = clip.disk
+                bundle.roc_excluded = clip.excluded
+                bundle.roc_kept_area_km2 = clip.kept_area_km2
+                bundle.notes.append(
+                    f"radius of concern: clipped to {clip.kept_area_km2:.0f} km² "
+                    f"within {mission.radius_km:.0f} km of origin."
+                )
+            except Exception as exc:  # noqa: BLE001
+                bundle.notes.append(
+                    f"radius of concern: clip failed ({type(exc).__name__}); full watershed used."
+                )
+
+    bundle.aggregation_polygon = polygon
     if polygon is not None:
         try:
             sref_provider.fetch(mission, bundle, polygon, cycle=cycle)

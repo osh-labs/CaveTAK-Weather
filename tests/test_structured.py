@@ -157,6 +157,32 @@ def test_watershed_geojson_and_forecast_populated() -> None:
     assert metrics["T-storm"]["value"] == "92"
 
 
+def test_roc_clip_surfaces_clipped_geometry_and_ring() -> None:
+    """A Radius of Concern on the bundle -> clipped watershed + excluded + roc ring (FR-3)."""
+    from upstreamwx.watershed import clip_watershed
+
+    gen = _generated(with_bundle=True)
+    full = gen.bundle.upstream.polygon
+    mission = gen.result.mission
+    mission.radius_km = 1.0
+    clip = clip_watershed(full, mission.lat, mission.lon, 1.0)  # 1 km -> bisects the test basin
+    gen.bundle.aggregation_polygon = clip.kept
+    gen.bundle.roc_radius_km = 1.0
+    gen.bundle.roc_disk = clip.disk
+    gen.bundle.roc_excluded = clip.excluded
+    gen.bundle.roc_kept_area_km2 = clip.kept_area_km2
+
+    s = to_structured(gen, cached=False, cache_cycle="c")
+    # Watershed geometry is the clipped (kept) basin, with the hatchable remainder alongside.
+    assert s["watershed"]["excluded_geometry"] is not None
+    assert s["watershed"]["area_sq_mi"] == round(clip.kept_area_km2 * 0.386102, 1)
+    # The ring carries radius (km + mi) and the disk geometry centered on the mission point.
+    assert set(s["roc"]) == {"radius_km", "radius_mi", "center", "geometry"}
+    assert s["roc"]["center"] == [mission.lon, mission.lat]
+    assert s["roc"]["geometry"]["type"] == "Polygon"
+    assert s["mission"]["radius_km"] == 1.0
+
+
 def test_offline_path_degrades_gracefully() -> None:
     """No bundle (the `inputs` path) -> stable shape with null/empty display fields."""
     s = to_structured(_generated(with_bundle=False), cached=False, cache_cycle="c")

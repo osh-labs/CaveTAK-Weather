@@ -995,6 +995,69 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 }
 .mp-fields__check { flex-direction: row; align-items: center; gap: var(--space-2); }
 .mp-fields__check input { width: auto; }
+
+/* Radius of Concern (FR-3): discrete, non-linear slider above the actions. */
+.mp-roc { padding: var(--space-3) var(--space-4) 0; }
+.mp-roc__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.mp-roc__label { font-size: var(--text-caption); color: var(--color-text-secondary); }
+.mp-roc__value {
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--sev-high);
+}
+.mp-roc__slider {
+  width: 100%;
+  margin: var(--space-2) 0 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.mp-roc__slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+}
+.mp-roc__slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+}
+.mp-roc__slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  margin-top: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sev-high);
+  border: 2px solid var(--color-bg);
+}
+.mp-roc__slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sev-high);
+  border: 2px solid var(--color-bg);
+}
+.mp-roc__slider:focus-visible { outline: 2px solid var(--sev-high); outline-offset: 4px; }
+.mp-roc__ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+.mp-roc__hint {
+  margin: 4px 0 0;
+  font-size: var(--text-caption);
+  line-height: var(--lh-caption);
+  color: var(--color-text-muted);
+}
+
 .mp-actions { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
 .mp-actions .btn-ghost,
 .mp-actions .btn-primary { flex: 1; margin: 0; }
