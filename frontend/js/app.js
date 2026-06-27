@@ -324,16 +324,25 @@ function postureChip(label, sevClass, big = false) {
 }
 
 function confidenceTag(level, big = false) {
-  // Signal-bar–style: three bars of increasing height with angled tops.
-  // Low = 1 bar filled, moderate = 2, high = all 3. Orange for filled,
-  // surface colour for unfilled. Position (not hue) encodes level (FR-36).
+  // SVG signal-bar style: three bars whose tops share a single diagonal line,
+  // so bar i's right top and bar (i+1)'s left top are continuous (no jump).
+  // Low = 1 filled, moderate = 2, high = all 3 (FR-36).
   const k = String(level).toLowerCase();
   const activeCount = k === "low" ? 1 : k === "moderate" ? 2 : 3;
-  const bars = [1, 2, 3]
-    .map((n) => `<span class="confidence__bar${n <= activeCount ? " is-filled" : ""}"></span>`)
-    .join("");
+  const vW = 100, vH = 18, gap = 4;
+  const bW = (vW - 2 * gap) / 3;
+  // Diagonal: y = y0 × (vW − x) / vW, passing from y0 at x=0 to 0 at x=vW.
+  // y0=14 gives bar 0 a 4 px minimum height; bar 2's right edge reaches full vH.
+  const y0 = 14;
+  const diagY = (x) => y0 * (vW - x) / vW;
+  const bars = [0, 1, 2].map((i) => {
+    const xL = i * (bW + gap), xR = xL + bW;
+    const yTL = diagY(xL), yTR = Math.max(0, diagY(xR));
+    const fill = i < activeCount ? "var(--sev-high)" : "var(--color-surface-3)";
+    return `<polygon points="${xL.toFixed(1)},${vH} ${xR.toFixed(1)},${vH} ${xR.toFixed(1)},${yTR.toFixed(1)} ${xL.toFixed(1)},${yTL.toFixed(1)}" fill="${fill}"/>`;
+  }).join("");
   return `<div class="confidence ${big ? "is-lg" : ""}" title="${esc(level)} confidence">
-    <div class="confidence__bars">${bars}</div>
+    <svg class="confidence__bars" viewBox="0 0 ${vW} ${vH}" aria-hidden="true">${bars}</svg>
     <div class="confidence__label">${esc(level)} confidence</div>
   </div>`;
 }
@@ -787,8 +796,15 @@ function renderMap(b) {
   // rebuilds against the new briefing (point / watershed may have changed).
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
   state.mapInitialized = false;
+  const hasExcluded = !!b.watershed?.excluded_geometry;
+  const hasRoc = !!(b.roc?.geometry || (b.roc?.center && b.roc?.radius_km));
   document.getElementById("view-map").innerHTML = `
     <div id="leaflet-map" aria-label="Expedition area topographic map"></div>
+    <div class="map-legend">
+      <span class="map-legend__item"><span class="map-legend__swatch map-legend__swatch--watershed"></span>Watershed</span>
+      ${hasExcluded ? '<span class="map-legend__item"><span class="map-legend__swatch map-legend__swatch--excluded"></span>Outside RoC</span>' : ""}
+      ${hasRoc ? '<span class="map-legend__item"><span class="map-legend__roc-line"></span>Radius of Concern</span>' : ""}
+    </div>
     <div class="disclaimer">Planning map. The shaded basin is the approximate upstream watershed feeding the expedition point. Tap either for details.</div>`;
 }
 
@@ -826,34 +842,38 @@ function initLeafletMap(b) {
   if (_leafletMap) { _leafletMap.invalidateSize(); return; }
 
   const m = b.mission;
-  _leafletMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 16 })
+  _leafletMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 19 })
     .setView([m.lat, m.lon], 13);
 
-  // Dark topographic basemap: Esri dark-gray canvas + dark hillshade for terrain relief.
+  // High-resolution dark basemap: CartoDB DarkMatter (maxZoom 19) with an Esri dark
+  // hillshade overlay for terrain relief. CartoDB includes labels; hillshade is capped
+  // at its native maxZoom and fades out gracefully at higher zoom levels.
   L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, USGS, NGA", maxZoom: 16 }
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+        '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: "abcd",
+      maxZoom: 19,
+    }
   ).addTo(_leafletMap);
   L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade_Dark/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 16, opacity: 0.45 }
-  ).addTo(_leafletMap);
-  // Place-name / boundary labels (kept under the vector overlays).
-  L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 16, opacity: 0.9 }
+    { maxZoom: 16, opacity: 0.4 }
   ).addTo(_leafletMap);
 
   // Upstream watershed: the kept (clipped) basin in 20%-opacity blue, the portion outside
   // the Radius of Concern hatched, and the RoC itself a fine dashed orange ring (FR-3).
-  // Collect every overlay so fitBounds frames the whole concern area, not just the basin.
+  // keptLayer is tracked separately so fitBounds focuses on the planning area only.
   const overlays = [];
+  let keptLayer = null;
   if (b.watershed?.geometry) {
     const w = b.watershed;
-    const layer = L.geoJSON(w.geometry, {
+    keptLayer = L.geoJSON(w.geometry, {
       style: { color: "#38bdf8", weight: 1.5, opacity: 1, fillColor: "#38bdf8", fillOpacity: 0.2 },
     }).addTo(_leafletMap);
-    layer.bindPopup(
+    keptLayer.bindPopup(
       `<div class="map-pop">
         <div class="map-pop__title">Approximate Watershed</div>
         <div class="map-pop__row">HUC-12 <span class="mono">${esc(w.huc12.join(", "))}</span></div>
@@ -861,7 +881,7 @@ function initLeafletMap(b) {
       </div>`,
       { className: "map-popup" }
     );
-    overlays.push(layer);
+    overlays.push(keptLayer);
 
     // Excluded remainder (watershed beyond the RoC): hatched, muted dashed outline.
     if (w.excluded_geometry) {
@@ -899,9 +919,12 @@ function initLeafletMap(b) {
     );
   }
 
-  if (overlays.length) {
-    const group = L.featureGroup(overlays);
-    _leafletMap.fitBounds(group.getBounds(), { padding: [24, 24] });
+  // Fit to the kept (clipped) watershed so the view centres on the planning area;
+  // the excluded hatch and RoC ring may extend beyond the visible bounds.
+  if (keptLayer) {
+    _leafletMap.fitBounds(keptLayer.getBounds(), { padding: [24, 24] });
+  } else if (overlays.length) {
+    _leafletMap.fitBounds(L.featureGroup(overlays).getBounds(), { padding: [24, 24] });
   }
 
   // Mission point: tap for coordinates + a move-point action.
@@ -1132,7 +1155,7 @@ function renderStatus(b) {
   const t = gen.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz });
   const cached = b.cached || state.fromCache;
   document.getElementById("status").innerHTML = `
-    ${cached ? `<span class="cached-badge">${icon("wifi_off", "")} Cached</span>` : ""}
+    ${cached ? `<span class="cached-badge">${icon("wifi_off", "")} <span>Available<br>offline</span></span>` : ""}
     <span class="status-line__currency">Briefing current as of ${esc(t)} ${esc(b.mission.timezone)}</span>
     ${b.degraded ? `<span class="degraded-note">· one source degraded</span>` : ""}`;
 }
@@ -1363,7 +1386,7 @@ function initPlannerMap() {
 
   // Seed a marker at the starting point so a save is always valid; the user can
   // long-press, drag, search, or use GPS to move it.
-  if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon }, false);
+  if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon });
 }
 
 // Open the planner over a starting spec (the saved/current mission, or a seed).
