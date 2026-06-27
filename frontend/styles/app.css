@@ -139,6 +139,25 @@ main {
   display: block;
 }
 
+.header-reload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 0;
+  flex-shrink: 0;
+}
+.header-reload:hover, .header-reload:focus-visible {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+}
+.header-reload__icon { width: 18px; height: 18px; }
+
 /* ── 7.2 Tab bar ───────────────────────────────────────────────────── */
 .tab-bar {
   flex-shrink: 0;
@@ -831,6 +850,32 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   font-size: var(--text-caption);
   line-height: var(--lh-caption);
   color: var(--color-text-secondary);
+}
+
+/* ── 7.13a Risk analysis inputs badges ─────────────────────────────── */
+.ri-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.ri-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+}
+.ri-badge--warn {
+  border-color: var(--sev-extreme);
+  color: var(--sev-extreme);
+}
+.ri-badge--watch {
+  border-color: var(--sev-high);
+  color: var(--sev-high);
 }
 
 /* ── 7.14 Status / currency line ───────────────────────────────────── */

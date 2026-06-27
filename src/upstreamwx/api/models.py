@@ -123,4 +123,7 @@ class BriefingResponse(BaseModel):
     forecast_hourly: dict = Field(default_factory=dict)
     temp_series: dict = Field(default_factory=dict)
     wind_series: dict = Field(default_factory=dict)
+    risk_inputs: dict = Field(
+        default_factory=dict, description="scalar engine inputs for the Forecast view (FR-20)"
+    )
     resources: list[dict] = Field(default_factory=list)

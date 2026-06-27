@@ -383,7 +383,11 @@ function renderHeader(b) {
     </div>
     <div class="app-header__spacer"></div>
     <span class="activity-pill"><img src="${actSrc}" class="activity-pill__icon" alt="" />${esc(m.activity)}</span>
+    <button class="header-reload" id="header-reload" type="button" aria-label="Reload app" title="Reload app">
+      ${icon("reload", "header-reload__icon")}
+    </button>
   `;
+  document.getElementById("header-reload").addEventListener("click", () => window.location.reload());
 }
 
 function missionCard(b) {
@@ -549,10 +553,54 @@ function renderForecast(b) {
       ${lineChart([b.wind_series.wind, b.wind_series.gust], hours, ["var(--color-brand)", "var(--color-text-muted)"])}
       <div class="chart-caption">Wind (cyan) · Gusts (grey)</div>
     </section>
-    <div class="disclaimer">Forecast detail is the drill-down behind the hazard drivers. Derived fields from Open-Meteo (HRRR-derived); ensemble probabilities from in-house SREF + HREF.</div>`;
+    ${renderRiskInputs(b.risk_inputs)}`;
   flushChartInits();
   initForecastScroll();
   linkifyAcronyms(document.getElementById("view-forecast"));
+}
+
+// Risk analysis inputs section — shows the scalar engine inputs (SREF/HREF probs,
+// physical params, NWS alerts) so users can verify what drove each hazard tier (FR-20).
+function renderRiskInputs(ri) {
+  if (!ri || !Object.keys(ri).length) return "";
+
+  function riCard(label, iconName, value, unit, sub) {
+    return `<div class="metric-card">
+      <div class="metric-card__label">${icon(iconName, "metric-card__icon")}<span class="eyebrow">${esc(label)}</span></div>
+      <div class="metric-card__value">${esc(String(value))}<span style="font-size:14px;color:var(--color-text-muted)">${esc(unit)}</span></div>
+      <div class="metric-card__sub">${esc(sub)}</div>
+    </div>`;
+  }
+
+  const cards = [];
+  if (ri.sref_p_precip != null)
+    cards.push(riCard("SREF P(precip)", "flash_flood", ri.sref_p_precip, "%", "Flood input"));
+  if (ri.sref_p_tstm != null)
+    cards.push(riCard("SREF P(tstm)", "lightning", ri.sref_p_tstm, "%", "T-storm input"));
+  if (ri.href_in_range && ri.href_p_precip != null)
+    cards.push(riCard("HREF P(QPF)", "flash_flood", ri.href_p_precip, "%", "Same-day flood"));
+  if (ri.href_in_range && ri.href_p_lightning != null)
+    cards.push(riCard("HREF P(ltg)", "lightning", ri.href_p_lightning, "%", "Same-day ltg"));
+  if (ri.cape_jkg != null)
+    cards.push(riCard("CAPE", "lightning", ri.cape_jkg, " J/kg", "Instability"));
+  if (ri.convective_rate_in_per_hr != null)
+    cards.push(riCard("Conv. rate", "flash_flood", ri.convective_rate_in_per_hr, " in/hr", "Peak rate"));
+  if (!cards.length) return "";
+
+  const badges = [];
+  if (ri.flash_flood_warning) badges.push(`<span class="ri-badge ri-badge--warn">Flash flood warning</span>`);
+  if (ri.flash_flood_watch) badges.push(`<span class="ri-badge ri-badge--watch">Flash flood watch</span>`);
+  if (ri.flood_watch) badges.push(`<span class="ri-badge ri-badge--watch">Flood watch</span>`);
+  if (ri.thunderstorm_warning) badges.push(`<span class="ri-badge ri-badge--warn">Thunderstorm warning</span>`);
+  if (ri.spc_category) badges.push(`<span class="ri-badge">SPC ${esc(ri.spc_category)}</span>`);
+  if (ri.href_in_range && ri.href_cycle) badges.push(`<span class="ri-badge">HREF ${esc(ri.href_cycle)}</span>`);
+
+  return `<section class="card">
+    <h2 class="section-title" style="margin-bottom:var(--space-2)">Risk analysis inputs</h2>
+    <div class="metric-grid">${cards.join("")}</div>
+    ${badges.length ? `<div class="ri-badges">${badges.join("")}</div>` : ""}
+    <div class="disclaimer">Raw inputs to the deterministic engine — SREF/HREF probabilities aggregated over the upstream watershed. The Hazards view shows how each threshold fired.</div>
+  </section>`;
 }
 
 // Toggle the right-edge "more" indicator on the hourly table as it scrolls (FR — long windows overflow).

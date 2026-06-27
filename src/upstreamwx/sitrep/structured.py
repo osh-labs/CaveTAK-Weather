@@ -277,6 +277,41 @@ def _metrics(bundle: IngestBundle | None) -> list[dict]:
     ]
 
 
+def _risk_inputs(bundle: IngestBundle | None) -> dict:
+    """Scalar engine-input fields for the Forecast view's Risk Analysis section (FR-20).
+
+    These are the raw probability and physical-parameter inputs the deterministic engine
+    reads to decide hazard tiers. Displaying them in the Forecast view lets users verify
+    the engine's reasoning against the drivers shown in the Hazards view. Display-only —
+    never re-read by the engine, never changes a posture (FR-13, NFR-4).
+    """
+    if bundle is None:
+        return {}
+
+    def pct(v: float | None) -> int | None:
+        return round(v) if v is not None else None
+
+    return {
+        "sref_p_precip": pct(bundle.sref_p_precip),
+        "sref_p_tstm": pct(bundle.sref_p_tstm),
+        "href_in_range": bundle.href_in_range,
+        "href_p_precip": pct(bundle.href_p_precip) if bundle.href_in_range else None,
+        "href_p_lightning": pct(bundle.href_p_lightning) if bundle.href_in_range else None,
+        "href_cycle": bundle.href_cycle,
+        "cape_jkg": round(bundle.cape_jkg) if bundle.cape_jkg is not None else None,
+        "convective_rate_in_per_hr": (
+            round(bundle.convective_rate_in_per_hr, 3)
+            if bundle.convective_rate_in_per_hr is not None
+            else None
+        ),
+        "spc_category": bundle.spc_category,
+        "flash_flood_warning": bundle.flash_flood_warning,
+        "flash_flood_watch": bundle.flash_flood_watch,
+        "flood_watch": bundle.flood_watch,
+        "thunderstorm_warning": bundle.thunderstorm_warning,
+    }
+
+
 def _forecast(bundle: IngestBundle | None) -> tuple[dict, dict, dict]:
     """Return (forecast_hourly table, temp_series, wind_series); empty under degradation."""
     fh = bundle.forecast_hourly if bundle is not None else None
@@ -364,6 +399,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
     used_href = bool(bundle is not None and bundle.href_in_range)
 
     forecast_hourly, temp_series, wind_series = _forecast(bundle)
+    risk_inputs = _risk_inputs(bundle)
     return {
         "mission": {
             "name": mission.name,
@@ -400,6 +436,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
         "forecast_hourly": forecast_hourly,
         "temp_series": temp_series,
         "wind_series": wind_series,
+        "risk_inputs": risk_inputs,
         "resources": _resources(
             mission.lat, mission.lon, result.threshold_version, used_href=used_href
         ),

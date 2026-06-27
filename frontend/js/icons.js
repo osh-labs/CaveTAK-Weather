@@ -35,6 +35,7 @@ const PATHS = {
   canyon: '<path d="M4 3v18M20 3v18"/><path d="M4 14c3 0 4-2 6-2s3 2 6 2"/><path d="M4 9c3 0 4-2 6-2s3 2 6 2"/>',
   wifi_off: '<path d="M2 8.8a16 16 0 0120 0"/><path d="M5 12.5a11 11 0 0114 0"/><path d="M8.5 16a6 6 0 017 0"/><path d="M12 20h.01"/><path d="M2 2l20 20"/>',
   pin: '<path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  reload: '<path d="M21 12a9 9 0 01-15.2 6.6"/><path d="M3 12a9 9 0 0115.2-6.6"/><polyline points="21 3 21 9 15 9"/><polyline points="3 21 3 15 9 15"/>',
 };
 
 export function icon(name, className = "") {

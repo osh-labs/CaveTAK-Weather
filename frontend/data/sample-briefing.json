@@ -1267,6 +1267,21 @@
       15
     ]
   },
+  "risk_inputs": {
+    "sref_p_precip": 65,
+    "sref_p_tstm": 92,
+    "href_in_range": true,
+    "href_p_precip": 4,
+    "href_p_lightning": 38,
+    "href_cycle": "20260618/12Z",
+    "cape_jkg": 1800,
+    "convective_rate_in_per_hr": null,
+    "spc_category": "MRGL",
+    "flash_flood_warning": false,
+    "flash_flood_watch": false,
+    "flood_watch": false,
+    "thunderstorm_warning": false
+  },
   "resources": [
     {
       "icon": "doc",
