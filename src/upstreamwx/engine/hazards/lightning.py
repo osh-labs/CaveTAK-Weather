@@ -25,8 +25,12 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
 
     bands = cfg["sref_ptstm"]
     p = inputs.sref_p_tstm
-    _ptstm_bands = (("EXTREME", "extreme_min"), ("HIGH", "high_min"), ("ELEVATED", "elevated_min"))
-    _href_bands = _ptstm_bands  # same Extreme/High/Elevated ordering, HREF cut points
+    # When HREF is available in-window, use a higher SREF Extreme threshold so the
+    # higher-resolution same-day ensemble is the dominant Extreme trigger (§16.2).
+    href_in_window = inputs.href_p_lightning is not None
+    sref_extreme_key = "extreme_min_with_href" if href_in_window else "extreme_min"
+    _ptstm_bands = ((("EXTREME", sref_extreme_key), ("HIGH", "high_min"), ("ELEVATED", "elevated_min")))
+    _href_bands = (("EXTREME", "extreme_min"), ("HIGH", "high_min"), ("ELEVATED", "elevated_min"))
     if p is not None:
         for tier_name, key in _ptstm_bands:
             if p >= bands[key]:

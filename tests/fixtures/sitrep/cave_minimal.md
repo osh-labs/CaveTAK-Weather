@@ -51,7 +51,7 @@ Upstream watershed not resolved for this briefing.
 
 ## SOURCE DATA (drill-down)
 
-Threshold config: flash_flood=1.2.0;lightning=1.1.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.2.0;lightning=1.2.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Source field detail unavailable (rendered from engine result only).
 
