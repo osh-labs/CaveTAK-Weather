@@ -47,13 +47,9 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
                 (Tier.from_name(mapped), f"SPC {inputs.spc_category} risk over window")
             )
 
-    if inputs.afd_convective_mention:
-        candidates.append(
-            (
-                Tier.from_name(cfg["afd_convective_mention_tier"]),
-                "AFD mentions isolated/scattered afternoon convection",
-            )
-        )
+    if inputs.afd_storm_mode is not None:
+        mode_tier = Tier.from_name(cfg["afd_storm_mode"][inputs.afd_storm_mode])
+        candidates.append((mode_tier, f"AFD: {inputs.afd_storm_mode} convection"))
 
     # HREF same-day overlay (FR-7a, §16.2): HREF neighborhood P(lightning)/P(reflectivity)
     # on its own cut points, added as another candidate; the max across all wins.
@@ -76,6 +72,28 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     else:
         tier = Tier.MINIMAL
         drivers.append(f"SREF P(tstm) below {bands['elevated_min']}%; no convective mention")
+
+    # Contextual ceiling: when the AFD describes routine coverage (isolated/scattered),
+    # cap the final tier unless HREF P(lightning) exceeds the override threshold — the
+    # same-day high-res ensemble can see more than an AFD written hours earlier (§16.2).
+    ceiling_cfg = cfg.get("afd_ceiling", {})
+    ceiling_key = ceiling_cfg.get(inputs.afd_storm_mode) if inputs.afd_storm_mode else None
+    if ceiling_key:
+        ceiling = Tier.from_name(ceiling_key)
+        href_min: float = ceiling_cfg["href_override_min"]
+        href_overrides = (
+            inputs.href_p_lightning is not None and inputs.href_p_lightning > href_min
+        )
+        if not href_overrides and tier > ceiling:
+            hp_str = (
+                "n/a" if inputs.href_p_lightning is None
+                else f"{inputs.href_p_lightning:.0f}%"
+            )
+            notes.append(
+                f"Tier capped at {ceiling.label}: AFD describes {inputs.afd_storm_mode} "
+                f"convection (HREF ≥{href_min:.0f}% would override; current: {hp_str})."
+            )
+            tier = ceiling
 
     # CAPE context (instability) — modulates confidence/severity, not the tier.
     cape = inputs.cape_jkg

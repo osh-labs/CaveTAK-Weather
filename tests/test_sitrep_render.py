@@ -41,14 +41,14 @@ def canyon_href_case() -> tuple[dict, str]:
         sref_p_precip=65, measurable_precip=True, sref_p_tstm=50,
         href_p_precip=45, href_p_lightning=35,
         heat_index_f=95, apparent_temp_f=92, wind_mph=8, cape_jkg=1200,
-        spc_category="slight", afd_convective_mention=True, source_agreement="partial",
+        spc_category="slight", afd_storm_mode="scattered", source_agreement="partial",
     )
     bundle = IngestBundle(
         sref_p_precip=65, sref_p_tstm=50, measurable_precip=True, cape_jkg=1200,
         href_p_precip=45, href_p_lightning=35, href_in_range=True,
         href_cycle="20260620/12Z", href_fhour="f09-f16", source_agreement="partial",
         heat_index_f=95, apparent_temp_f=92, wind_mph=8, spc_category="slight",
-        afd_convective_mention=True, notes=["openmeteo: ok"],
+        afd_storm_mode="scattered", notes=["openmeteo: ok"],
     )
     upstream = UpstreamTrace(
         origin_huc12="150100021304",

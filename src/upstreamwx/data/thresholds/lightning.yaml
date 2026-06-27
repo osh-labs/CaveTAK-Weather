@@ -2,7 +2,7 @@
 # Applies to exposed phases only (approach, egress); excluded from the technical
 # span by FR-14c. Externalized, versioned config (FR-20a).
 hazard: lightning
-version: "1.2.0"
+version: "1.3.0"
 provenance:
   effective_date: "2026-06-27"
   rationale: >-
@@ -14,7 +14,13 @@ provenance:
     recalibrates both ensembles: SREF Extreme raised from 70% to 80% (or 85% when
     HREF is in-window) to reduce false Extreme triggers from diffuse ensemble spread;
     HREF cut points lowered (45/20/8%) so the higher-resolution same-day ensemble is
-    the dominant Extreme signal in its window. To be tuned via field testing (FR-20a).
+    the dominant Extreme signal in its window. v1.3 replaces the binary AFD convective
+    mention with a graded storm-mode signal (isolated/scattered/numerous) and adds a
+    contextual ceiling: when the AFD describes routine coverage (isolated -> Elevated
+    ceiling; scattered -> High ceiling) and HREF P(lightning) is below 60%, Extreme
+    is suppressed. HREF >= 60% bypasses the ceiling so same-day high-res evidence can
+    still trigger Extreme on days the AFD discussion predates. To be tuned via field
+    testing (FR-20a).
   source: "UpstreamWX PRD v0.8 §16.2"
 
 products:
@@ -53,8 +59,21 @@ spc_category:
   marginal: elevated      # SPC Marginal
   general_thunder: elevated  # SPC general-thunderstorm (TSTM) area
 
-# AFD mention of isolated/scattered afternoon convection during an exposed phase.
-afd_convective_mention_tier: elevated
+# AFD storm-mode coverage -> tier candidate (additive floor). Routine coverage
+# (isolated/scattered) contributes at most Elevated; numerous/widespread raises the
+# floor to High. The ceiling below then suppresses Extreme on isolated/scattered days.
+afd_storm_mode:
+  isolated: elevated
+  scattered: elevated
+  numerous: high
+
+# Contextual ceiling when AFD describes routine convection. Cap the final tier unless
+# HREF P(lightning) exceeds href_override_min: the same-day high-res ensemble
+# may see more than an AFD discussion written hours earlier. No ceiling for "numerous".
+afd_ceiling:
+  isolated: elevated    # isolated -> cap final tier at Elevated
+  scattered: high       # scattered -> cap final tier at High
+  href_override_min: 60 # HREF P(lightning) >= 60% bypasses the ceiling
 
 # Instability bands (CAPE J/kg) — modulate confidence/severity, NOT the tier.
 cape_bands_jkg:

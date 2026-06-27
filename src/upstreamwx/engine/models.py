@@ -137,7 +137,7 @@ class HazardInputs:
 
     # SPC convective outlook category over the window, and AFD signals.
     spc_category: str | None = None               # categorical|enhanced|slight|marginal
-    afd_convective_mention: bool = False          # AFD discusses convection (lightning)
+    afd_storm_mode: str | None = None             # AFD coverage: isolated | scattered | numerous
     afd_flood_mention: bool = False               # AFD discusses excessive rain/flooding
 
     # Open-Meteo derived fields (deg F / mph).

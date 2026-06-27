@@ -31,7 +31,7 @@ def test_to_hazard_inputs_maps_fields():
         heat_index_f=98.0,
         apparent_temp_f=44.0,
         spc_category="slight",
-        afd_convective_mention=True,
+        afd_storm_mode="scattered",
         member_support={"flash_flood": 0.55},
     )
     inputs = to_hazard_inputs(bundle, dry_party=True)
@@ -39,6 +39,7 @@ def test_to_hazard_inputs_maps_fields():
     assert inputs.sref_p_precip == 55.0
     assert inputs.heat_index_f == 98.0
     assert inputs.spc_category == "slight"
+    assert inputs.afd_storm_mode == "scattered"
     assert inputs.dry_party is True
     assert inputs.member_support == {"flash_flood": 0.55}
 

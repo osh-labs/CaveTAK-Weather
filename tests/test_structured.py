@@ -44,7 +44,7 @@ def _inputs() -> HazardInputs:
         sref_p_tstm=92.0,
         measurable_precip=True,
         spc_category="marginal",
-        afd_convective_mention=True,
+        afd_storm_mode="numerous",
         afd_flood_mention=True,
         heat_index_f=87.0,
         apparent_temp_f=72.0,

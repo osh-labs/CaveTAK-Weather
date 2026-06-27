@@ -2,6 +2,7 @@
 # SREF cut points (no HREF): extreme_min=80%, high_min=40%, elevated_min=15%.
 # SREF cut points (HREF in-window): extreme_min_with_href=85%, same High/Elevated.
 # HREF cut points: extreme_min=45%, high_min=20%, elevated_min=8%.
+# AFD ceiling: isolated->Elevated, scattered->High; HREF>=60% overrides ceiling.
 # Any one condition triggers; assigned tier is the max across SREF / HREF / SPC / AFD / warning.
 hazard: lightning
 cases:
@@ -68,9 +69,25 @@ cases:
   - id: spc_marginal_to_elevated
     inputs: {sref_p_tstm: 0, spc_category: marginal}
     expect: elevated
-  - id: afd_mention_to_elevated
-    inputs: {sref_p_tstm: 0, afd_convective_mention: true}
+  - id: afd_scattered_candidate_elevated
+    inputs: {sref_p_tstm: 0, afd_storm_mode: scattered}
     expect: elevated
+  # AFD ceiling: scattered caps SREF-driven Extreme at High (no HREF override).
+  - id: afd_scattered_caps_extreme
+    inputs: {sref_p_tstm: 82, afd_storm_mode: scattered}
+    expect: high
+  # AFD ceiling: isolated caps SREF-driven High at Elevated.
+  - id: afd_isolated_caps_high
+    inputs: {sref_p_tstm: 50, afd_storm_mode: isolated}
+    expect: elevated
+  # HREF > 60% overrides the scattered ceiling -> Extreme allowed.
+  - id: afd_scattered_href_overrides_ceiling
+    inputs: {sref_p_tstm: 82, href_p_lightning: 65, afd_storm_mode: scattered}
+    expect: extreme
+  # AFD numerous has no ceiling -> Extreme allowed from SREF.
+  - id: afd_numerous_no_ceiling
+    inputs: {sref_p_tstm: 82, afd_storm_mode: numerous}
+    expect: extreme
   - id: max_across_triggers
     inputs: {sref_p_tstm: 20, spc_category: enhanced}
     expect: high

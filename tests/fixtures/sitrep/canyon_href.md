@@ -40,7 +40,7 @@
 ### Lightning
 - SREF P(tstm) 50% ≥ 40%
 - SPC slight risk over window
-- AFD mentions isolated/scattered afternoon convection
+- AFD: scattered convection
 - HREF neighborhood P(convection) 35% ≥ 20% (~3 km same-day)
 - CAPE 1200 J/kg (moderate instability) — context only.
 
@@ -58,7 +58,7 @@ Flash-flood assessment aggregates over the upstream contributing watershed of HU
 
 ## SOURCE DATA (drill-down)
 
-Threshold config: flash_flood=1.2.0;lightning=1.2.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.2.0;lightning=1.3.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Active NWS products:
 - Flash Flood Warning: no
@@ -67,7 +67,7 @@ Active NWS products:
 - Flood Advisory: no
 - Flood Watch: no
 - Thunderstorm Warning: no
-- AFD convective mention: yes
+- AFD storm mode: scattered
 - AFD excessive-rain / flood mention: no
 - SPC outlook: slight
 

@@ -82,7 +82,7 @@ cases:
       sref_p_tstm: 55
       spc_category: slight
       cape_jkg: 1500
-      afd_convective_mention: true
+      afd_storm_mode: scattered
     expect:
       overall: high
       hazards:

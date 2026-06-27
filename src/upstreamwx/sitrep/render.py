@@ -269,7 +269,7 @@ def _render_source_data(lines: list[str], bundle: IngestBundle | None) -> None:
     lines.append(f"- Flood Advisory: {_yn(bundle.flood_advisory)}")
     lines.append(f"- Flood Watch: {_yn(bundle.flood_watch)}")
     lines.append(f"- Thunderstorm Warning: {_yn(bundle.thunderstorm_warning)}")
-    lines.append(f"- AFD convective mention: {_yn(bundle.afd_convective_mention)}")
+    lines.append(f"- AFD storm mode: {bundle.afd_storm_mode or 'none'}")
     lines.append(f"- AFD excessive-rain / flood mention: {_yn(bundle.afd_flood_mention)}")
     lines.append(f"- SPC outlook: {bundle.spc_category or 'n/a'}")
 

@@ -27,10 +27,30 @@ _OFFICE_PRECISION = 3
 _office_cache: dict[tuple[float, float], str] = {}
 _office_lock = threading.Lock()
 
-# Convective language the AFD scan treats as an exposed-phase lightning signal.
-_CONVECTIVE_RE = re.compile(
-    r"\b(thunderstorm|convection|convective|lightning|isolated|scattered)\b", re.I
-)
+# AFD storm-mode terms ranked by coverage severity (numerous/widespread > scattered > isolated).
+# "widespread" normalizes to "numerous"; the returned string is always one of those three.
+_STORM_MODE_RE = re.compile(r"\b(isolated|scattered|numerous|widespread)\b", re.I)
+_STORM_MODE_RANK: dict[str, int] = {"isolated": 1, "scattered": 2, "numerous": 3, "widespread": 3}
+_STORM_MODE_NORM: dict[str, str] = {"widespread": "numerous"}
+
+
+def _afd_storm_mode(afd: str | None) -> str | None:
+    """Return the dominant storm-mode coverage term from AFD text, or None if absent.
+
+    Scans for isolated/scattered/numerous/widespread; the highest-coverage term wins
+    when multiple appear so that "isolated to scattered" resolves to "scattered".
+    """
+    if not afd:
+        return None
+    best: str | None = None
+    best_rank = 0
+    for m in _STORM_MODE_RE.finditer(afd):
+        word = m.group(1).lower()
+        rank = _STORM_MODE_RANK[word]
+        if rank > best_rank:
+            best_rank = rank
+            best = _STORM_MODE_NORM.get(word, word)
+    return best
 
 # Flood/heavy-rain language the AFD scan treats as a flood signal. The forecaster
 # discussion routinely flags excessive-rainfall potential ahead of (or alongside)
@@ -130,7 +150,9 @@ def fetch(mission: Mission, bundle: IngestBundle) -> None:
     bundle.flood_advisory = _flood_event("advisory")
     bundle.flood_watch = _flood_event("watch")
 
+    storm_mode = _afd_storm_mode(afd)
     bundle.afd_text = afd
-    bundle.afd_convective_mention = bool(afd and _CONVECTIVE_RE.search(afd))
+    bundle.afd_storm_mode = storm_mode
+    bundle.afd_convective_mention = storm_mode is not None   # backward compat / display
     bundle.afd_flood_mention = bool(afd and _FLOOD_RE.search(afd))
     bundle.sources_ok[NAME] = True

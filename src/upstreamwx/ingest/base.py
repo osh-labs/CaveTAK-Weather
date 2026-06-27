@@ -52,7 +52,8 @@ class IngestBundle:
     flood_watch: bool = False
     thunderstorm_warning: bool = False
     afd_text: str | None = None
-    afd_convective_mention: bool = False
+    afd_storm_mode: str | None = None          # isolated | scattered | numerous; None if absent
+    afd_convective_mention: bool = False        # derived from afd_storm_mode; display only
     afd_flood_mention: bool = False
 
     # Open-Meteo derived fields (FR-6), already in deg F / mph / inch.
@@ -151,7 +152,7 @@ def to_hazard_inputs(bundle: IngestBundle, *, dry_party: bool = False) -> Hazard
         member_support=dict(bundle.member_support),
         source_agreement=bundle.source_agreement,
         spc_category=bundle.spc_category,
-        afd_convective_mention=bundle.afd_convective_mention,
+        afd_storm_mode=bundle.afd_storm_mode,
         afd_flood_mention=bundle.afd_flood_mention,
         heat_index_f=bundle.heat_index_f,
         apparent_temp_f=bundle.apparent_temp_f,
