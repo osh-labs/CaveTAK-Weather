@@ -1163,6 +1163,9 @@ let _mpMap = null;
 let _mpMarker = null;
 let _mpRoc = null;
 let _mpSpec = null;
+// True once the user has manually edited the end field; suppresses the auto-follow
+// that keeps end = start + 4 h while the end is still at its default.
+let _mpEndUserSet = false;
 // Fallback view (CONUS center) when no point is set yet.
 const MP_DEFAULT_CENTER = [39.5, -111.5];
 
@@ -1385,7 +1388,9 @@ function openMissionPlanner(spec) {
 
   const endStr = String(_mpSpec.end || "").slice(0, 16);
   const endIsStale = !endStr || new Date(endStr + ":00") <= new Date(startVal + ":00");
-  document.getElementById("mp-end").value = endIsStale ? addHoursLocal(startVal, 9) : endStr;
+  document.getElementById("mp-end").value = endIsStale ? addHoursLocal(startVal, 4) : endStr;
+  // Reset the flag so end auto-follows start again unless the user edits it.
+  _mpEndUserSet = !endIsStale;
 
   // Radius of Concern: snap the saved value to the nearest stop and store it back in km.
   const rocIdx = nearestRocIndex(rocMiFromSpec(_mpSpec));
@@ -1459,6 +1464,17 @@ function initPlannerControls() {
     updateRocReadout(idx);
     drawPlannerRoc();
   });
+
+  // Start time: auto-advance end by 4 h whenever start changes, unless the user
+  // has already edited end directly.
+  document.getElementById("mp-start").addEventListener("change", () => {
+    if (_mpEndUserSet) return;
+    const startVal = document.getElementById("mp-start").value;
+    if (startVal) document.getElementById("mp-end").value = addHoursLocal(startVal, 4);
+  });
+
+  // End time: once the user touches this field it stops auto-following start.
+  document.getElementById("mp-end").addEventListener("change", () => { _mpEndUserSet = true; });
 
   // Name field: sync to spec + update tooltip on every keystroke.
   const nameInput = document.getElementById("mp-name");
