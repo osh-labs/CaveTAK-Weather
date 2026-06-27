@@ -41,7 +41,7 @@
 - SREF P(tstm) 50% ≥ 40%
 - SPC slight risk over window
 - AFD mentions isolated/scattered afternoon convection
-- HREF neighborhood P(convection) 35% ≥ 30% (~3 km same-day)
+- HREF neighborhood P(convection) 35% ≥ 20% (~3 km same-day)
 - CAPE 1200 J/kg (moderate instability) — context only.
 
 ### Heat
@@ -58,7 +58,7 @@ Flash-flood assessment aggregates over the upstream contributing watershed of HU
 
 ## SOURCE DATA (drill-down)
 
-Threshold config: flash_flood=1.2.0;lightning=1.1.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.2.0;lightning=1.2.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Active NWS products:
 - Flash Flood Warning: no

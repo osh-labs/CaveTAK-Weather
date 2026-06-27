@@ -25,7 +25,10 @@ HAZARD_LOGIC: dict[Hazard, str] = {
         "(Appendix B §16.1)."
     ),
     Hazard.LIGHTNING: (
-        "Extreme = SREF P(tstm) ≥70% OR SPC Moderate+ during any exposed phase "
+        "Extreme = SREF P(tstm) ≥80% (≥85% when HREF in-window) OR "
+        "HREF P(lightning) ≥45% OR SPC Moderate+ during any exposed phase; "
+        "High = SREF 40–79% OR HREF 20–44%; "
+        "Elevated = SREF 15–39% OR HREF 8–19% OR AFD convective mention "
         "(Appendix B §16.2). Cave interior excluded for the technical span (FR-14c)."
     ),
     Hazard.HEAT: (

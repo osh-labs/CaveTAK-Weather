@@ -468,17 +468,19 @@ Primary basis is SREF probability of thunderstorms over the exposure window at t
 
 | Tier | Condition (any one triggers) |
 |---|---|
-| **Extreme** | Active Severe Thunderstorm / Thunderstorm warning; OR SREF P(tstm) ≥ 70% in the exposure window; OR SPC categorical thunder/severe over the window |
-| **High** | SREF P(tstm) 40–69%; OR SPC Slight/Enhanced risk during an exposed phase |
-| **Elevated** | SREF P(tstm) 15–39%; OR SPC Marginal; OR AFD mentions isolated/scattered afternoon convection during an exposed phase |
-| **Minimal** | SREF P(tstm) < 15%; no convective mention |
+| **Extreme** | Active Severe Thunderstorm / Thunderstorm warning; OR SREF P(tstm) ≥ 80% (≥ 85% when HREF is in-window) in the exposure window; OR HREF P(lightning) ≥ 45% or P(reflectivity ≥ 40 dBZ) ≥ 45% in the exposure window; OR SPC categorical thunder/severe over the window |
+| **High** | SREF P(tstm) 40–79% (40–84% when HREF in-window); OR HREF P(lightning) 20–44%; OR SPC Slight/Enhanced risk during an exposed phase |
+| **Elevated** | SREF P(tstm) 15–39%; OR HREF P(lightning) 8–19%; OR SPC Marginal; OR AFD mentions isolated/scattered afternoon convection during an exposed phase |
+| **Minimal** | SREF P(tstm) < 15%; HREF P(lightning) < 8% (or unavailable); no convective mention |
 
 Supporting context (instability), used to modulate confidence/severity, not to set the tier:
 - CAPE < 500 J/kg: minimal instability; 500–1000: marginal; 1000–2500: moderate; > 2500: strong.
 
-Established components: SPC outlook categories and the active-warning override are standard. The P(tstm) cut points (15 / 40 / 70%) are **UpstreamWX proposals**. Note in-product: the forecast is for planning; in the field, "when thunder roars, go indoors" and direct observation govern.
+Established components: SPC outlook categories and the active-warning override are standard. The P(tstm) cut points (15 / 40 / 80%; or 15 / 40 / 85% when HREF is in-window) are **UpstreamWX proposals**. Note in-product: the forecast is for planning; in the field, "when thunder roars, go indoors" and direct observation govern.
 
-**HREF same-day overlay (FR-7a).** Within HREF range (≈6–36 h) the engine also evaluates HREF neighborhood convection probability over the exposure window and takes the higher tier (FR-19). HREF gives an **explicit** `LTNG` neighborhood P(lightning) plus `REFC` P(composite reflectivity ≥ 40 dBZ) as a convective-mode proxy — a sharper same-day lightning signal than SREF P(tstm). Proposed initial cut points (versioned config, FR-20a; distinct from SREF's because of the neighborhood/3 km/11-member basis): **Extreme** at HREF P(lightning) ≥ 60% or P(reflectivity ≥ 40 dBZ) ≥ 60% in the exposure window; **High** at 30–60%; **Elevated** at 10–30%. These break points are **UpstreamWX proposals**.
+**HREF same-day overlay (FR-7a).** Within HREF range (≈6–36 h) the engine also evaluates HREF neighborhood convection probability over the exposure window and takes the higher tier (FR-19). HREF gives an **explicit** `LTNG` neighborhood P(lightning) plus `REFC` P(composite reflectivity ≥ 40 dBZ) as a convective-mode proxy — a sharper same-day lightning signal than SREF P(tstm). Proposed cut points (versioned config, FR-20a; distinct from SREF's because of the neighborhood/3 km/11-member basis): **Extreme** at HREF P(lightning) ≥ 45%; **High** at 20–44%; **Elevated** at 8–19%. These break points are **UpstreamWX proposals**. Because HREF neighborhood probability at these thresholds represents a stronger convective signal than an equivalent SREF percentage, the engine also raises the SREF Extreme threshold to 85% (from 80%) when HREF is available, making HREF the dominant Extreme trigger in its window while allowing a very high-confidence SREF signal to override.
+
+**V2 deferred — route-based lightning exposure assessment.** The current implementation assesses lightning risk over the **upstream contributing watershed** centered on the activity point. This is a conservative and correct proxy for the technical span and for missions where the approach closely follows the drainage, but it does not model the full spatial extent of an overland approach corridor. A party approaching a canyon across open terrain or a ridgeline may be exposed to lightning risk in areas the watershed polygon does not cover. In a future production V2, lightning exposure for approach and egress phases should be assessed over a **mission route corridor** defined by a start point, an end point, and a configurable buffer radius (e.g., 0.5–2 mi) around the interpolated path — using the same SREF/HREF neighborhood probability aggregation framework applied to this derived polygon rather than the watershed. This is architecturally distinct from the current approach (route geometry vs. drainage geometry) and deferred because it requires route input in the mission spec and a corresponding change to the ingest aggregation polygon logic. Until then, users with long overland approaches should note that the lightning assessment reflects the destination watershed, not the full approach path.
 
 ### 16.3 Heat Stress (NWS Heat Index categories, per FR-15)
 
