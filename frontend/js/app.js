@@ -504,7 +504,7 @@ function selectTab(id) {
   document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== `view-${id}`));
   document.querySelector("main").scrollTo({ top: 0 });
   if (id === "map" && state.briefing) {
-    requestAnimationFrame(() => initLeafletMap(state.briefing));
+    requestAnimationFrame(() => initMainMap(state.briefing));
   }
   if (id === "forecast" && _fcSync) requestAnimationFrame(_fcSync);
 }
@@ -929,9 +929,9 @@ function renderHazards(b) {
 
 /* ── 7.11 Map ──────────────────────────────────────────────────────── */
 function renderMap(b) {
-  // A re-render recreates the map container; drop any prior Leaflet instance so it
+  // A re-render recreates the map container; drop any prior MapLibre instance so it
   // rebuilds against the new briefing (point / watershed may have changed).
-  if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+  if (_mainMap) { _mainMap.remove(); _mainMap = null; }
   state.mapInitialized = false;
   const hasExcluded = !!b.watershed?.excluded_geometry;
   const hasRoc = !!(b.roc?.geometry || (b.roc?.center && b.roc?.radius_km));
@@ -947,7 +947,7 @@ function renderMap(b) {
     <div class="disclaimer">Planning map. The shaded basin is the approximate upstream watershed feeding the expedition point. Tap either for details.</div>`;
 }
 
-let _leafletMap = null;
+let _mainMap = null;
 let _poiMarker = null;
 let _moveMode = false;
 
@@ -959,210 +959,286 @@ function poiPopupHtml(m) {
   </div>`;
 }
 
-// Inject a 45° diagonal-hatch SVG <pattern> into the map's overlay <svg> once, so the
-// excluded-watershed polygon can fill with it (Leaflet has no native pattern fill). Mirrors
-// the --confidence-hatch token; keyed on #roc-hatch so it is added at most once.
-function ensureHatchPattern(map) {
-  const svg = map.getPanes().overlayPane.querySelector("svg");
-  if (!svg || svg.querySelector("#roc-hatch")) return;
-  const svgNS = "http://www.w3.org/2000/svg";
-  const defs = document.createElementNS(svgNS, "defs");
-  defs.innerHTML =
-    `<pattern id="roc-hatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">` +
-    `<rect width="7" height="7" fill="#38bdf8" fill-opacity="0.05"/>` +
-    `<line x1="0" y1="0" x2="0" y2="7" stroke="#7dd3fc" stroke-width="1.1" stroke-opacity="0.55"/>` +
-    `</pattern>`;
-  svg.insertBefore(defs, svg.firstChild);
+// MapLibre vector tile base styles — OpenFreeMap (free, no API key, OSM-based, attribution required).
+const STYLE_TOPO  = "https://tiles.openfreemap.org/styles/liberty";   // detailed topo — default
+const STYLE_LIGHT = "https://tiles.openfreemap.org/styles/positron";  // minimal light
+
+// Raster source configs for Esri providers (free, attribution required).
+// maxzoom = native tile ceiling; MapLibre auto-upscales above this without blank tiles.
+const RASTER_AERIAL = {
+  type: "raster",
+  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+  tileSize: 256, maxzoom: 19,
+  attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
+};
+const RASTER_ESRI_TOPO = {
+  type: "raster",
+  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"],
+  tileSize: 256, maxzoom: 17,
+  attribution: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, USGS, NPS",
+};
+const RASTER_STREET = {
+  type: "raster",
+  tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"],
+  tileSize: 256, maxzoom: 17,
+  attribution: "Tiles &copy; Esri &mdash; Esri, HERE, Garmin",
+};
+
+// Minimal MapLibre style document wrapping a single raster source — used when the user
+// picks a raster base (Aerial, Esri Topo, Street) from the layer switcher.
+function rasterBaseStyle(src) {
+  return { version: 8, sources: { base: src }, layers: [{ id: "base", type: "raster", source: "base" }] };
 }
 
-// Return a fresh set of Leaflet tile-layer instances for a map. Each call produces
-// independent instances — Leaflet binds a layer to one map at a time, so both the
-// briefing map and the mission planner map each need their own set.
-function makeTileLayers() {
-  const esri = (svc, attr) =>
-    L.tileLayer(
-      `https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`,
-      { maxZoom: 17, attribution: attr }
-    );
+// Approximate circle as a GeoJSON Polygon (equirectangular; ≤1 % error at CONUS latitudes
+// for radii up to 200 mi). Used for the live RoC preview on the planner.
+function circlePolygon(lng, lat, radiusKm, steps = 64) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * 2 * Math.PI;
+    pts.push([
+      lng + (radiusKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(a),
+      lat + (radiusKm / 110.574) * Math.cos(a),
+    ]);
+  }
+  return { type: "Feature", geometry: { type: "Polygon", coordinates: [pts] } };
+}
+
+// Compute [[w,s],[e,n]] bounding box from any GeoJSON geometry for map.fitBounds().
+function geoBBox(geom) {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  const v = ([lng, lat]) => {
+    w = Math.min(w, lng); e = Math.max(e, lng); s = Math.min(s, lat); n = Math.max(n, lat);
+  };
+  function walk(g) {
+    if (!g) return;
+    if (g.type === "Feature") { walk(g.geometry); return; }
+    if (g.type === "FeatureCollection") { g.features.forEach(walk); return; }
+    if (g.type === "GeometryCollection") { g.geometries.forEach(walk); return; }
+    const c = g.coordinates;
+    if (g.type === "Point") v(c);
+    else if (g.type === "LineString" || g.type === "MultiPoint") c.forEach(v);
+    else if (g.type === "Polygon" || g.type === "MultiLineString") c.forEach(r => r.forEach(v));
+    else if (g.type === "MultiPolygon") c.forEach(p => p.forEach(r => r.forEach(v)));
+  }
+  walk(geom);
+  return [[w, s], [e, n]];
+}
+
+// Register an 8×8 diagonal-hatch pattern image once per map (idempotent). Mirrors the
+// --confidence-hatch visual token; used for the excluded-watershed fill.
+function addHatchImage(map) {
+  if (map.hasImage("roc-hatch")) return;
+  const sz = 8;
+  const canvas = document.createElement("canvas");
+  canvas.width = sz; canvas.height = sz;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(56,189,248,0.05)";
+  ctx.fillRect(0, 0, sz, sz);
+  ctx.strokeStyle = "rgba(125,211,252,0.55)";
+  ctx.lineWidth = 1.1;
+  ctx.beginPath(); ctx.moveTo(0, sz); ctx.lineTo(sz, 0); ctx.stroke();
+  const id = ctx.getImageData(0, 0, sz, sz);
+  map.addImage("roc-hatch", { width: sz, height: sz, data: new Uint8Array(id.data) });
+}
+
+// Minimal custom MapLibre layer-switcher control: stacked text buttons, one active at a time.
+function makeLayerSwitcherControl(layers, onSwitch) {
+  let _el = null;
   return {
-    dark: L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      {
-        subdomains: "abcd", maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-          '&copy; <a href="https://carto.com/attributions">CARTO</a>',
-      }
-    ),
-    hillshade: L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade_Dark/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 16, opacity: 0.4, attribution: "Tiles &copy; Esri" }
-    ),
-    usgsTopo: L.tileLayer(
-      "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
-      {
-        maxZoom: 16,
-        attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>',
-      }
-    ),
-    esriTopo: esri("World_Topo_Map", "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, USGS, NPS"),
-    aerial:   esri("World_Imagery", "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"),
-    street:   esri("World_Street_Map", "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, USGS, NGA"),
-    openTopo: L.tileLayer(
-      "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-      {
-        subdomains: "abc", maxZoom: 17,
-        attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
-          '<a href="http://viewfinderpanoramas.com">SRTM</a> | Style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
-      }
-    ),
+    onAdd() {
+      _el = document.createElement("div");
+      _el.className = "maplibregl-ctrl maplibregl-ctrl-group map-layer-switcher";
+      layers.forEach(({ label, key }, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = label;
+        btn.dataset.key = key;
+        if (i === 0) btn.classList.add("active");
+        btn.addEventListener("click", () => {
+          _el.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          onSwitch(key);
+        });
+        _el.appendChild(btn);
+      });
+      return _el;
+    },
+    onRemove() { _el = null; },
   };
 }
 
-function initLeafletMap(b) {
-  const container = document.getElementById("leaflet-map");
-  if (!container || !window.L) return;
-  if (_leafletMap) { _leafletMap.invalidateSize(); return; }
-
+// Add all briefing GeoJSON sources/layers and the POI marker. Called after the initial
+// style loads and after every base-style switch (setStyle clears all sources/layers).
+function applyBriefingLayers(map, b) {
+  addHatchImage(map);
   const m = b.mission;
-  _leafletMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 19 })
-    .setView([m.lat, m.lon], 13);
+  const w = b.watershed;
 
-  // Basemap layer switcher: default to CartoDB Dark + Esri hillshade (matches app chrome).
-  // Hillshade is an overlay so it can be toggled off when using light topos (top-right
-  // Leaflet control). All providers are free / attribution-only.
-  const layers = makeTileLayers();
-  layers.dark.addTo(_leafletMap);
-  layers.hillshade.addTo(_leafletMap);
-  L.control.layers(
-    {
-      "Dark": layers.dark,
-      "USGS Topo": layers.usgsTopo,
-      "Esri Topo": layers.esriTopo,
-      "Aerial": layers.aerial,
-      "Street": layers.street,
-      "OpenTopo": layers.openTopo,
-    },
-    { "Hillshade": layers.hillshade },
-    { position: "topright" }
-  ).addTo(_leafletMap);
+  // Watershed: kept (clipped) basin in cyan (FR-3).
+  if (w?.geometry) {
+    map.addSource("watershed", { type: "geojson", data: w.geometry });
+    map.addLayer({ id: "watershed-fill", type: "fill", source: "watershed",
+      paint: { "fill-color": "#38bdf8", "fill-opacity": 0.2 } });
+    map.addLayer({ id: "watershed-line", type: "line", source: "watershed",
+      paint: { "line-color": "#38bdf8", "line-width": 1.5 } });
 
-  // Upstream watershed: the kept (clipped) basin in 20%-opacity blue, the portion outside
-  // the Radius of Concern hatched, and the RoC itself a fine dashed orange ring (FR-3).
-  // keptLayer is tracked separately so fitBounds focuses on the planning area only.
-  const overlays = [];
-  let keptLayer = null;
-  if (b.watershed?.geometry) {
-    const w = b.watershed;
-    keptLayer = L.geoJSON(w.geometry, {
-      style: { color: "#38bdf8", weight: 1.5, opacity: 1, fillColor: "#38bdf8", fillOpacity: 0.2 },
-    }).addTo(_leafletMap);
-    keptLayer.bindPopup(
-      `<div class="map-pop">
-        <div class="map-pop__title">Approximate Watershed</div>
-        <div class="map-pop__row">HUC-12 <span class="mono">${esc(w.huc12.join(", "))}</span></div>
-        <div class="map-pop__row">Area <span class="mono">${w.area_sq_mi.toFixed(1)} mi²</span></div>
-      </div>`,
-      { className: "map-popup" }
-    );
-    overlays.push(keptLayer);
-
-    // Excluded remainder (watershed beyond the RoC): hatched, muted dashed outline.
+    // Excluded remainder (beyond the RoC): hatched grey.
     if (w.excluded_geometry) {
-      ensureHatchPattern(_leafletMap);
-      const ex = L.geoJSON(w.excluded_geometry, {
-        style: { color: "#64748b", weight: 1, opacity: 0.7, fillOpacity: 1, dashArray: "2 3" },
-      }).addTo(_leafletMap);
-      ex.eachLayer((l) => { if (l._path) l._path.setAttribute("fill", "url(#roc-hatch)"); });
-      ex.bindPopup(
-        `<div class="map-pop">
-          <div class="map-pop__title">Outside Radius of Concern</div>
-          <div class="map-pop__row">Excluded from the weather-data domain</div>
-        </div>`,
-        { className: "map-popup" }
-      );
-      overlays.push(ex);
+      map.addSource("excluded", { type: "geojson", data: w.excluded_geometry });
+      map.addLayer({ id: "excluded-fill", type: "fill", source: "excluded",
+        paint: { "fill-pattern": "roc-hatch" } });
+      map.addLayer({ id: "excluded-line", type: "line", source: "excluded",
+        paint: { "line-color": "#64748b", "line-width": 1, "line-dasharray": [2, 3], "line-opacity": 0.7 } });
     }
   }
 
-  // Radius of Concern ring: fine dashed orange (UI orange). Prefer the backend disk
-  // geometry so the ring matches the clip arc exactly; fall back to a drawn circle.
-  if (b.roc?.geometry) {
-    overlays.push(
-      L.geoJSON(b.roc.geometry, {
-        style: { color: UI_ORANGE, weight: 1, opacity: 1, dashArray: "4 4", fill: false },
-        interactive: false,
-      }).addTo(_leafletMap)
-    );
-  } else if (b.roc?.center && b.roc?.radius_km) {
-    overlays.push(
-      L.circle([b.roc.center[1], b.roc.center[0]], {
-        radius: b.roc.radius_km * 1000, color: UI_ORANGE, weight: 1, opacity: 1,
-        dashArray: "4 4", fill: false, interactive: false,
-      }).addTo(_leafletMap)
-    );
+  // Radius of Concern ring: dashed orange. Prefer backend geometry; fall back to computed.
+  const rocGeom = b.roc?.geometry
+    || (b.roc?.center && b.roc?.radius_km
+      ? circlePolygon(b.roc.center[0], b.roc.center[1], b.roc.radius_km) : null);
+  if (rocGeom) {
+    map.addSource("roc", { type: "geojson", data: rocGeom });
+    map.addLayer({ id: "roc-line", type: "line", source: "roc",
+      paint: { "line-color": UI_ORANGE, "line-width": 1, "line-dasharray": [4, 4] } });
   }
 
-  // Lightning Area of Concern ring: solid yellow, distinct from the dashed orange RoC
-  // (PRD §16.1 — the disk the lightning signal is assessed over). Drawn but deliberately
-  // NOT added to `overlays`, so it never feeds fitBounds: the map's zoom/pan defaults
-  // (watershed-fit) are unchanged. Prefer the backend disk; fall back to a drawn circle.
-  let laocLayer = null;
-  if (b.laoc?.geometry) {
-    laocLayer = L.geoJSON(b.laoc.geometry, {
-      style: { color: UI_YELLOW, weight: 1.5, opacity: 1, fill: false },
-      interactive: false,
-    }).addTo(_leafletMap);
-  } else if (b.laoc?.center && b.laoc?.radius_km) {
-    laocLayer = L.circle([b.laoc.center[1], b.laoc.center[0]], {
-      radius: b.laoc.radius_km * 1000, color: UI_YELLOW, weight: 1.5, opacity: 1,
-      fill: false, interactive: false,
-    }).addTo(_leafletMap);
-  }
-  if (laocLayer) {
-    laocLayer.bindPopup(
-      `<div class="map-pop">
-        <div class="map-pop__title">Lightning Area of Concern</div>
-        <div class="map-pop__row">Lightning assessed within this radius of the activity</div>
-      </div>`,
-      { className: "map-popup" }
-    );
+  // Lightning Area of Concern ring: solid yellow (PRD §16.1). Not fed to fitBounds so
+  // the view centres on the watershed, not the potentially larger LAoC disk.
+  const laocGeom = b.laoc?.geometry
+    || (b.laoc?.center && b.laoc?.radius_km
+      ? circlePolygon(b.laoc.center[0], b.laoc.center[1], b.laoc.radius_km) : null);
+  if (laocGeom) {
+    map.addSource("laoc", { type: "geojson", data: laocGeom });
+    map.addLayer({ id: "laoc-line", type: "line", source: "laoc",
+      paint: { "line-color": UI_YELLOW, "line-width": 1.5 } });
   }
 
-  // Fit to the kept (clipped) watershed so the view centres on the planning area;
-  // the excluded hatch and RoC ring may extend beyond the visible bounds.
-  if (keptLayer) {
-    _leafletMap.fitBounds(keptLayer.getBounds(), { padding: [24, 24] });
-  } else if (overlays.length) {
-    _leafletMap.fitBounds(L.featureGroup(overlays).getBounds(), { padding: [24, 24] });
+  // Fit to the kept watershed bounds (FR-1).
+  if (w?.geometry) {
+    map.fitBounds(geoBBox(w.geometry), { padding: 24, maxZoom: 14 });
   }
 
-  // Mission point: tap for coordinates + a move-point action.
-  _poiMarker = L.circleMarker([m.lat, m.lon], {
-    radius: 9, fillColor: "#fbbf24", color: "#fff", weight: 2.5, fillOpacity: 1,
-  }).addTo(_leafletMap)
-    .bindTooltip(esc(m.name), { permanent: true, direction: "top", className: "map-tooltip" })
-    .bindPopup(poiPopupHtml(m), { className: "map-popup" });
-
-  // Wire the "Move point" button each time the POI popup opens.
-  _poiMarker.on("popupopen", (e) => {
-    const btn = e.popup.getElement()?.querySelector("[data-move-point]");
+  // Rebuild the POI marker (remove prior instance — markers survive setStyle as DOM elements).
+  if (_poiMarker) { _poiMarker.remove(); _poiMarker = null; }
+  const markerEl = document.createElement("div");
+  markerEl.className = "map-poi-marker";
+  markerEl.innerHTML =
+    `<span class="map-poi-marker__label">${esc(m.name)}</span>` +
+    `<div class="map-poi-marker__dot"></div>`;
+  const popup = new maplibregl.Popup({ offset: 14, className: "map-popup" }).setHTML(poiPopupHtml(m));
+  popup.on("open", () => {
+    const btn = popup.getElement()?.querySelector("[data-move-point]");
     if (btn) btn.addEventListener("click", () => {
       _moveMode = true;
-      container.classList.add("is-moving-point");
-      _poiMarker.closePopup();
-    });
+      map.getCanvas().style.cursor = "crosshair";
+      popup.remove();
+    }, { once: true });
+  });
+  _poiMarker = new maplibregl.Marker({ element: markerEl, anchor: "bottom" })
+    .setLngLat([m.lon, m.lat])
+    .setPopup(popup)
+    .addTo(map);
+}
+
+function initMainMap(b) {
+  const container = document.getElementById("leaflet-map");
+  if (!container || !window.maplibregl) return;
+  if (_mainMap) { _mainMap.resize(); return; }
+
+  const m = b.mission;
+  _mainMap = new maplibregl.Map({
+    container, style: STYLE_TOPO,
+    center: [m.lon, m.lat], zoom: 13, maxZoom: 19,
+    attributionControl: true,
   });
 
-  // In move mode, the next map tap relocates the point and re-fetches a live briefing
-  // for the new location — the upstream watershed re-traces (FR-1, FR-38).
-  _leafletMap.on("click", (e) => {
-    if (!_moveMode) return;
-    _moveMode = false;
-    container.classList.remove("is-moving-point");
-    m.lat = e.latlng.lat;
-    m.lon = e.latlng.lng;
-    _poiMarker.setLatLng(e.latlng);
-    refresh(specFromBriefing(b));
+  _mainMap.on("load", () => {
+    applyBriefingLayers(_mainMap, b);
+
+    // Move-mode: next tap relocates the POI and re-fetches (FR-1, FR-38). Wired once;
+    // layer-scoped popup/watershed handlers below also survive style switches.
+    _mainMap.on("click", (e) => {
+      if (!_moveMode) return;
+      _moveMode = false;
+      _mainMap.getCanvas().style.cursor = "";
+      const mission = state.briefing?.mission;
+      if (!mission) return;
+      mission.lat = e.lngLat.lat;
+      mission.lon = e.lngLat.lng;
+      if (_poiMarker) _poiMarker.setLngLat([mission.lon, mission.lat]);
+      refresh(specFromBriefing(state.briefing));
+    });
+
+    // Hover cursor for clickable layers (layer-scoped; no-op when layer absent after setStyle).
+    _mainMap.on("mouseenter", "watershed-fill", () => {
+      if (!_moveMode) _mainMap.getCanvas().style.cursor = "pointer";
+    });
+    _mainMap.on("mouseleave", "watershed-fill", () => {
+      if (!_moveMode) _mainMap.getCanvas().style.cursor = "";
+    });
+    _mainMap.on("mouseenter", "laoc-line", () => {
+      if (!_moveMode) _mainMap.getCanvas().style.cursor = "pointer";
+    });
+    _mainMap.on("mouseleave", "laoc-line", () => {
+      if (!_moveMode) _mainMap.getCanvas().style.cursor = "";
+    });
+
+    // Click popups (layer-scoped; survive setStyle because the same layer IDs are
+    // re-added by applyBriefingLayers on each style switch).
+    _mainMap.on("click", "watershed-fill", (e) => {
+      if (_moveMode) return;
+      const wb = state.briefing?.watershed;
+      if (!wb) return;
+      new maplibregl.Popup({ className: "map-popup" })
+        .setLngLat(e.lngLat)
+        .setHTML(`<div class="map-pop">
+          <div class="map-pop__title">Approximate Watershed</div>
+          <div class="map-pop__row">HUC-12 <span class="mono">${esc(wb.huc12.join(", "))}</span></div>
+          <div class="map-pop__row">Area <span class="mono">${wb.area_sq_mi.toFixed(1)} mi²</span></div>
+        </div>`)
+        .addTo(_mainMap);
+    });
+    _mainMap.on("click", "excluded-fill", (e) => {
+      if (_moveMode) return;
+      new maplibregl.Popup({ className: "map-popup" })
+        .setLngLat(e.lngLat)
+        .setHTML(`<div class="map-pop">
+          <div class="map-pop__title">Outside Radius of Concern</div>
+          <div class="map-pop__row">Excluded from the weather-data domain</div>
+        </div>`)
+        .addTo(_mainMap);
+    });
+    _mainMap.on("click", "laoc-line", (e) => {
+      if (_moveMode) return;
+      new maplibregl.Popup({ className: "map-popup" })
+        .setLngLat(e.lngLat)
+        .setHTML(`<div class="map-pop">
+          <div class="map-pop__title">Lightning Area of Concern</div>
+          <div class="map-pop__row">Lightning assessed within this radius of the activity</div>
+        </div>`)
+        .addTo(_mainMap);
+    });
+
+    const MAIN_LAYERS = [
+      { label: "Topo", key: "topo" },
+      { label: "Light", key: "light" },
+      { label: "Aerial", key: "aerial" },
+      { label: "Esri Topo", key: "esritopo" },
+      { label: "Street", key: "street" },
+    ];
+    const STYLE_MAP  = { topo: STYLE_TOPO, light: STYLE_LIGHT };
+    const RASTER_MAP = { aerial: RASTER_AERIAL, esritopo: RASTER_ESRI_TOPO, street: RASTER_STREET };
+    _mainMap.addControl(
+      makeLayerSwitcherControl(MAIN_LAYERS, (key) => {
+        if (STYLE_MAP[key]) _mainMap.setStyle(STYLE_MAP[key]);
+        else _mainMap.setStyle(rasterBaseStyle(RASTER_MAP[key]));
+        _mainMap.once("style.load", () => {
+          if (state.briefing) applyBriefingLayers(_mainMap, state.briefing);
+        });
+      }),
+      "top-right"
+    );
   });
 
   state.mapInitialized = true;
@@ -1401,7 +1477,7 @@ let _mpEndUserSet = false;
 // True while the name input still holds DEFAULT_NAME untouched; cleared on first keystroke.
 let _nameIsDefault = false;
 // Fallback view (CONUS center) when no point is set yet.
-const MP_DEFAULT_CENTER = [39.5, -111.5];
+const MP_DEFAULT_CENTER = [-111.5, 39.5];  // MapLibre uses [lng, lat]
 
 // Return "YYYY-MM-DDTHH:MM" for the next whole hour, expressed in tzName if supplied.
 function nextWholeHour(tzName) {
@@ -1442,19 +1518,19 @@ function updateRocReadout(idx) {
 
 // Live preview of the Radius of Concern on the planner map: a fine dashed orange ring
 // centered on the current point, redrawn as the point or slider moves (FR-3).
-function drawPlannerRoc() {
+function initPlannerRocLayer() {
+  if (!_mpMap) return;
+  _mpMap.addSource("mp-roc", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  _mpMap.addLayer({
+    id: "mp-roc-line", type: "line", source: "mp-roc",
+    paint: { "line-color": UI_ORANGE, "line-width": 1, "line-opacity": 0.95, "line-dasharray": [4, 4] },
+  });
+}
+
+function updatePlannerRoc() {
   if (!_mpMap || !_mpSpec || !Number.isFinite(_mpSpec.lat) || !_mpSpec.radius_km) return;
-  const center = [_mpSpec.lat, _mpSpec.lon];
-  const radiusM = _mpSpec.radius_km * 1000;
-  if (_mpRoc) {
-    _mpRoc.setLatLng(center);
-    _mpRoc.setRadius(radiusM);
-  } else {
-    _mpRoc = L.circle(center, {
-      radius: radiusM, color: UI_ORANGE, weight: 1, opacity: 0.95,
-      dashArray: "4 4", fill: false, interactive: false,
-    }).addTo(_mpMap);
-  }
+  const src = _mpMap.getSource("mp-roc");
+  if (src) src.setData(circlePolygon(_mpSpec.lon, _mpSpec.lat, _mpSpec.radius_km));
 }
 
 function inLatLonRange(lat, lon) {
@@ -1514,47 +1590,55 @@ function setPlannerStatus(msg, isError = false) {
   el.classList.toggle("is-error", !!isError);
 }
 
+// Update the label text on the planner marker element (replaces setTooltipContent).
+function updateMarkerLabel(text) {
+  if (!_mpMarker) return;
+  const label = _mpMarker.getElement()?.querySelector(".mp-marker__label");
+  if (label) label.textContent = text;
+}
+
 // Create or relocate the mission marker and sync the spec's coordinates.
 // Name is read from the dedicated #mp-name field, not a popup.
-function placeOrMoveMarker(latlng) {
+function placeOrMoveMarker(latlng) {  // latlng is {lat, lng}
   if (!_mpMap) return;
   _mpSpec.lat = latlng.lat;
   _mpSpec.lon = latlng.lng;
   warmWatershedDebounced(latlng.lat, latlng.lng); // pre-warm the basin while the user keeps planning
-  drawPlannerRoc();
+  updatePlannerRoc();
   if (_mpMarker) {
-    _mpMarker.setLatLng(latlng);
+    _mpMarker.setLngLat([latlng.lng, latlng.lat]);
   } else {
-    _mpMarker = L.marker(latlng, { draggable: true }).addTo(_mpMap);
-    _mpMarker.bindTooltip(
-      esc(document.getElementById("mp-name")?.value || _mpSpec.name || "Expedition"),
-      { permanent: true, direction: "top", className: "map-tooltip" }
-    );
+    const el = document.createElement("div");
+    el.className = "mp-marker";
+    el.innerHTML = `<span class="mp-marker__label">${esc(document.getElementById("mp-name")?.value || _mpSpec.name || "Expedition")}</span><div class="mp-marker__dot"></div>`;
+    _mpMarker = new maplibregl.Marker({ element: el, draggable: true, anchor: "bottom" })
+      .setLngLat([latlng.lng, latlng.lat])
+      .addTo(_mpMap);
     _mpMarker.on("dragend", () => {
-      const ll = _mpMarker.getLatLng();
+      const ll = _mpMarker.getLngLat();
       _mpSpec.lat = ll.lat;
       _mpSpec.lon = ll.lng;
       warmWatershedDebounced(ll.lat, ll.lng); // pre-warm after a drag
-      drawPlannerRoc();
+      updatePlannerRoc();
     });
   }
 }
 
-// Long-press to drop/move the point — Leaflet has no native long-press, so use a
-// short press timer on the map container, cancelled on drag/scroll/zoom. Mirrors
-// the chart crosshair's pointer handling.
+// Long-press to drop/move the point — use a short press timer on the map container,
+// cancelled on drag/scroll/zoom. Mirrors the chart crosshair's pointer handling.
 function initPlannerLongPress(container) {
   let timer = null;
   let sx = 0;
   let sy = 0;
   const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
   container.addEventListener("pointerdown", (e) => {
-    if ((e.button && e.button !== 0) || e.target.closest(".leaflet-control")) return;
+    if ((e.button && e.button !== 0) || e.target.closest(".maplibregl-ctrl")) return;
     sx = e.clientX;
     sy = e.clientY;
-    const latlng = _mpMap.mouseEventToLatLng(e);
+    const rect = container.getBoundingClientRect();
+    const pt = _mpMap.unproject([e.clientX - rect.left, e.clientY - rect.top]);
     clear();
-    timer = setTimeout(() => { timer = null; placeOrMoveMarker(latlng); }, 450);
+    timer = setTimeout(() => { timer = null; placeOrMoveMarker({ lat: pt.lat, lng: pt.lng }); }, 450);
   });
   container.addEventListener("pointermove", (e) => {
     if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) clear();
@@ -1562,45 +1646,66 @@ function initPlannerLongPress(container) {
   container.addEventListener("pointerup", clear);
   container.addEventListener("pointercancel", clear);
   container.addEventListener("pointerleave", clear);
-  _mpMap.on("movestart zoomstart dragstart", clear);
+  _mpMap.on("movestart", clear);
   // Desktop fallback: right-click drops/moves the point.
-  _mpMap.on("contextmenu", (e) => placeOrMoveMarker(e.latlng));
+  _mpMap.on("contextmenu", (e) => {
+    e.preventDefault();
+    placeOrMoveMarker({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+  });
+}
+
+// Layer options available in the planner map switcher.
+const PLANNER_LAYERS = [
+  { label: "Topo", key: "topo" },
+  { label: "Light", key: "light" },
+  { label: "Aerial", key: "aerial" },
+  { label: "Esri Topo", key: "esri-topo" },
+  { label: "Street", key: "street" },
+];
+
+function onPlannerLayerSwitch(key) {
+  if (!_mpMap) return;
+  const style = key === "aerial" ? rasterBaseStyle(RASTER_AERIAL)
+    : key === "esri-topo" ? rasterBaseStyle(RASTER_ESRI_TOPO)
+    : key === "street" ? rasterBaseStyle(RASTER_STREET)
+    : key === "light" ? STYLE_LIGHT
+    : STYLE_TOPO;
+  _mpMap.setStyle(style);
+  _mpMap.once("style.load", () => {
+    initPlannerRocLayer();
+    updatePlannerRoc();
+  });
 }
 
 function initPlannerMap() {
   const container = document.getElementById("mp-map");
-  if (!container || !window.L) return;
+  if (!container || !window.maplibregl) return;
   const hasPoint = _mpSpec && Number.isFinite(_mpSpec.lat);
-  const start = hasPoint ? [_mpSpec.lat, _mpSpec.lon] : MP_DEFAULT_CENTER;
+  const center = hasPoint ? [_mpSpec.lon, _mpSpec.lat] : MP_DEFAULT_CENTER;
+  const zoom = hasPoint ? 12 : 6;
 
   if (_mpMap) {
-    _mpMap.invalidateSize();
-    _mpMap.setView(start, hasPoint ? Math.max(_mpMap.getZoom(), 12) : 6);
+    _mpMap.resize();
+    _mpMap.jumpTo({ center, zoom: hasPoint ? Math.max(_mpMap.getZoom(), 12) : 6 });
     if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon });
     return;
   }
 
-  // Switchable basemaps — USGS Topo default (best for CONUS caving/canyoneering nav).
-  const layers = makeTileLayers();
-  _mpMap = L.map(container, { zoomControl: true, attributionControl: true, maxZoom: 17 })
-    .setView(start, hasPoint ? 12 : 6);
-  layers.usgsTopo.addTo(_mpMap);
-  L.control.layers(
-    {
-      "USGS Topo": layers.usgsTopo,
-      "Esri Topo": layers.esriTopo,
-      "Aerial": layers.aerial,
-      "Street": layers.street,
-      "OpenTopo": layers.openTopo,
-    },
-    null, { position: "topright" }
-  ).addTo(_mpMap);
+  _mpMap = new maplibregl.Map({
+    container, style: STYLE_TOPO,
+    center, zoom, maxZoom: 19,
+    attributionControl: true,
+  });
+
+  _mpMap.on("load", () => {
+    initPlannerRocLayer();
+    // Seed a marker at the starting point so a save is always valid; the user can
+    // long-press, drag, search, or use GPS to move it.
+    if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon });
+  });
 
   initPlannerLongPress(container);
-
-  // Seed a marker at the starting point so a save is always valid; the user can
-  // long-press, drag, search, or use GPS to move it.
-  if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon });
+  _mpMap.addControl(makeLayerSwitcherControl(PLANNER_LAYERS, onPlannerLayerSwitch), "top-right");
 }
 
 // Open the planner over a starting spec (the saved/current mission, or a seed).
@@ -1658,7 +1763,7 @@ function initPlannerControls() {
     if (!q || !_mpMap) return;
     const coords = parseCoords(q);
     if (coords) {
-      _mpMap.setView([coords.lat, coords.lon], Math.max(_mpMap.getZoom(), 13));
+      _mpMap.jumpTo({ center: [coords.lon, coords.lat], zoom: Math.max(_mpMap.getZoom(), 13) });
       placeOrMoveMarker({ lat: coords.lat, lng: coords.lon });
       setPlannerStatus(`Coordinates ${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`);
       return;
@@ -1670,7 +1775,7 @@ function initPlannerControls() {
         setPlannerStatus("No match. Try a more specific address or paste coordinates.", true);
         return;
       }
-      _mpMap.setView([hit.lat, hit.lon], Math.max(_mpMap.getZoom(), 13));
+      _mpMap.jumpTo({ center: [hit.lon, hit.lat], zoom: Math.max(_mpMap.getZoom(), 13) });
       placeOrMoveMarker({ lat: hit.lat, lng: hit.lon });
       setPlannerStatus(hit.label);
     } catch (err) {
@@ -1689,7 +1794,7 @@ function initPlannerControls() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords;
-          _mpMap.setView([latitude, longitude], 14);
+          _mpMap.jumpTo({ center: [longitude, latitude], zoom: 14 });
           placeOrMoveMarker({ lat: latitude, lng: longitude });
           setPlannerStatus(`Current location ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
         },
@@ -1704,7 +1809,7 @@ function initPlannerControls() {
     const idx = parseInt(rocSlider.value, 10) || 0;
     _mpSpec.radius_km = ROC_STOPS_MI[idx] * MI_TO_KM;
     updateRocReadout(idx);
-    drawPlannerRoc();
+    updatePlannerRoc();
   });
 
   // Start time: auto-advance end by 4 h whenever start changes, unless the user
@@ -1733,14 +1838,14 @@ function initPlannerControls() {
         _nameIsDefault = true;
         nameInput.classList.add("is-placeholder-name");
         if (_mpSpec) _mpSpec.name = DEFAULT_NAME;
-        if (_mpMarker) _mpMarker.setTooltipContent(esc(DEFAULT_NAME));
+        updateMarkerLabel(DEFAULT_NAME);
       }
     });
     nameInput.addEventListener("input", () => {
       _nameIsDefault = false;
       nameInput.classList.remove("is-placeholder-name");
       _mpSpec.name = nameInput.value;
-      if (_mpMarker) _mpMarker.setTooltipContent(esc(nameInput.value || "Expedition"));
+      updateMarkerLabel(nameInput.value || "Expedition");
     });
   }
 

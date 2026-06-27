@@ -706,55 +706,43 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   background: var(--color-surface-2);
 }
 
-.map-tooltip {
-  background: var(--color-overlay) !important;
-  backdrop-filter: blur(6px);
+/* Dark-mode MapLibre chrome: zoom + attribution controls. */
+.maplibregl-ctrl-group {
+  background: var(--color-surface) !important;
   border: 1px solid var(--color-border-strong) !important;
-  color: var(--color-text) !important;
-  font-family: var(--font-sans);
-  font-size: var(--text-label);
-  font-weight: 600;
-  padding: 4px 10px !important;
-  border-radius: var(--radius-sm) !important;
   box-shadow: var(--shadow-pop) !important;
 }
-
-.map-tooltip::before {
-  border-top-color: var(--color-border-strong) !important;
-}
-
-/* Dark-mode Leaflet chrome: zoom control + attribution credits. */
-.leaflet-bar {
-  border: 1px solid var(--color-border-strong) !important;
-  box-shadow: var(--shadow-pop);
-}
-.leaflet-control-zoom a {
+.maplibregl-ctrl-group button {
   background: var(--color-surface) !important;
   color: var(--color-text) !important;
-  border-bottom-color: var(--color-border) !important;
 }
-.leaflet-control-zoom a:hover {
+.maplibregl-ctrl-group button:hover {
   background: var(--color-surface-2) !important;
-  color: var(--color-text) !important;
 }
-.leaflet-control-attribution {
+.maplibregl-ctrl-attrib {
   background: var(--color-overlay) !important;
   color: var(--color-text-muted) !important;
   backdrop-filter: blur(6px);
 }
-.leaflet-control-attribution a { color: var(--color-text-secondary) !important; }
+.maplibregl-ctrl-attrib a { color: var(--color-text-secondary) !important; }
+
+/* MapLibre canvas fills its flex container. */
+.maplibregl-map { width: 100%; height: 100%; }
 
 /* Click popups for the mission point + watershed (FR — selectable map features). */
-.map-popup .leaflet-popup-content-wrapper {
+.map-popup .maplibregl-popup-content {
   background: var(--color-overlay);
   backdrop-filter: blur(6px);
   border: 1px solid var(--color-border-strong);
   color: var(--color-text);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
+  padding: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
 }
-.map-popup .leaflet-popup-tip { background: var(--color-overlay); }
-.map-popup .leaflet-popup-content { margin: var(--space-3); }
+.map-popup .maplibregl-popup-tip { border-top-color: var(--color-overlay) !important; }
+.map-popup .maplibregl-popup-close-button { color: var(--color-text-muted); }
 .map-pop__title { font-weight: 650; font-size: var(--text-label); margin-bottom: var(--space-1); }
 .map-pop__row { font-size: var(--text-caption); color: var(--color-text-secondary); margin: 2px 0; }
 .map-pop__row .mono { font-family: var(--font-mono); color: var(--color-text); }
@@ -770,9 +758,50 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-/* While placing a new point, hint that the next tap drops it. */
-#leaflet-map.is-moving-point { cursor: crosshair; }
-#leaflet-map.is-moving-point .leaflet-grab { cursor: crosshair; }
+
+/* Layer-switcher control: stacked text buttons, active entry highlighted. */
+.map-layer-switcher { display: flex; flex-direction: column; min-width: 72px; }
+.map-layer-switcher button {
+  display: block; width: 100%; padding: 5px 10px;
+  border: none; border-radius: 0;
+  background: var(--color-surface) !important;
+  color: var(--color-text-muted) !important;
+  font-family: var(--font-sans); font-size: var(--text-caption);
+  text-align: left; cursor: pointer;
+}
+.map-layer-switcher button:hover { color: var(--color-text) !important; }
+.map-layer-switcher button.active { color: var(--sev-high) !important; font-weight: 600; }
+
+/* POI marker on the briefing map: dot + label above (anchor: bottom of dot). */
+.map-poi-marker { display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.map-poi-marker__dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fbbf24; border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.55); pointer-events: all; cursor: pointer;
+}
+.map-poi-marker__label {
+  order: -1;
+  font-family: var(--font-sans); font-size: 11px; font-weight: 600;
+  color: var(--color-text); background: rgba(0,0,0,.65);
+  padding: 1px 5px; border-radius: var(--radius-sm);
+  white-space: nowrap; pointer-events: none;
+}
+
+/* Planner mission-point marker: same structure, orange dot. */
+.mp-marker { display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.mp-marker__dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--sev-high); border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.55); pointer-events: all; cursor: grab;
+}
+.mp-marker__dot:active { cursor: grabbing; }
+.mp-marker__label {
+  order: -1;
+  font-family: var(--font-sans); font-size: 11px; font-weight: 600;
+  color: var(--color-text); background: rgba(0,0,0,.65);
+  padding: 1px 5px; border-radius: var(--radius-sm);
+  white-space: nowrap; pointer-events: none;
+}
 
 /* ── Map legend (watershed / excluded / RoC key) ─────────────────── */
 .map-legend {
