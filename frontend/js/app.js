@@ -1594,7 +1594,7 @@ function renderStatus(b) {
   const cached = b.cached || state.fromCache;
   document.getElementById("status").innerHTML = `
     ${cached ? `<span class="cached-badge">${icon("wifi_off", "")} <span>Available<br>offline</span></span>` : ""}
-    <span class="status-line__currency">Briefing current as of ${esc(t)} ${esc(b.mission.timezone)}</span>
+    <span class="status-line__currency">Briefing current as of:<br>${esc(t)} ${esc(b.mission.timezone)}</span>
     ${b.degraded ? `<span class="degraded-note">· one source degraded</span>` : ""}`;
 }
 
