@@ -995,13 +995,13 @@ const WX_TOPO_DARK = {
   bg: "#0a0e14", land: "#0f1620", water: "#15384f",
   shadow: "#04070b", highlight: "#3a4a5a", accent: "#10204a",
   contour: "#5d6b4e", contourIndex: "#8d9a6b", contourLabel: "#b3c08f",
-  road: "#3a4654", roadMinor: "#28313d", label: "#cdd6e0",
+  road: "#3a4654", roadMinor: "#28313d", label: "#cdd6e0", peak: "#d9c89a",
 };
 const WX_TOPO_LIGHT = {
   bg: "#f3efe6", land: "#e8e3d5", water: "#a9cce0",
   shadow: "#9a978a", highlight: "#ffffff", accent: "#cfe6f2",
   contour: "#b6a079", contourIndex: "#8c7548", contourLabel: "#6a5836",
-  road: "#cdbfa9", roadMinor: "#ded3bf", label: "#33302a",
+  road: "#cdbfa9", roadMinor: "#ded3bf", label: "#33302a", peak: "#7a5a30",
 };
 
 // Lazily create the shared DEM source for hillshade + contours (one custom protocol per
@@ -1102,6 +1102,26 @@ function buildWxTopoStyle({ dark = true } = {}) {
       paint: { "text-color": P.contourLabel, "text-halo-color": P.bg, "text-halo-width": 1.4 },
     });
   }
+
+  // Mountain peaks: name + spot elevation (feet), the signature topo annotation.
+  // Placed before city labels so summits win collisions on the topographic base.
+  layers.push({
+    id: "mountain-peak", type: "symbol", source: "openmaptiles", "source-layer": "mountain_peak",
+    filter: ["==", ["geometry-type"], "Point"], minzoom: 9,
+    layout: {
+      "symbol-sort-key": ["coalesce", ["get", "rank"], 99],
+      "text-field": ["concat",
+        ["coalesce", ["get", "name:en"], ["get", "name"], ""],
+        ["case", ["has", "ele_ft"],
+          ["concat", "\n", ["number-format", ["get", "ele_ft"], { "max-fraction-digits": 0 }], " ft"],
+          ""],
+      ],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 14, 13],
+      "text-anchor": "top", "text-offset": [0, 0.4], "text-max-width": 8,
+    },
+    paint: { "text-color": P.peak, "text-halo-color": P.bg, "text-halo-width": 1.4 },
+  });
 
   layers.push({
     id: "place", type: "symbol", source: "openmaptiles", "source-layer": "place",
