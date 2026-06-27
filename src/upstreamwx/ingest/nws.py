@@ -8,6 +8,8 @@ calls hit ``api.weather.gov`` and require a self-identifying User-Agent.
 from __future__ import annotations
 
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -17,6 +19,13 @@ from .base import IngestBundle
 
 API = "https://api.weather.gov"
 NAME = "nws"
+
+# The NWS office (CWA) serving a point is static, so cache it process-wide keyed by rounded
+# lat/lon — this removes one of the AFD chain's three serial round-trips on every warm call.
+# Only successful lookups are cached (a transient failure must retry, not pin a point to None).
+_OFFICE_PRECISION = 3
+_office_cache: dict[tuple[float, float], str] = {}
+_office_lock = threading.Lock()
 
 # Convective language the AFD scan treats as an exposed-phase lightning signal.
 _CONVECTIVE_RE = re.compile(
@@ -61,10 +70,24 @@ def active_alerts(lat: float, lon: float, *, timeout: float = 30.0) -> list[str]
     ]
 
 
+def _office_for(lat: float, lon: float, *, timeout: float = 30.0) -> str | None:
+    """Resolve (and cache) the NWS office/CWA serving a point via ``/points`` (FR-5)."""
+    key = (round(lat, _OFFICE_PRECISION), round(lon, _OFFICE_PRECISION))
+    with _office_lock:
+        cached = _office_cache.get(key)
+    if cached is not None:
+        return cached
+    point = _get(f"{API}/points/{key[0]},{key[1]}", timeout=timeout, accept_geojson=False)
+    office = point.get("cwa") or point.get("gridId")
+    if office:
+        with _office_lock:
+            _office_cache[key] = office
+    return office
+
+
 def latest_afd(lat: float, lon: float, *, timeout: float = 30.0) -> str | None:
     """Fetch the latest AFD text for the office serving the point, if available."""
-    point = _get(f"{API}/points/{lat},{lon}", timeout=timeout, accept_geojson=False)
-    office = point.get("cwa") or point.get("gridId")
+    office = _office_for(lat, lon, timeout=timeout)
     if not office:
         return None
     listing = _get(
@@ -78,8 +101,17 @@ def latest_afd(lat: float, lon: float, *, timeout: float = 30.0) -> str | None:
 
 
 def fetch(mission: Mission, bundle: IngestBundle) -> None:
-    """Populate NWS product flags + AFD convective mention on the bundle."""
-    events = active_alerts(mission.lat, mission.lon)
+    """Populate NWS product flags + AFD convective mention on the bundle.
+
+    The active-alerts query and the AFD chain are independent, so they run concurrently —
+    NWS is the slowest point provider (four serial round-trips), and it is never response-
+    cached, so overlapping the two chains shaves the alerts round-trip off the critical path.
+    """
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        alerts_future = executor.submit(active_alerts, mission.lat, mission.lon)
+        afd_future = executor.submit(latest_afd, mission.lat, mission.lon)
+        events = alerts_future.result()
+        afd = afd_future.result()
     lowered = [e.lower() for e in events]
     bundle.flash_flood_warning = any("flash flood warning" in e for e in lowered)
     bundle.flash_flood_watch = any("flash flood watch" in e for e in lowered)
@@ -98,7 +130,6 @@ def fetch(mission: Mission, bundle: IngestBundle) -> None:
     bundle.flood_advisory = _flood_event("advisory")
     bundle.flood_watch = _flood_event("watch")
 
-    afd = latest_afd(mission.lat, mission.lon)
     bundle.afd_text = afd
     bundle.afd_convective_mention = bool(afd and _CONVECTIVE_RE.search(afd))
     bundle.afd_flood_mention = bool(afd and _FLOOD_RE.search(afd))

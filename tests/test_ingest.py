@@ -136,6 +136,33 @@ def test_gather_merges_all_sources_deterministically(monkeypatch):
     assert again.notes == bundle.notes
 
 
+def test_nws_office_lookup_is_cached(monkeypatch):
+    # The /points -> office resolution is static per point, so it is fetched once and reused;
+    # this drops one of the AFD chain's three serial round-trips on every later call.
+    from upstreamwx.ingest import nws
+
+    nws._office_cache.clear()
+    calls: list[str] = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "/points/" in url:
+            return {"cwa": "SLC"}
+        if "/products/types/AFD/locations/" in url:
+            return {"@graph": [{"@id": "http://example/afd/latest"}]}
+        return {"productText": "AFD discussion text"}
+
+    monkeypatch.setattr(nws, "_get", fake_get)
+
+    first = nws.latest_afd(37.0192, -111.9889)
+    second = nws.latest_afd(37.0192, -111.9889)
+
+    assert first == second == "AFD discussion text"
+    # The point/office endpoint was hit once across both calls (cached); the listing/product
+    # endpoints were not cached and ran each time.
+    assert len([u for u in calls if "/points/" in u]) == 1
+
+
 def test_gather_combines_concurrent_ensembles(monkeypatch):
     # SREF and HREF run concurrently on private bundles; gather merges member_support per-key
     # by max (the stronger ensemble wins, §16.5) and computes the SREF<->HREF agreement after

@@ -15,6 +15,8 @@ centroid and flag it, so the caller knows the value is point-like, not areal.
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import numpy as np
@@ -59,10 +61,56 @@ def _as_geometry(polygon: BaseGeometry | dict) -> BaseGeometry:
     raise TypeError(f"Unsupported polygon type: {type(polygon)!r}")
 
 
+# Small bounded LRU of rasterized polygon masks, keyed by (grid fingerprint, polygon WKB).
+# A briefing aggregates the same polygon over many fields on the same grid — HREF runs ~N
+# forecast hours × ~4 fields — and the mask depends only on (grid, polygon), not the field
+# values, so we compute it once per (SREF/HREF grid) instead of once per call. The WKB bytes
+# are part of the key, so dict equality (not just the hash) disambiguates — no risk of a hash
+# collision returning the wrong mask. Bounded because only a couple of grids are ever live.
+_MASK_CACHE_MAX = 6
+_mask_cache: OrderedDict[tuple, xr.DataArray] = OrderedDict()
+_mask_lock = threading.Lock()
+
+
+def _grid_fingerprint(da: xr.DataArray) -> tuple:
+    """Cheap identity of a field's grid: shape + corner lon/lat (distinguishes SREF vs HREF)."""
+    lon = da["longitude"].values.ravel()
+    lat = da["latitude"].values.ravel()
+    return (
+        tuple(da["longitude"].shape),
+        float(lon[0]), float(lon[-1]),
+        float(lat[0]), float(lat[-1]),
+    )
+
+
 def _mask_for(da: xr.DataArray, geom: BaseGeometry) -> xr.DataArray:
-    """Boolean mask (True inside polygon) on the field's 2D lat/lon grid."""
-    region = regionmask.Regions([geom])
+    """Boolean mask (True inside polygon) on the field's 2D lat/lon grid, memoised per grid.
+
+    regionmask rasterisation dominates :func:`aggregate_over_polygon`; memoising it per
+    (grid, polygon) collapses a briefing's dozens of identical rasterisations to one per grid.
+    Thread-safe (SREF and HREF aggregate concurrently); the rasterisation runs outside the lock
+    so the two grids' masks build in parallel, and a rare double-build of the same key is
+    harmless (idempotent).
+    """
+    key = (_grid_fingerprint(da), geom.wkb)
+    with _mask_lock:
+        hit = _mask_cache.get(key)
+        if hit is not None:
+            _mask_cache.move_to_end(key)
+            return hit
     # regionmask handles 2D curvilinear lon/lat (the Lambert grids SREF/HREF use).
+    mask = region_mask(da, geom)
+    with _mask_lock:
+        _mask_cache[key] = mask
+        _mask_cache.move_to_end(key)
+        while len(_mask_cache) > _MASK_CACHE_MAX:
+            _mask_cache.popitem(last=False)
+    return mask
+
+
+def region_mask(da: xr.DataArray, geom: BaseGeometry) -> xr.DataArray:
+    """Rasterize ``geom`` onto ``da``'s grid (True inside). The uncached primitive."""
+    region = regionmask.Regions([geom])
     mask = region.mask(da["longitude"], da["latitude"])
     return mask == 0  # region index 0 inside, NaN outside
 
