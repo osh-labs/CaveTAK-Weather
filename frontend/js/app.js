@@ -73,6 +73,7 @@ function specFromBriefing(b) {
     start: m.window_start, end: m.window_end,
     name: m.name, slot: m.is_slot, frame: false,
     radius_km: m.radius_km ?? null,
+    tz_name: m.tz_name ?? null,
   };
 }
 
@@ -323,20 +324,17 @@ function postureChip(label, sevClass, big = false) {
 }
 
 function confidenceTag(level, big = false) {
-  // Three-stop orange track (low/moderate/high). The stop for the engine's level
-  // is filled, the others hollow; the level rides the position, not hue (FR-36).
-  // The thin→thick segment ramp is fixed decoration. Display-only (FR-17).
+  // Signal-bar–style: three bars of increasing height with angled tops.
+  // Low = 1 bar filled, moderate = 2, high = all 3. Orange for filled,
+  // surface colour for unfilled. Position (not hue) encodes level (FR-36).
   const k = String(level).toLowerCase();
-  const stops = ["low", "moderate", "high"]
-    .map((s) => `<span class="confidence__stop confidence__stop--${s} ${s === k ? "is-active" : ""}"></span>`)
+  const activeCount = k === "low" ? 1 : k === "moderate" ? 2 : 3;
+  const bars = [1, 2, 3]
+    .map((n) => `<span class="confidence__bar${n <= activeCount ? " is-filled" : ""}"></span>`)
     .join("");
   return `<div class="confidence ${big ? "is-lg" : ""}" title="${esc(level)} confidence">
+    <div class="confidence__bars">${bars}</div>
     <div class="confidence__label">${esc(level)} confidence</div>
-    <div class="confidence__track">
-      <span class="confidence__seg confidence__seg--a"></span>
-      <span class="confidence__seg confidence__seg--b"></span>
-      ${stops}
-    </div>
   </div>`;
 }
 
@@ -414,7 +412,7 @@ function renderOverview(b) {
   const hazards = b.bluf
     .map((h) => {
       const win = h.window ? `<span class="hazard-line__window">${esc(fmtClock(h.window))}</span>` : "";
-      return `<button class="hazard-line" data-goto="hazards">
+      return `<button class="hazard-line" data-goto="hazards" data-hazard="${esc(h.hazard)}">
         ${icon(h.hazard, "hazard-line__icon")}
         <div class="hazard-line__body">
           <div class="hazard-line__name">${HAZARD_LABELS[h.hazard]}</div>${win}
@@ -464,7 +462,21 @@ function renderOverview(b) {
     <div class="disclaimer">Planning reference only — not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked in Resources, and let what you see in the field overrule this briefing.</div>`;
 
   document.querySelectorAll('[data-goto="hazards"]').forEach((el) =>
-    el.addEventListener("click", () => selectTab("hazards"))
+    el.addEventListener("click", () => {
+      const hazard = el.dataset.hazard;
+      selectTab("hazards");
+      if (hazard) {
+        // selectTab scrolls to top; wait two frames for the view to be painted,
+        // then open the matching card and scroll it into view.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const target = document.querySelector(`.hazard-detail[data-hazard="${hazard}"]`);
+          if (target) {
+            target.open = true;
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }));
+      }
+    })
   );
   const edit = document.querySelector(".mission-card__edit");
   if (edit) edit.addEventListener("click", () => openMissionPlanner(specFromBriefing(b)));
@@ -678,15 +690,37 @@ function barClass(cell) {
   return `timeline__bar bar-${cell.severity} ${w} ${conf}`;
 }
 
-// Render the engine's threshold logic as one tier per line, with the internal
-// appendix/section citation stripped (user-facing copy carries no references).
-function thresholdLogicHtml(logic) {
-  const lines = displayLogic(String(logic))
+// Render only the threshold-logic entry for the current posture.  If the logic
+// string has semicolon-separated "Tier = condition" entries (flash_flood style),
+// extract the matching one; for Minimal (not listed), frame it as "below the
+// lowest defined threshold".  Single-block logic (heat, lightning) is shown as-is.
+function thresholdLogicHtml(logic, currentLabel = "") {
+  const normalized = displayLogic(String(logic))
     .replace(/\s*\((?:Appendix B|§)[^)]*\)/g, "")
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return `<ul class="logic-list">${lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>`;
+    .replace(/\s*\(FR-\d+[a-z]?\)/g, "");
+
+  const entries = normalized.split(/;\s*/).map((s) => s.trim()).filter(Boolean);
+
+  if (entries.length <= 1) {
+    // Non-tiered copy (heat, lightning, cold_wet full block) — show as-is.
+    return `<ul class="logic-list"><li>${esc(normalized)}</li></ul>`;
+  }
+
+  if (currentLabel) {
+    // Try matching "Label = …" or "Label: …" at the start of any entry.
+    const pat = new RegExp(`^${currentLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[=:]`, "i");
+    const hit = entries.find((e) => pat.test(e));
+    if (hit) return `<ul class="logic-list"><li>${esc(hit)}</li></ul>`;
+
+    // Label not found (Minimal tier absent from the logic) — frame as "below
+    // the lowest defined threshold", which is the last semicolon entry.
+    const lowestDefined = entries[entries.length - 1];
+    if (lowestDefined) {
+      return `<ul class="logic-list"><li>Below: ${esc(lowestDefined)}</li></ul>`;
+    }
+  }
+
+  return `<ul class="logic-list">${entries.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>`;
 }
 
 function renderHazards(b) {
@@ -715,7 +749,7 @@ function renderHazards(b) {
 
   const details = b.hazard_detail
     .map(
-      (h) => `<details class="hazard-detail">
+      (h) => `<details class="hazard-detail" data-hazard="${esc(h.hazard)}">
       <summary class="hazard-detail__summary">
         ${icon(h.hazard, "icon")}
         <span class="hazard-detail__name">${HAZARD_LABELS[h.hazard]}</span>
@@ -726,7 +760,7 @@ function renderHazards(b) {
         <div class="hazard-detail__confidence">${confidenceTag(h.confidence)}</div>
         <h4>Key drivers</h4><ul>${h.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
         <h4>Threshold logic</h4>
-        ${thresholdLogicHtml(h.logic)}
+        ${thresholdLogicHtml(h.logic, h.label)}
         ${h.assumptions.map((a) => `<div class="assumption">${icon("alert", "")}<span>${esc(a)}</span></div>`).join("")}
       </div>
     </details>`
@@ -1129,8 +1163,42 @@ let _mpMap = null;
 let _mpMarker = null;
 let _mpRoc = null;
 let _mpSpec = null;
+// True once the user has manually edited the end field; suppresses the auto-follow
+// that keeps end = start + 4 h while the end is still at its default.
+let _mpEndUserSet = false;
 // Fallback view (CONUS center) when no point is set yet.
 const MP_DEFAULT_CENTER = [39.5, -111.5];
+
+// Return "YYYY-MM-DDTHH:MM" for the next whole hour, expressed in tzName if supplied.
+function nextWholeHour(tzName) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setMinutes(0, 0, 0);
+  next.setHours(next.getHours() + 1);
+  const pad = (n) => String(n).padStart(2, "0");
+  if (tzName) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tzName, year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(next);
+      const g = (t) => parts.find((p) => p.type === t)?.value ?? "00";
+      const hr = g("hour") === "24" ? "00" : g("hour");
+      return `${g("year")}-${g("month")}-${g("day")}T${hr}:${g("minute")}`;
+    } catch (_) { /* fall through to local time */ }
+  }
+  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T${pad(next.getHours())}:00`;
+}
+
+// Add h hours to a datetime-local string ("YYYY-MM-DDTHH:MM"), returning the same format.
+function addHoursLocal(str, h) {
+  const [date, time = "00:00"] = str.split("T");
+  const [yr, mo, da] = date.split("-").map(Number);
+  const [hour, mn] = time.split(":").map(Number);
+  const d = new Date(yr, mo - 1, da, hour + h, mn);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 // Reflect the slider index in the readout ("20 mi") and keep _mpSpec.radius_km in km.
 function updateRocReadout(idx) {
@@ -1212,15 +1280,9 @@ function setPlannerStatus(msg, isError = false) {
   el.classList.toggle("is-error", !!isError);
 }
 
-function mpNamePopupHtml() {
-  return `<div class="mp-name-pop">
-    <label class="mp-name-pop__label" for="mp-name-input">Expedition name</label>
-    <input id="mp-name-input" class="mp-name-pop__input" value="${esc(_mpSpec.name || "")}" />
-  </div>`;
-}
-
 // Create or relocate the mission marker and sync the spec's coordinates.
-function placeOrMoveMarker(latlng, openPopup = true) {
+// Name is read from the dedicated #mp-name field, not a popup.
+function placeOrMoveMarker(latlng) {
   if (!_mpMap) return;
   _mpSpec.lat = latlng.lat;
   _mpSpec.lon = latlng.lng;
@@ -1229,28 +1291,17 @@ function placeOrMoveMarker(latlng, openPopup = true) {
     _mpMarker.setLatLng(latlng);
   } else {
     _mpMarker = L.marker(latlng, { draggable: true }).addTo(_mpMap);
-    _mpMarker.bindTooltip(esc(_mpSpec.name || "Expedition"), {
-      permanent: true, direction: "top", className: "map-tooltip",
-    });
-    // Function content so each open reflects the current name.
-    _mpMarker.bindPopup(() => mpNamePopupHtml(), { className: "map-popup" });
+    _mpMarker.bindTooltip(
+      esc(document.getElementById("mp-name")?.value || _mpSpec.name || "Expedition"),
+      { permanent: true, direction: "top", className: "map-tooltip" }
+    );
     _mpMarker.on("dragend", () => {
       const ll = _mpMarker.getLatLng();
       _mpSpec.lat = ll.lat;
       _mpSpec.lon = ll.lng;
       drawPlannerRoc();
     });
-    _mpMarker.on("popupopen", (e) => {
-      const input = e.popup.getElement()?.querySelector("#mp-name-input");
-      if (!input) return;
-      input.focus();
-      input.addEventListener("input", () => {
-        _mpSpec.name = input.value;
-        _mpMarker.setTooltipContent(esc(input.value || "Expedition"));
-      });
-    });
   }
-  if (openPopup) _mpMarker.openPopup();
 }
 
 // Long-press to drop/move the point — Leaflet has no native long-press, so use a
@@ -1289,7 +1340,7 @@ function initPlannerMap() {
   if (_mpMap) {
     _mpMap.invalidateSize();
     _mpMap.setView(start, hasPoint ? Math.max(_mpMap.getZoom(), 12) : 6);
-    if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon }, false);
+    if (hasPoint) placeOrMoveMarker({ lat: _mpSpec.lat, lng: _mpSpec.lon });
     return;
   }
 
@@ -1319,10 +1370,28 @@ function initPlannerMap() {
 function openMissionPlanner(spec) {
   hideGlossaryPopover();
   _mpSpec = { ...(spec || DEFAULT_SPEC) };
+
+  // Mission name — dedicated field above the search bar.
+  const nameEl = document.getElementById("mp-name");
+  if (nameEl) nameEl.value = _mpSpec.name || "";
+
   document.getElementById("mp-activity").value = _mpSpec.activity || "canyon";
-  document.getElementById("mp-start").value = String(_mpSpec.start || "").slice(0, 16);
-  document.getElementById("mp-end").value = String(_mpSpec.end || "").slice(0, 16);
   document.getElementById("mp-slot").checked = !!_mpSpec.slot;
+
+  // Smart time defaults: use the next whole hour in the location's timezone when the
+  // spec's start is absent or in the past (first-run seed, stale saved missions).
+  const tz = _mpSpec.tz_name ?? null;
+  const startStr = String(_mpSpec.start || "").slice(0, 16);
+  const startIsStale = !startStr || new Date(startStr + ":00") < new Date();
+  const startVal = startIsStale ? nextWholeHour(tz) : startStr;
+  document.getElementById("mp-start").value = startVal;
+
+  const endStr = String(_mpSpec.end || "").slice(0, 16);
+  const endIsStale = !endStr || new Date(endStr + ":00") <= new Date(startVal + ":00");
+  document.getElementById("mp-end").value = endIsStale ? addHoursLocal(startVal, 4) : endStr;
+  // Reset the flag so end auto-follows start again unless the user edits it.
+  _mpEndUserSet = !endIsStale;
+
   // Radius of Concern: snap the saved value to the nearest stop and store it back in km.
   const rocIdx = nearestRocIndex(rocMiFromSpec(_mpSpec));
   _mpSpec.radius_km = ROC_STOPS_MI[rocIdx] * MI_TO_KM;
@@ -1396,6 +1465,26 @@ function initPlannerControls() {
     drawPlannerRoc();
   });
 
+  // Start time: auto-advance end by 4 h whenever start changes, unless the user
+  // has already edited end directly.
+  document.getElementById("mp-start").addEventListener("change", () => {
+    if (_mpEndUserSet) return;
+    const startVal = document.getElementById("mp-start").value;
+    if (startVal) document.getElementById("mp-end").value = addHoursLocal(startVal, 4);
+  });
+
+  // End time: once the user touches this field it stops auto-following start.
+  document.getElementById("mp-end").addEventListener("change", () => { _mpEndUserSet = true; });
+
+  // Name field: sync to spec + update tooltip on every keystroke.
+  const nameInput = document.getElementById("mp-name");
+  if (nameInput) {
+    nameInput.addEventListener("input", () => {
+      _mpSpec.name = nameInput.value;
+      if (_mpMarker) _mpMarker.setTooltipContent(esc(nameInput.value || "Expedition"));
+    });
+  }
+
   document.getElementById("mp-cancel").addEventListener("click", closeMissionPlanner);
 
   document.getElementById("mp-save").addEventListener("click", () => {
@@ -1407,7 +1496,7 @@ function initPlannerControls() {
       lat: _mpSpec.lat,
       lon: _mpSpec.lon,
       activity: document.getElementById("mp-activity").value,
-      name: _mpSpec.name || "expedition",
+      name: (document.getElementById("mp-name")?.value || "").trim() || "expedition",
       start: document.getElementById("mp-start").value,
       end: document.getElementById("mp-end").value,
       slot: document.getElementById("mp-slot").checked,

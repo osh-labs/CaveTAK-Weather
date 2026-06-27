@@ -65,6 +65,18 @@
           <h2 id="mp-title" class="mp-bar__title">Plan expedition</h2>
           <button class="mp-bar__close" id="mp-cancel" type="button" aria-label="Close">&times;</button>
         </header>
+        <div class="mp-name-field">
+          <label class="mp-name-field__label" for="mp-name">Expedition name</label>
+          <input
+            id="mp-name"
+            class="mp-name-field__input"
+            type="text"
+            placeholder="Name your expedition"
+            autocomplete="off"
+            maxlength="80"
+          />
+        </div>
+        <hr class="mp-divider" />
         <form class="mp-search" id="mp-search-form" role="search">
           <input
             id="mp-search-input"
@@ -79,7 +91,7 @@
         <div id="mp-search-status" class="mp-search__status" aria-live="polite"></div>
         <div id="mp-map" class="mp-map"></div>
         <p class="mp-hint">
-          Long-press the map to set your point, then tap it to name it. Search &copy; OpenStreetMap contributors.
+          Long-press the map to drop a point, or drag the marker to reposition. Search &copy; OpenStreetMap contributors.
         </p>
         <div class="mp-fields">
           <label>Activity
