@@ -7,6 +7,12 @@ backend component, PRD §11.2). Pipeline:
 """
 
 from .aggregate import PolygonAggregate, aggregate_over_polygon
+from .cache import (
+    DEFAULT_FIELDS,
+    load_probability_field_cached,
+    prune_old_cycles,
+    warm_cycle,
+)
 from .extract import SrefField, load_probability_field, open_subset
 from .fetch import IdxEntry, download_subset, fetch_idx, parse_idx, select_messages
 from .sources import (
@@ -26,7 +32,11 @@ __all__ = [
     "download_subset",
     "SrefField",
     "load_probability_field",
+    "load_probability_field_cached",
     "open_subset",
     "PolygonAggregate",
     "aggregate_over_polygon",
+    "DEFAULT_FIELDS",
+    "warm_cycle",
+    "prune_old_cycles",
 ]

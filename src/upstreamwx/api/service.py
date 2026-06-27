@@ -14,9 +14,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from ..config import get_settings
 from ..engine.models import Mission
 from ..sitrep.generate import GeneratedBriefing, generate_briefing
 from ..sitrep.structured import to_structured
+from ..sref import latest_available_cycle, prune_old_cycles, warm_cycle
 from .cache import STATIC_TOKEN, BriefingCache, mission_cache_key
 from .cycles import cycle_key
 from .models import BriefingResponse, MissionSpec
@@ -64,6 +66,23 @@ class BriefingService:
         return self._response(briefing, token, cached=False)
 
     # -- scheduled refresh ----------------------------------------------------------
+    def warm_and_prune(self, *, now: datetime | None = None) -> int:
+        """Pre-pull the live SREF cycle into the persistent cache and prune old cycles.
+
+        Run by the scheduler each cycle boundary before :meth:`refresh_active`, so the
+        cycle's CONUS subset is downloaded once and every domain aggregates from the cached
+        grid (roadmap §M0.1.1, FR-7, FR-12). Returns the number of fields warmed; 0 if no
+        cycle is live yet on NOMADS (production lag), which is non-fatal — refresh still runs
+        from whatever is cached (NFR-6).
+        """
+        cycle = latest_available_cycle(now=now)
+        if cycle is None:
+            return 0
+        settings = get_settings()
+        warmed = warm_cycle(cycle, settings=settings)
+        prune_old_cycles(settings=settings, keep=settings.sref_cache_keep_cycles)
+        return len(warmed)
+
     def refresh_active(self, *, now: datetime | None = None) -> int:
         """Regenerate every in-range active mission into the current cycle (FR-12).
 

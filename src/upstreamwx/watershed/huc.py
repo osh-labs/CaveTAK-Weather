@@ -13,6 +13,7 @@ casing changes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 
 from shapely.geometry import Point
 from shapely.geometry.base import BaseGeometry
@@ -23,6 +24,26 @@ _WBD_LAYERS = (
     (12, "wbd12", ("huc12",)),
     (10, "wbd10", ("huc10",)),
 )
+
+
+@cache
+def _water_data(layer: str):
+    """Return a process-memoised ``pynhd.WaterData`` client for ``layer``.
+
+    Constructing a ``WaterData`` performs a one-off WFS service handshake against
+    the USGS GeoServer (~1.5 s, *not* covered by HyRiver's response cache). A
+    single upstream trace touches the same few layers (``wbd12``/``wbd10``/
+    ``wbd8``…) up to three times — once to resolve the containing HUC, once to
+    fetch the surrounding region, once to probe for external inflow — so we
+    memoise the client per layer to pay the handshake once per process. This
+    removes ~3 s from every cold HUC trace (FR-2, NFR-6). The client is a thin,
+    stateless query wrapper (each ``bygeom``/``byfilter`` is independent), so
+    reuse is safe. The import stays lazy here to keep ``pynhd`` off the import
+    path for offline, fixture-only work.
+    """
+    from pynhd import WaterData
+
+    return WaterData(layer)
 
 
 def _field(row, candidates: tuple[str, ...]) -> str | None:
@@ -63,8 +84,6 @@ def resolve_huc12(lat: float, lon: float) -> HucResult:
     Raises:
         ValueError: if neither a HUC-12 nor a HUC-10 can be resolved.
     """
-    from pynhd import WaterData
-
     point = Point(lon, lat)
     # A tiny buffer makes the geometry query robust to the point landing on a
     # shared HU boundary; we then pick the polygon that actually contains it.
@@ -73,7 +92,7 @@ def resolve_huc12(lat: float, lon: float) -> HucResult:
     last_err: Exception | None = None
     for level, layer, id_fields in _WBD_LAYERS:
         try:
-            gdf = WaterData(layer).bygeom(query_geom)
+            gdf = _water_data(layer).bygeom(query_geom)
         except Exception as exc:  # noqa: BLE001 - try next layer / fallback
             last_err = exc
             continue

@@ -6,9 +6,10 @@ window, and aggregate the conservative max over the upstream watershed polygon.
 The ensemble probability is itself the fraction of members exceeding the threshold,
 so it doubles as the member-support input for the confidence qualifier (§16.5).
 
-Heavy/scheduled orchestration (cron at the SREF cadence, persistent multi-cycle
-cache) is deferred to M0.1.1 / the EC2 instance; this is the on-demand processing
-logic those will invoke.
+Reads through the persistent cycle cache (:mod:`upstreamwx.sref.cache`, M0.1.1): the
+first access to a cycle downloads the CONUS subset, every later domain — and any access
+after a restart — aggregates from the cached grid. The scheduler warms that cache on the
+SREF cadence (:func:`upstreamwx.api.service.BriefingService.warm_and_prune`).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import xarray as xr
 from shapely.geometry.base import BaseGeometry
 
 from ..engine.models import Mission
-from ..sref import aggregate_over_polygon, latest_available_cycle, load_probability_field
+from ..sref import aggregate_over_polygon, latest_available_cycle, load_probability_field_cached
 from .base import IngestBundle
 
 NAME = "sref"
@@ -94,8 +95,13 @@ def _domain_max(
     window_end: datetime | None = None,
     freq_h: int = 3,
 ) -> float | None:
-    """Fetch, optionally window-filter, and spatially aggregate one SREF probability field."""
-    field = load_probability_field(cycle, var=var, prob=prob, freq=freq or "3hrly")
+    """Fetch, optionally window-filter, and spatially aggregate one SREF probability field.
+
+    Reads through the persistent cycle cache (:mod:`upstreamwx.sref.cache`), so a cycle's
+    CONUS subset is downloaded once and every domain aggregates from the cached grid
+    (roadmap §M0.1.1, FR-7, FR-12).
+    """
+    field = load_probability_field_cached(cycle, var=var, prob=prob, freq=freq or "3hrly")
     da = field.data
     if window_start is not None and window_end is not None and "step" in da.dims:
         da = _filter_steps(da, cycle.init_time, window_start, window_end, freq_h=freq_h)

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 import networkx as nx
 from shapely.geometry.base import BaseGeometry
 
-from .huc import HucResult, _field
+from .huc import HucResult, _field, _water_data
 
 _EQUAL_AREA_CRS = 5070  # NAD83 / CONUS Albers
 
@@ -61,9 +61,7 @@ def _area_km2(gdf) -> float:
 
 def _fetch_region(level: int, prefix: str):
     """Fetch all HUC-{level} features whose id starts with ``prefix`` from WBD."""
-    from pynhd import WaterData
-
-    gdf = WaterData(f"wbd{level}").byfilter(f"huc{level} LIKE '{prefix}%'")
+    gdf = _water_data(f"wbd{level}").byfilter(f"huc{level} LIKE '{prefix}%'")
     return None if gdf is None or gdf.empty else gdf.to_crs(4326)
 
 
@@ -159,13 +157,11 @@ def _has_external_inflow(level, origin_id, id_col, gdf, upstream) -> bool:
     reliably accepts) and check whether any returned HUC lies outside the
     fetched region.
     """
-    from pynhd import WaterData
-
     graph = _build_graph(gdf, origin_id, id_col)
     in_region = set(gdf[id_col])
     # Leaves: upstream nodes with no upstream neighbour inside the region.
     leaves = sorted(h for h in upstream if not (set(graph.successors(h)) & upstream))
-    wd = WaterData(f"wbd{level}")
+    wd = _water_data(f"wbd{level}")
     for leaf in leaves:
         try:
             ext = wd.byfilter(f"tohuc = '{leaf}'")

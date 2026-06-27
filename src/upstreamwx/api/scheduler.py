@@ -37,6 +37,15 @@ async def run_scheduler(service: BriefingService, *, stop: asyncio.Event | None 
             return  # stop was signalled while waiting for the next boundary
         except TimeoutError:
             pass  # boundary reached — time to refresh
+        # Warm the persistent SREF grid cache for the new cycle first, so the refresh
+        # below (and any incoming request) aggregates from the cached grid rather than
+        # re-downloading per domain (roadmap §M0.1.1). A warm failure (NOMADS lag) is
+        # logged and swallowed so refresh still runs from whatever is cached (NFR-6).
+        try:
+            warmed = service.warm_and_prune()
+            logger.info("scheduled warm cached %d SREF field(s)", warmed)
+        except Exception:  # noqa: BLE001 — a warm failure must not block refresh
+            logger.exception("scheduled SREF warm failed")
         try:
             count = service.refresh_active()
             logger.info("scheduled refresh regenerated %d briefing(s)", count)
