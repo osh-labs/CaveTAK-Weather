@@ -84,7 +84,8 @@ def cached_subset(
 # CONUS subsets are the heavy entries (~tens of MB each); HREF per-hour subsets are small.
 _DECODE_CACHE_MAX = 48
 _decoded: OrderedDict[tuple[str, int, int], Any] = OrderedDict()
-_decoded_lock = threading.Lock()
+_decoded_lock = threading.Lock()  # guards the LRU dict (fast)
+_decode_compute_lock = threading.Lock()  # serialises the cfgrib decode itself
 
 
 def decode_cached(path: Path, decode: Callable[[Path], Any]) -> Any:
@@ -98,9 +99,12 @@ def decode_cached(path: Path, decode: Callable[[Path], Any]) -> Any:
     behind a bounded LRU. ``refresh`` rewrites the file with a new mtime, so it misses the memo
     and re-decodes as intended.
 
-    Thread-safe: :mod:`upstreamwx.ingest.orchestrator` may decode for several missions
-    concurrently. The decode itself runs *outside* the lock so independent files decode in
-    parallel; a rare double-decode of the same fresh key is harmless (idempotent).
+    Thread-safe and decode-serialised: the orchestrator now decodes SREF and HREF concurrently,
+    and cfgrib/eccodes is not reliably thread-safe, so a miss takes ``_decode_compute_lock``
+    around the decode (re-checking the memo inside, which also dedupes a concurrent miss on the
+    same key). Memo *hits* never take that lock, and the network fetch and numpy/regionmask
+    aggregation around this call stay fully concurrent — that is where the latency is — so
+    serialising only the decode costs nothing material.
     """
     st = path.stat()
     key = (str(path), st.st_mtime_ns, st.st_size)
@@ -109,12 +113,19 @@ def decode_cached(path: Path, decode: Callable[[Path], Any]) -> Any:
         if hit is not None:
             _decoded.move_to_end(key)
             return hit
-    decoded = decode(path)
-    with _decoded_lock:
-        _decoded[key] = decoded
-        _decoded.move_to_end(key)
-        while len(_decoded) > _DECODE_CACHE_MAX:
-            _decoded.popitem(last=False)
+    with _decode_compute_lock:
+        # Another thread may have decoded this key while we waited for the lock.
+        with _decoded_lock:
+            hit = _decoded.get(key)
+            if hit is not None:
+                _decoded.move_to_end(key)
+                return hit
+        decoded = decode(path)
+        with _decoded_lock:
+            _decoded[key] = decoded
+            _decoded.move_to_end(key)
+            while len(_decoded) > _DECODE_CACHE_MAX:
+                _decoded.popitem(last=False)
     return decoded
 
 

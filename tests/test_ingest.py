@@ -136,6 +136,38 @@ def test_gather_merges_all_sources_deterministically(monkeypatch):
     assert again.notes == bundle.notes
 
 
+def test_gather_combines_concurrent_ensembles(monkeypatch):
+    # SREF and HREF run concurrently on private bundles; gather merges member_support per-key
+    # by max (the stronger ensemble wins, §16.5) and computes the SREF<->HREF agreement after
+    # both complete (FR-17) — HREF no longer has to run after SREF to see its signal.
+    from upstreamwx.ingest import href_provider, nws, openmeteo, spc, sref_provider
+
+    monkeypatch.setattr(nws, "fetch", lambda m, b: None)
+    monkeypatch.setattr(openmeteo, "fetch", lambda m, b: None)
+    monkeypatch.setattr(spc, "fetch", lambda m, b: None)
+
+    def sref_fetch(m, b, poly, *, cycle=None):
+        b.sref_p_precip, b.sref_p_tstm = 70.0, 10.0
+        b.member_support.update({"flash_flood": 0.70, "lightning": 0.10})
+        b.sources_ok["sref"] = True
+
+    def href_fetch(m, b, poly, **k):
+        # HREF strongly diverges on precip (SREF strong, HREF near-absent) -> "partial".
+        b.href_p_precip, b.href_p_lightning = 5.0, 8.0
+        b.member_support.update({"flash_flood": 0.05, "lightning": 0.08})
+        b.sources_ok["href"] = True
+
+    monkeypatch.setattr(sref_provider, "fetch", sref_fetch)
+    monkeypatch.setattr(href_provider, "fetch", href_fetch)
+
+    bundle = gather(_mission(), polygon=box(-112.0, 37.0, -111.9, 37.1))
+
+    # Per-key max across the two ensembles, independent of which finished first.
+    assert bundle.member_support == {"flash_flood": 0.70, "lightning": 0.10}
+    # Agreement computed from both signals once joined: SREF strong vs HREF absent on precip.
+    assert bundle.source_agreement == "partial"
+
+
 def test_gather_degrades_gracefully(monkeypatch):
     # All sources raise; gather must not raise and must flag the failures (NFR-6).
     from upstreamwx.ingest import nws, openmeteo, spc, sref_provider

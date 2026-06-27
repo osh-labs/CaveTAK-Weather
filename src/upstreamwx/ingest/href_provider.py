@@ -4,8 +4,9 @@ Thin wrapper over the Spike C HREF pipeline (``upstreamwx.href``), the sibling o
 :mod:`upstreamwx.ingest.sref_provider`. HREF is NCEP's ~3 km convection-allowing
 ensemble; it sharpens the flash-flood and lightning signal inside the **same-day
 window (~36 h)** while SREF keeps the longer planning horizon. Where both are in
-range the engine takes the higher hazard tier (FR-19); this provider also records
-SREF<->HREF agreement as the cross-ensemble confidence cue (FR-17, §16.5).
+range the engine takes the higher hazard tier (FR-19). The SREF<->HREF cross-ensemble
+agreement (FR-17, §16.5) is computed by the orchestrator once both ensembles complete
+(they run concurrently), using :func:`cross_ensemble_agreement` exported here.
 
 Ingestion reads through the **persistent multi-run cache** (roadmap §M0.1.1). The scheduler
 warms f06-f48 of each HREF run and keeps several recent runs; for each valid hour in the
@@ -187,18 +188,13 @@ def fetch(
     ]
 
     # Neighborhood probability is itself a member-exceedance fraction; let the
-    # stronger ensemble inform member support for the confidence qualifier (§16.5).
+    # stronger ensemble inform member support for the confidence qualifier (§16.5). HREF runs
+    # on its own bundle, so this records HREF's support; the orchestrator merges it with SREF's
+    # per-key by max, and computes the SREF<->HREF agreement once both ensembles complete.
     if href_precip is not None:
-        prior = bundle.member_support.get("flash_flood", 0.0)
-        bundle.member_support["flash_flood"] = max(prior, href_precip / 100.0)
+        bundle.member_support["flash_flood"] = href_precip / 100.0
     if href_ltng is not None:
-        prior = bundle.member_support.get("lightning", 0.0)
-        bundle.member_support["lightning"] = max(prior, href_ltng / 100.0)
-
-    # Cross-ensemble agreement vs the SREF signal already in the bundle (FR-17).
-    bundle.source_agreement = cross_ensemble_agreement(
-        bundle.sref_p_precip, bundle.sref_p_tstm, href_precip, href_ltng
-    )
+        bundle.member_support["lightning"] = href_ltng / 100.0
 
     note = (
         f"HREF cycle {bundle.href_cycle} {bundle.href_fhour}; neighborhood P(QPF) and "
