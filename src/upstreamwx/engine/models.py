@@ -93,6 +93,10 @@ class Mission:
     is_slot: bool = False                  # slot canyon -> conservative flood fallback
     name: str = "mission"
     radius_km: float | None = None         # Radius of Concern: caps the upstream watershed (FR-3)
+    # Lightning Area of Concern: aggregate the lightning signal over a disk around the
+    # activity (PRD §16.1 "activity location + approach corridor"; §13 principle 4) rather
+    # than the upstream watershed. None -> lightning falls back to the flash-flood domain.
+    lightning_radius_km: float | None = None
 
 
 @dataclass

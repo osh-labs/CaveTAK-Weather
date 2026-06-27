@@ -53,6 +53,39 @@ function rocMiFromSpec(spec) {
   return ROC_DEFAULT_MI;
 }
 
+/* ── User preferences (modular, localStorage) ──────────────────────────
+ * App-wide settings kept separate from the per-mission spec, so a future
+ * settings panel can grow new keys without touching the mission contract.
+ * Today it holds the Lightning Area of Concern radius (PRD §16.1): the disk
+ * around the activity the backend aggregates the lightning signal over instead
+ * of the upstream watershed. Stored in km; the slider works in miles. UI yellow
+ * is distinct from the orange RoC ring and the amber mission marker. */
+const PREFS_KEY = "uwx.prefs.v1";
+const LAOC_STOPS_MI = [10, 15, 25, 50, 100];
+const LAOC_DEFAULT_MI = 15;
+const UI_YELLOW = "#facc15";
+const DEFAULT_PREFS = { laoc_radius_km: LAOC_DEFAULT_MI * MI_TO_KM };
+
+function loadPrefs() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(PREFS_KEY)); } catch (e) { /* private mode */ }
+  return { ...DEFAULT_PREFS, ...(saved && typeof saved === "object" ? saved : {}) };
+}
+function savePrefs(prefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) { /* private mode */ }
+}
+function nearestLaocIndex(mi) {
+  let best = 0;
+  for (let i = 1; i < LAOC_STOPS_MI.length; i++) {
+    if (Math.abs(LAOC_STOPS_MI[i] - mi) < Math.abs(LAOC_STOPS_MI[best] - mi)) best = i;
+  }
+  return best;
+}
+function laocMiFromPrefs(prefs) {
+  if (prefs && Number.isFinite(prefs.laoc_radius_km)) return prefs.laoc_radius_km / MI_TO_KM;
+  return LAOC_DEFAULT_MI;
+}
+
 const DEFAULT_SPEC = {
   lat: 34.665, lon: -85.361667, activity: "cave",
   start: "2026-06-18T13:00", end: "2026-06-18T22:00",
@@ -250,10 +283,13 @@ const DEMO_MODE =
 // POST the mission spec and return the freshly generated briefing, or throw with a
 // useful message. This is the live path; it never substitutes other data on failure.
 async function postBriefing(spec) {
+  // Fold the user's Lightning Area of Concern pref into the request without persisting it
+  // into the mission spec — it is an app-wide setting, not per-mission (PRD §16.1).
+  const body = { ...spec, lightning_radius_km: loadPrefs().laoc_radius_km };
   const res = await fetch(API_BRIEFING, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(spec),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     let detail = `server returned ${res.status}`;
@@ -872,12 +908,14 @@ function renderMap(b) {
   state.mapInitialized = false;
   const hasExcluded = !!b.watershed?.excluded_geometry;
   const hasRoc = !!(b.roc?.geometry || (b.roc?.center && b.roc?.radius_km));
+  const hasLaoc = !!(b.laoc?.geometry || (b.laoc?.center && b.laoc?.radius_km));
   document.getElementById("view-map").innerHTML = `
     <div id="leaflet-map" aria-label="Expedition area topographic map"></div>
     <div class="map-legend">
       <span class="map-legend__item"><span class="map-legend__swatch map-legend__swatch--watershed"></span>Watershed</span>
       ${hasExcluded ? '<span class="map-legend__item"><span class="map-legend__swatch map-legend__swatch--excluded"></span>Outside RoC</span>' : ""}
       ${hasRoc ? '<span class="map-legend__item"><span class="map-legend__roc-line"></span>Radius of Concern</span>' : ""}
+      ${hasLaoc ? '<span class="map-legend__item"><span class="map-legend__laoc-line"></span>Lightning area of concern</span>' : ""}
     </div>
     <div class="disclaimer">Planning map. The shaded basin is the approximate upstream watershed feeding the expedition point. Tap either for details.</div>`;
 }
@@ -990,6 +1028,32 @@ function initLeafletMap(b) {
         radius: b.roc.radius_km * 1000, color: UI_ORANGE, weight: 1, opacity: 1,
         dashArray: "4 4", fill: false, interactive: false,
       }).addTo(_leafletMap)
+    );
+  }
+
+  // Lightning Area of Concern ring: solid yellow, distinct from the dashed orange RoC
+  // (PRD §16.1 — the disk the lightning signal is assessed over). Drawn but deliberately
+  // NOT added to `overlays`, so it never feeds fitBounds: the map's zoom/pan defaults
+  // (watershed-fit) are unchanged. Prefer the backend disk; fall back to a drawn circle.
+  let laocLayer = null;
+  if (b.laoc?.geometry) {
+    laocLayer = L.geoJSON(b.laoc.geometry, {
+      style: { color: UI_YELLOW, weight: 1.5, opacity: 1, fill: false },
+      interactive: false,
+    }).addTo(_leafletMap);
+  } else if (b.laoc?.center && b.laoc?.radius_km) {
+    laocLayer = L.circle([b.laoc.center[1], b.laoc.center[0]], {
+      radius: b.laoc.radius_km * 1000, color: UI_YELLOW, weight: 1.5, opacity: 1,
+      fill: false, interactive: false,
+    }).addTo(_leafletMap);
+  }
+  if (laocLayer) {
+    laocLayer.bindPopup(
+      `<div class="map-pop">
+        <div class="map-pop__title">Lightning Area of Concern</div>
+        <div class="map-pop__row">Lightning assessed within this radius of the activity</div>
+      </div>`,
+      { className: "map-popup" }
     );
   }
 
@@ -1608,6 +1672,61 @@ function initPlannerControls() {
   });
 }
 
+/* ── Settings (app-wide user prefs) ────────────────────────────────── */
+function updateLaocReadout(idx) {
+  const el = document.getElementById("settings-laoc-value");
+  if (el) el.textContent = `${LAOC_STOPS_MI[idx]} mi`;
+}
+
+// Open the settings sheet, seeding the LAoC slider from the saved pref.
+function openSettings() {
+  hideGlossaryPopover();
+  const idx = nearestLaocIndex(laocMiFromPrefs(loadPrefs()));
+  const slider = document.getElementById("settings-laoc");
+  if (slider) slider.value = String(idx);
+  updateLaocReadout(idx);
+  document.getElementById("settings-modal").hidden = false;
+}
+
+function closeSettings() {
+  const modal = document.getElementById("settings-modal");
+  if (modal) modal.hidden = true;
+}
+
+// Wire the gear button and the settings sheet's controls once at startup.
+function initSettingsControls() {
+  const gear = document.getElementById("settings-open");
+  if (gear) {
+    gear.innerHTML = icon("settings", "");
+    gear.addEventListener("click", openSettings);
+  }
+  document.getElementById("settings-cancel")?.addEventListener("click", closeSettings);
+  // Backdrop click (outside the sheet) dismisses without saving.
+  document.getElementById("settings-modal")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeSettings();
+  });
+
+  const slider = document.getElementById("settings-laoc");
+  slider?.addEventListener("input", () => {
+    updateLaocReadout(parseInt(slider.value, 10) || 0);
+  });
+
+  document.getElementById("settings-save")?.addEventListener("click", () => {
+    const idx = parseInt(slider?.value ?? "1", 10) || 0;
+    const prefs = loadPrefs();
+    prefs.laoc_radius_km = LAOC_STOPS_MI[idx] * MI_TO_KM;
+    savePrefs(prefs);
+    closeSettings();
+    // Re-generate so the new lightning domain takes effect (live path only; demo renders
+    // the frozen sample). The current mission drives the request; postBriefing folds in
+    // the freshly-saved pref.
+    if (!DEMO_MODE) {
+      const spec = savedSpec() || (state.briefing ? specFromBriefing(state.briefing) : DEFAULT_SPEC);
+      refresh(spec);
+    }
+  });
+}
+
 /* ── Bootstrap ─────────────────────────────────────────────────────── */
 function renderAll(b) {
   state.briefing = b;
@@ -1631,6 +1750,7 @@ async function main() {
   renderTabs();
   initGlossaryInteractions();
   initPlannerControls();
+  initSettingsControls();
   // First run with no saved mission: present the planner so the user picks a
   // point. Defer until the ack is accepted when it's showing this load.
   const promptFirstRun = () => {

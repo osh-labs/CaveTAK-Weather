@@ -171,7 +171,16 @@ def test_briefing_carries_structured_contract(client):
     assert len(body["resources"]) == 4
     # Offline inputs path -> no live bundle -> graceful display nulls (NFR-6).
     assert body["watershed"] is None
+    assert body["roc"] is None
+    assert body["laoc"] is None
     assert body["forecast_hourly"] == {"hours": [], "rows": []}
+
+
+def test_lightning_radius_accepted_and_threaded():
+    """MissionSpec accepts a lightning radius and threads it onto the Mission (PRD §16.1)."""
+    spec = _spec(lightning_radius_km=24.14)
+    assert spec.lightning_radius_km == 24.14
+    assert spec.to_mission().lightning_radius_km == 24.14
 
 
 def test_pwa_served_at_root(client):

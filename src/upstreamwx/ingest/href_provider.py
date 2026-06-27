@@ -108,12 +108,19 @@ def fetch(
     bundle: IngestBundle,
     polygon: BaseGeometry,
     *,
+    lightning_polygon: BaseGeometry | None = None,
     now: datetime | None = None,
     settings: Settings | None = None,
 ) -> None:
-    """Populate HREF neighborhood probabilities over the upstream domain (if in range)."""
+    """Populate HREF neighborhood probabilities over the upstream domain (if in range).
+
+    QPF aggregates over ``polygon`` (the upstream watershed/RoC); the lightning neighborhood
+    fields aggregate over ``lightning_polygon`` — the Lightning Area of Concern disk around
+    the activity (PRD §16.1) — which defaults to ``polygon`` when unset.
+    """
     settings = settings or get_settings()
     now = now if now is not None else datetime.now(UTC)
+    ltng_polygon = lightning_polygon if lightning_polygon is not None else polygon
 
     cycles = cached_cycles(now, settings=settings)
     if not cycles:
@@ -153,9 +160,9 @@ def fetch(
         if hour_precip is not None:
             precip_vals.append(hour_precip)
 
-        ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, polygon, settings=settings)
+        ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, ltng_polygon, settings=settings)
         if ltng is None:
-            ltng = _domain_max(cycle, fhour, REFC_VAR, REFC_PROB, polygon, settings=settings)
+            ltng = _domain_max(cycle, fhour, REFC_VAR, REFC_PROB, ltng_polygon, settings=settings)
         if ltng is not None:
             ltng_vals.append(ltng)
 

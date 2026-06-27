@@ -232,6 +232,19 @@ persists the spec to `localStorage` (FR-10) and re-fetches. The Open-Meteo
 adapter now also persists a per-hour display series (`IngestBundle.forecast_hourly`,
 display-only — never an engine input). Verified live end-to-end in-container.
 
+**Lightning Area of Concern (LAoC).** Lightning is a point/corridor estimate, not a
+basin-routed one (PRD §16.1, §13 principle 4), so its ensemble fields (`sref_p_tstm`,
+`href_p_lightning`) aggregate over a disk around the activity rather than the upstream
+watershed. The disk reuses `watershed/roc.py`'s `roc_disk` (the raw circle, *not* intersected
+with the basin); the orchestrator hands SREF/HREF a separate `lightning_polygon` while flash
+flood keeps the watershed/RoC domain. The radius is an **app-wide user preference** (not
+per-mission): a modular prefs store (`uwx.prefs.v1` in `localStorage`, `loadPrefs`/`savePrefs`
+in `frontend/js/app.js`) configured from a **Settings** sheet opened by a persistent gear icon
+in the status bar. `postBriefing` folds `lightning_radius_km` into every request; the PWA draws
+the LAoC as a solid yellow ring (top-level `laoc` in the structured contract) and a legend item,
+without touching map zoom/pan. `mission_cache_key` folds in both `radius_km` and
+`lightning_radius_km`. A future version adds a trailhead point + linear route corridor (deferred).
+
 **Latency follow-on (watershed warming).** Cold pour-point delineation (~3–15 s) was the
 dominant remaining briefing latency, and pre-caching whole basins is futile (every set of
 coordinates yields a slightly different watershed). Instead the planner warms it *the moment

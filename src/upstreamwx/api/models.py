@@ -35,6 +35,14 @@ class MissionSpec(BaseModel):
         ge=1,
         description="Radius of Concern (km): caps the upstream watershed; null = unbounded (FR-3)",
     )
+    lightning_radius_km: float | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Lightning Area of Concern radius (km): aggregate the lightning signal over a disk "
+            "around the activity instead of the watershed; null = upstream domain (PRD §16.1)"
+        ),
+    )
     frame: bool | None = Field(
         default=None,
         description="add Haiku framing; null = frame iff ANTHROPIC_API_KEY is set (FR-21)",
@@ -63,6 +71,7 @@ class MissionSpec(BaseModel):
             is_slot=self.slot,
             name=self.name,
             radius_km=self.radius_km,
+            lightning_radius_km=self.lightning_radius_km,
         )
 
     def to_inputs(self) -> HazardInputs | None:
@@ -114,6 +123,9 @@ class BriefingResponse(BaseModel):
     mission: dict = Field(default_factory=dict)
     watershed: dict | None = None
     roc: dict | None = Field(default=None, description="Radius-of-Concern ring; null = unbounded")
+    laoc: dict | None = Field(
+        default=None, description="Lightning-Area-of-Concern ring; null = upstream domain"
+    )
     summary: str | None = None
     bluf: list[dict] = Field(default_factory=list)
     metrics: list[dict] = Field(default_factory=list)

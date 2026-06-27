@@ -849,6 +849,15 @@
       ]
     }
   },
+  "laoc": {
+    "radius_km": 24.14,
+    "radius_mi": 15.0,
+    "center": [
+      -85.361667,
+      34.665
+    ],
+    "geometry": null
+  },
   "overall_posture": "Extreme",
   "overall_confidence": "Moderate",
   "threshold_version": "flash_flood=1.2.0;lightning=1.1.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0",

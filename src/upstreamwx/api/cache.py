@@ -30,7 +30,9 @@ def mission_cache_key(mission: Mission, inputs: HazardInputs | None = None) -> s
 
     Coordinates are rounded to ~11 m so a reopened pin at the same spot hits. When an
     explicit feature vector is supplied it is folded in, so two different saved inputs at
-    one location/window do not collide.
+    one location/window do not collide. The Radius of Concern and Lightning Area of Concern
+    radii are folded in too: both change the aggregation domain (and therefore the postures),
+    so two requests differing only by a radius must not collide on one cache entry.
     """
     parts = [
         mission.activity_type.value,
@@ -41,6 +43,8 @@ def mission_cache_key(mission: Mission, inputs: HazardInputs | None = None) -> s
         mission.approach_end.isoformat() if mission.approach_end else "-",
         mission.egress_start.isoformat() if mission.egress_start else "-",
         "slot" if mission.is_slot else "open",
+        f"roc={mission.radius_km}",
+        f"laoc={mission.lightning_radius_km}",
     ]
     if inputs is not None:
         parts.append(repr(sorted(vars(inputs).items())))

@@ -131,14 +131,27 @@ def _resolve_cycle(cycle, *, settings=None):
     return latest_available_cycle()
 
 
-def fetch(mission: Mission, bundle: IngestBundle, polygon: BaseGeometry, *, cycle=None) -> None:
-    """Populate SREF probabilities + member support over the upstream domain."""
+def fetch(
+    mission: Mission,
+    bundle: IngestBundle,
+    polygon: BaseGeometry,
+    *,
+    lightning_polygon: BaseGeometry | None = None,
+    cycle=None,
+) -> None:
+    """Populate SREF probabilities + member support over the upstream domain.
+
+    Flash-flood precip aggregates over ``polygon`` (the upstream watershed/RoC); the
+    thunderstorm proxy aggregates over ``lightning_polygon`` — the Lightning Area of Concern
+    disk around the activity (PRD §16.1) — which defaults to ``polygon`` when unset.
+    """
     cycle = _resolve_cycle(cycle)
     if cycle is None:
         bundle.sources_ok[NAME] = False
         bundle.notes.append("SREF: no available cycle on NOMADS (retention/lag).")
         return
 
+    tstm_polygon = lightning_polygon if lightning_polygon is not None else polygon
     try:
         p_precip = _domain_max(
             cycle, PRECIP_VAR, PRECIP_PROB, polygon,
@@ -148,7 +161,7 @@ def fetch(mission: Mission, bundle: IngestBundle, polygon: BaseGeometry, *, cycl
             freq_h=3,
         )
         p_tstm = _domain_max(
-            cycle, TSTM_VAR, TSTM_PROB, polygon,
+            cycle, TSTM_VAR, TSTM_PROB, tstm_polygon,
             window_start=mission.window_start,
             window_end=mission.window_end,
             freq_h=0,  # CAPE is an instantaneous snapshot, not an accumulation

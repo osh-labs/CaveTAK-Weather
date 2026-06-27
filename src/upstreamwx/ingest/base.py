@@ -108,6 +108,15 @@ class IngestBundle:
     roc_excluded: BaseGeometry | None = None
     roc_kept_area_km2: float | None = None
 
+    # Lightning Area of Concern (LAoC): the disk around the activity that the lightning
+    # ensemble fields (``sref_p_tstm``/``href_p_lightning``) aggregate over instead of the
+    # upstream watershed (PRD §16.1, §13 principle 4 — lightning is a point/corridor
+    # estimate, not basin-routed). ``laoc_disk`` drives the PWA's yellow ring. None unless
+    # the mission sets ``lightning_radius_km``; lightning then falls back to the flood domain.
+    laoc_radius_km: float | None = None
+    laoc_disk: BaseGeometry | None = None
+    laoc_area_km2: float | None = None
+
     # Provenance / graceful-degradation tracking (NFR-6).
     sources_ok: dict[str, bool] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)

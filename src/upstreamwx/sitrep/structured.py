@@ -245,6 +245,22 @@ def _roc(bundle: IngestBundle | None, mission) -> dict | None:
     }
 
 
+def _laoc(bundle: IngestBundle | None, mission) -> dict | None:
+    """The Lightning-Area-of-Concern ring (PRD §16.1): center + radius + disk geometry, or None.
+
+    The disk the lightning ensemble fields aggregated over — the PWA renders it as a yellow
+    ring distinct from the orange RoC. None unless the mission set a lightning radius.
+    """
+    if bundle is None or not bundle.laoc_radius_km or bundle.laoc_disk is None:
+        return None
+    return {
+        "radius_km": round(bundle.laoc_radius_km, 3),
+        "radius_mi": round(bundle.laoc_radius_km / _KM_PER_MI, 1),
+        "center": [mission.lon, mission.lat],  # GeoJSON order (lon, lat)
+        "geometry": mapping(bundle.laoc_disk),
+    }
+
+
 def _metrics(bundle: IngestBundle | None) -> list[dict]:
     fh = bundle.forecast_hourly if bundle is not None else None
 
@@ -417,6 +433,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
         },
         "watershed": _watershed(upstream, bundle),
         "roc": _roc(bundle, mission),
+        "laoc": _laoc(bundle, mission),
         "overall_posture": result.overall_tier.label,
         "overall_confidence": result.overall_confidence.label,
         "threshold_version": result.threshold_version,

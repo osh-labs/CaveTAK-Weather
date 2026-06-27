@@ -64,6 +64,9 @@ def _build_mission(args: argparse.Namespace) -> Mission:
         is_slot=args.slot,
         name=args.name,
         radius_km=args.radius_mi * 1.609344 if args.radius_mi else None,
+        lightning_radius_km=(
+            args.lightning_radius_mi * 1.609344 if args.lightning_radius_mi else None
+        ),
     )
 
 
@@ -88,6 +91,12 @@ def _parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="Radius of Concern (mi): clip the upstream watershed to this radius (FR-3)",
+    )
+    p.add_argument(
+        "--lightning-radius-mi",
+        type=float,
+        default=None,
+        help="Lightning Area of Concern (mi): aggregate lightning over this disk (PRD §16.1)",
     )
     p.add_argument(
         "--inputs",

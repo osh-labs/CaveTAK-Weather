@@ -100,7 +100,7 @@ def test_gather_merges_all_sources_deterministically(monkeypatch):
         b.sources_ok["spc"] = True
         b.notes.append("spc ok")
 
-    def sref_fetch(m, b, poly, *, cycle=None):
+    def sref_fetch(m, b, poly, *, lightning_polygon=None, cycle=None):
         b.sref_p_precip = 40.0
         b.member_support["flash_flood"] = 0.4
         b.sources_ok["sref"] = True
@@ -173,7 +173,7 @@ def test_gather_combines_concurrent_ensembles(monkeypatch):
     monkeypatch.setattr(openmeteo, "fetch", lambda m, b: None)
     monkeypatch.setattr(spc, "fetch", lambda m, b: None)
 
-    def sref_fetch(m, b, poly, *, cycle=None):
+    def sref_fetch(m, b, poly, *, lightning_polygon=None, cycle=None):
         b.sref_p_precip, b.sref_p_tstm = 70.0, 10.0
         b.member_support.update({"flash_flood": 0.70, "lightning": 0.10})
         b.sources_ok["sref"] = True

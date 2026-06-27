@@ -31,7 +31,10 @@
         <section class="view" id="view-about" role="tabpanel" hidden></section>
       </main>
 
-      <div class="status-line" id="status"></div>
+      <div class="status-line">
+        <div class="status-line__content" id="status"></div>
+        <button class="status-line__gear" id="settings-open" type="button" aria-label="Settings" title="Settings"></button>
+      </div>
     </div>
 
     <!-- First-run acknowledgment (FR-31, Appendix C §17.1) -->
@@ -127,6 +130,41 @@
         <footer class="mp-actions">
           <button id="mp-gps" class="btn-ghost" type="button">Use current location</button>
           <button id="mp-save" class="btn-primary" type="button">Save expedition</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Settings — app-wide user preferences (PRD §16.1 Lightning Area of Concern) -->
+    <div class="mp-modal" id="settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="mp-sheet">
+        <header class="mp-bar">
+          <h2 id="settings-title" class="mp-bar__title">Settings</h2>
+          <button class="mp-bar__close" id="settings-cancel" type="button" aria-label="Close">&times;</button>
+        </header>
+        <div class="settings-body">
+          <div class="mp-roc">
+            <div class="mp-roc__head">
+              <span class="mp-roc__label">Lightning area of concern</span>
+              <span class="mp-roc__value" id="settings-laoc-value">15 mi</span>
+            </div>
+            <input
+              id="settings-laoc"
+              class="mp-roc__slider"
+              type="range"
+              min="0"
+              max="4"
+              step="1"
+              value="1"
+              aria-label="Lightning area of concern (miles)"
+            />
+            <div class="mp-roc__ticks" aria-hidden="true">
+              <span>10</span><span>15</span><span>25</span><span>50</span><span>100</span>
+            </div>
+            <p class="mp-roc__hint">Lightning risk is assessed within this radius of the activity, rather than across the whole upstream watershed.</p>
+          </div>
+        </div>
+        <footer class="mp-actions">
+          <button id="settings-save" class="btn-primary" type="button">Save settings</button>
         </footer>
       </div>
     </div>

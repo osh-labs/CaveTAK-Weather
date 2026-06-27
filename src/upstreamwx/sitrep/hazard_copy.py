@@ -29,7 +29,9 @@ HAZARD_LOGIC: dict[Hazard, str] = {
         "HREF P(lightning) ≥45% OR SPC Moderate+ during any exposed phase; "
         "High = SREF 40–79% OR HREF 20–44%; "
         "Elevated = SREF 15–39% OR HREF 8–19% OR AFD convective mention "
-        "(Appendix B §16.2). Cave interior excluded for the technical span (FR-14c)."
+        "(Appendix B §16.2). Assessed over the Lightning Area of Concern around the "
+        "activity, not the upstream watershed (PRD §16.1). "
+        "Cave interior excluded for the technical span (FR-14c)."
     ),
     Hazard.HEAT: (
         "Uses NWS Heat Index categories (FR-15): Caution 80–90 °F, "

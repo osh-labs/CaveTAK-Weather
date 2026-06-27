@@ -810,6 +810,12 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   border-top: 1.5px dashed var(--sev-high);
   flex-shrink: 0;
 }
+.map-legend__laoc-line {
+  width: 20px;
+  height: 0;
+  border-top: 1.5px solid #facc15;
+  flex-shrink: 0;
+}
 
 /* ── 7.12 Resources ────────────────────────────────────────────────── */
 .resource-link {
@@ -882,13 +888,39 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .status-line {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   background: var(--color-bg);
   font-size: var(--text-caption);
   color: var(--color-text-muted);
 }
+.status-line__content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+/* Persistent settings gear, pinned to the status bar's bottom-right (always reachable). */
+.status-line__gear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.status-line__gear:hover { color: var(--color-text); }
+.status-line__gear:focus-visible { outline: 2px solid var(--sev-high); outline-offset: 2px; }
+.status-line__gear svg { width: 20px; height: 20px; }
 .status-line__currency { font-family: var(--font-mono); }
 .cached-badge {
   display: inline-flex;
@@ -1119,6 +1151,14 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .mp-actions { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
 .mp-actions .btn-ghost,
 .mp-actions .btn-primary { flex: 1; margin: 0; }
+
+/* Settings modal — reuses the mp-sheet/mp-roc chrome; the LAoC slider is yellow to match
+   its map ring (distinct from the orange RoC slider). */
+.settings-body { padding-bottom: var(--space-2); }
+#settings-modal .mp-roc__value { color: #facc15; }
+#settings-modal .mp-roc__slider::-webkit-slider-thumb { background: #facc15; }
+#settings-modal .mp-roc__slider::-moz-range-thumb { background: #facc15; }
+#settings-modal .mp-roc__slider:focus-visible { outline-color: #facc15; }
 
 /* Mission name field — sits above the search bar, separated by a thin rule. */
 .mp-name-field {

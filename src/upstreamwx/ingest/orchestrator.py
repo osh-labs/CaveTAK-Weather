@@ -12,13 +12,14 @@ This is the glue from a mission to engine-ready inputs:
 
 from __future__ import annotations
 
+import math
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields
 
 from shapely.geometry.base import BaseGeometry
 
 from ..engine.models import HazardInputs, Mission
-from ..watershed import clip_watershed, delineate_cached
+from ..watershed import clip_watershed, delineate_cached, roc_disk
 from . import href_provider, nws, openmeteo, spc, sref_provider
 from .base import IngestBundle, to_hazard_inputs
 
@@ -51,22 +52,37 @@ def _run_point_provider(provider, mission: Mission) -> IngestBundle:
     return bundle
 
 
-def _run_sref(mission: Mission, polygon: BaseGeometry, cycle) -> IngestBundle:
-    """Aggregate SREF over the domain into a private bundle, degrading on failure (NFR-6)."""
+def _run_sref(
+    mission: Mission, polygon: BaseGeometry, lightning_polygon: BaseGeometry, cycle
+) -> IngestBundle:
+    """Aggregate SREF over the domain into a private bundle, degrading on failure (NFR-6).
+
+    Flash-flood fields aggregate over ``polygon`` (the upstream watershed/RoC); the
+    lightning thunderstorm proxy aggregates over ``lightning_polygon`` (the LAoC disk when
+    set, else the same polygon).
+    """
     bundle = IngestBundle()
     try:
-        sref_provider.fetch(mission, bundle, polygon, cycle=cycle)
+        sref_provider.fetch(
+            mission, bundle, polygon, lightning_polygon=lightning_polygon, cycle=cycle
+        )
     except Exception as exc:  # noqa: BLE001
         bundle.sources_ok[sref_provider.NAME] = False
         bundle.notes.append(f"sref: unavailable ({type(exc).__name__}).")
     return bundle
 
 
-def _run_href(mission: Mission, polygon: BaseGeometry) -> IngestBundle:
-    """Aggregate HREF over the domain into a private bundle, degrading on failure (NFR-6)."""
+def _run_href(
+    mission: Mission, polygon: BaseGeometry, lightning_polygon: BaseGeometry
+) -> IngestBundle:
+    """Aggregate HREF over the domain into a private bundle, degrading on failure (NFR-6).
+
+    As with SREF, the lightning neighborhood fields aggregate over ``lightning_polygon``
+    (the LAoC disk when set) while QPF aggregates over the flash-flood ``polygon``.
+    """
     bundle = IngestBundle()
     try:
-        href_provider.fetch(mission, bundle, polygon)
+        href_provider.fetch(mission, bundle, polygon, lightning_polygon=lightning_polygon)
     except Exception as exc:  # noqa: BLE001
         bundle.sources_ok[href_provider.NAME] = False
         bundle.notes.append(f"href: unavailable ({type(exc).__name__}).")
@@ -127,13 +143,37 @@ def _run_watershed_and_ensembles(
                 )
 
     bundle.aggregation_polygon = polygon
+
+    # Lightning Area of Concern (PRD §16.1, §13 principle 4): aggregate the lightning signal
+    # over a disk around the activity rather than the upstream watershed. The disk is the raw
+    # RoC circle — *not* intersected with the basin — because lightning is a local atmospheric
+    # hazard independent of flow routing. Defensive: a disk failure must never crash the
+    # briefing (NFR-6); fall back to the flash-flood domain. None radius -> same fallback.
+    lightning_polygon = polygon
+    if polygon is not None and mission.lightning_radius_km:
+        try:
+            laoc = roc_disk(mission.lat, mission.lon, mission.lightning_radius_km)
+            lightning_polygon = laoc
+            bundle.laoc_radius_km = mission.lightning_radius_km
+            bundle.laoc_disk = laoc
+            bundle.laoc_area_km2 = math.pi * mission.lightning_radius_km**2
+            bundle.notes.append(
+                f"lightning area of concern: P(thunder)/P(lightning) aggregated over a "
+                f"{mission.lightning_radius_km:.0f} km disk around the activity."
+            )
+        except Exception as exc:  # noqa: BLE001
+            bundle.notes.append(
+                f"lightning area of concern: disk failed ({type(exc).__name__}); "
+                "upstream domain used for lightning."
+            )
+
     if polygon is not None:
         # SREF and HREF are independent aggregations over the same domain; run them
         # concurrently into private bundles, then merge (SREF first, then HREF) in a fixed
         # order. Both fetches contain their own failures (NFR-6), so neither task raises.
         with ThreadPoolExecutor(max_workers=2) as executor:
-            sref_future = executor.submit(_run_sref, mission, polygon, cycle)
-            href_future = executor.submit(_run_href, mission, polygon)
+            sref_future = executor.submit(_run_sref, mission, polygon, lightning_polygon, cycle)
+            href_future = executor.submit(_run_href, mission, polygon, lightning_polygon)
             sref_bundle = sref_future.result()
             href_bundle = href_future.result()
         _merge_into(bundle, sref_bundle)
