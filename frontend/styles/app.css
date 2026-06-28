@@ -1128,7 +1128,7 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-2);
-  overflow: hidden;
+  overflow: visible;
 }
 .mp-hint {
   margin: 0;
