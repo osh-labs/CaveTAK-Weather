@@ -28,7 +28,6 @@ from .sources import build_source_links
 # Reference-only disclaimer (PRD Appendix C §17.2 + the short §15 line). Embedded in
 # every render, non-negotiable from day one (FR-31, FR-40).
 DISCLAIMER = (
-    "Reference only. Not a decision-making tool. Verify against NWS.\n\n"
     "Planning reference only — not a forecast, not a decision. Conditions change fast "
     "and models can be wrong. Verify against the official NWS sources linked above, and "
     "let what you see in the field overrule this briefing. The go/no-go decision is "
@@ -102,7 +101,7 @@ def render_md(
     lines: list[str] = []
 
     # ---- Header -----------------------------------------------------------------
-    lines.append("# UPSTREAMWX — MISSION BRIEFING")
+    lines.append("# Expedition Briefing")
     lines.append("")
     lines.append(
         f"**Mission:** {mission.name}  |  "
@@ -169,7 +168,7 @@ def render_md(
 
     # ---- Source data drill-down -------------------------------------------------
     lines.append("")
-    lines.append("## SOURCE DATA (drill-down)")
+    lines.append("## SOURCE DATA")
     lines.append("")
     lines.append(f"Threshold config: {result.threshold_version}")
     _render_source_data(lines, bundle)

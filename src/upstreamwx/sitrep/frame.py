@@ -18,7 +18,7 @@ from ..engine.models import BriefingResult, Hazard, HeatCategory, Tier
 # FR-21: natural-language framing only, via Claude Haiku.
 DEFAULT_MODEL = "claude-haiku-4-5"
 
-_SUMMARY_HEADING = "## SUMMARY (plain language)"
+_SUMMARY_HEADING = "## SUMMARY"
 _INSERT_BEFORE = "## BLUF"
 
 _SYSTEM_PROMPT = (

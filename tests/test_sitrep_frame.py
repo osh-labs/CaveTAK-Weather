@@ -56,9 +56,9 @@ def test_framing_prepends_summary_and_preserves_structure():
     framed = frame_briefing(result, structured, client=client)
 
     # Summary added above the BLUF, structured content below left byte-for-byte intact.
-    assert "## SUMMARY (plain language)" in framed
+    assert "## SUMMARY" in framed
     assert "Plain-language overview" in framed
-    assert framed.index("## SUMMARY (plain language)") < framed.index("## BLUF")
+    assert framed.index("## SUMMARY") < framed.index("## BLUF")
     bluf_onward = structured[structured.index("## BLUF"):]
     assert bluf_onward in framed  # every structured posture line unchanged (FR-20)
 
