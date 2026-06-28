@@ -1,4 +1,4 @@
-# UPSTREAMWX — MISSION BRIEFING
+# EXPEDITION BRIEFING
 
 **Mission:** Buckskin Gulch  |  **Type:** Canyon  |  **Window:** 2026-06-20 08:00–2026-06-20 18:00
 **Location:** 37.0192, -111.9889  |  **Upstream domain:** HUC-12 150100021304 (+3 upstream, 842 km²)
@@ -56,7 +56,7 @@
 
 Flash-flood assessment aggregates over the upstream contributing watershed of HUC-12 150100021304: 3 upstream HUC-12 unit(s), ~842 km², traced via tohuc-graph.
 
-## SOURCE DATA (drill-down)
+## SOURCE DATA
 
 Threshold config: flash_flood=1.2.0;lightning=1.3.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
@@ -103,7 +103,5 @@ Source availability:
 - Model source (HREF, same-day): https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod
 
 ## DISCLAIMER
-
-Reference only. Not a decision-making tool. Verify against NWS.
 
 Planning reference only — not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked above, and let what you see in the field overrule this briefing. The go/no-go decision is yours and your party's.

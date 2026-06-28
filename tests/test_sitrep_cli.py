@@ -24,7 +24,7 @@ def test_cli_offline_writes_briefing(tmp_path):
     out = tmp_path / "brief.md"
     assert main(_args(out)) == 0
     text = out.read_text()
-    assert text.startswith("# UPSTREAMWX — MISSION BRIEFING")
+    assert text.startswith("# EXPEDITION BRIEFING")
     assert "## BLUF" in text
     assert "OVERALL POSTURE: High" in text  # slot + 65% precip drives flash flood High
     assert "## DISCLAIMER" in text
@@ -35,4 +35,4 @@ def test_cli_offline_to_stdout(capsys, tmp_path):
     rc = main(_args(tmp_path / "ignored.md")[:-2])  # drop --out -> stdout
     assert rc == 0
     captured = capsys.readouterr()
-    assert "# UPSTREAMWX — MISSION BRIEFING" in captured.out
+    assert "# EXPEDITION BRIEFING" in captured.out

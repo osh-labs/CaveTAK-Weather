@@ -1,4 +1,4 @@
-# UPSTREAMWX — MISSION BRIEFING
+# EXPEDITION BRIEFING
 
 **Mission:** Dry Cave  |  **Type:** Cave  |  **Window:** 2026-06-20 08:00–2026-06-20 18:00
 **Location:** 37.0000, -112.0000  |  **Upstream domain:** (not resolved)
@@ -49,7 +49,7 @@
 
 Upstream watershed not resolved for this briefing.
 
-## SOURCE DATA (drill-down)
+## SOURCE DATA
 
 Threshold config: flash_flood=1.2.0;lightning=1.3.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
@@ -66,7 +66,5 @@ Source field detail unavailable (rendered from engine result only).
 - Model source (SREF): https://nomads.ncep.noaa.gov/pub/data/nccf/com/sref/prod
 
 ## DISCLAIMER
-
-Reference only. Not a decision-making tool. Verify against NWS.
 
 Planning reference only — not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked above, and let what you see in the field overrule this briefing. The go/no-go decision is yours and your party's.

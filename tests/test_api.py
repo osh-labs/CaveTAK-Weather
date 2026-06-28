@@ -73,7 +73,7 @@ def test_briefing_offline_inputs(client):
     resp = client.post("/v1/briefing", json=_spec().model_dump(mode="json"))
     assert resp.status_code == 200
     body = resp.json()
-    assert body["markdown"].startswith("# UPSTREAMWX — MISSION BRIEFING")
+    assert body["markdown"].startswith("# EXPEDITION BRIEFING")
     assert "## BLUF" in body["markdown"]
     assert "## DISCLAIMER" in body["markdown"]
     assert body["overall_posture"] == "High"  # slot + 65% precip -> flash flood High
@@ -163,7 +163,7 @@ def test_briefing_carries_structured_contract(client):
     body = client.post("/v1/briefing", json=_spec().model_dump(mode="json")).json()
     # Every contract field is present (markdown is the extra CLI artifact).
     assert sample_keys <= set(body)
-    assert body["markdown"].startswith("# UPSTREAMWX")
+    assert body["markdown"].startswith("# EXPEDITION BRIEFING")
     assert body["mission"]["name"] == "Buckskin Gulch"
     assert body["mission"]["activity"] == "canyon"
     assert len(body["bluf"]) == 4
