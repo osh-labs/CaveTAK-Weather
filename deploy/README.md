@@ -220,6 +220,19 @@ sudo systemctl stop upstreamwx-api         # take it down
 - **The data cache** at `/var/lib/upstreamwx` is intentionally outside the code tree, so
   redeploys never clear it — important given NOMADS's ~2-day SREF retention.
 
+### Monitoring & host upkeep
+
+- **Scheduler heartbeat (recommended for prod):** set `UPSTREAMWX_HEALTHCHECK_URL` in the
+  env file to a [Healthchecks.io](https://healthchecks.io) ping URL. The scheduler pings it
+  each cycle (`.../start`, base on success, `.../fail` on error), so a silently stalled
+  scheduler — stale briefings with no error — raises an alert. Set the check's period to
+  your SREF cycle (~6 h) plus a grace window. Restart the service after setting it.
+- **OS security patches:** `bootstrap.sh` enables unattended **security** upgrades with
+  **auto-reboot off**. Check `cat /var/run/reboot-required` and reboot manually during a
+  quiet window when a kernel update needs it.
+- **TLS renewal** is automatic — certbot's timer for prod (`sudo certbot renew --dry-run`
+  to verify); Tailscale auto-renews staging when served via `tailscale serve`.
+
 ---
 
 ## Amazon Linux / RHEL notes

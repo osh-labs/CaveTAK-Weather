@@ -97,11 +97,27 @@ an old cached client may still be reading the old shape until it reloads.
 
 ## Observability (do this before real users depend on it)
 
+- **Scheduler dead-man's-switch** — the most important one for this app. A silently
+  stalled refresh scheduler serves **stale briefings with no error**, the worst failure
+  mode. Set `UPSTREAMWX_HEALTHCHECK_URL` in the env file to a Healthchecks.io ping URL;
+  the scheduler pings it each cycle (`.../start` before, base on success, `.../fail` on
+  error). Configure the check's period to your SREF cycle (~6 h) plus grace, and a missed
+  ping alerts you. Wired in `api/scheduler.py`.
 - **External uptime check** hitting `/v1/health` (UptimeRobot / Healthchecks.io) that
   alerts you when the box or the health check goes down.
 - **Error visibility** — at minimum `journalctl -u upstreamwx-api`; ideally Sentry so a
   500 in `engine.assess` reaches you before a user does.
 - The **deploy health gate** (`deploy.sh` blocking on `/v1/health`) is already in place.
+
+## Host upkeep
+
+- **OS security patching** — `bootstrap.sh` enables unattended **security** upgrades
+  (apt `unattended-upgrades` / dnf `dnf-automatic`), with **automatic reboot off**: on a
+  single-instance host a surprise reboot is downtime, so reboot manually when
+  `/var/run/reboot-required` appears.
+- **TLS renewal** — prod's certbot installs its own renewal timer (`certbot.timer`);
+  confirm with `sudo certbot renew --dry-run`. Tailnet staging via `tailscale serve` is
+  auto-renewed by Tailscale.
 
 ## Secrets
 
