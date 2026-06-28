@@ -288,5 +288,12 @@ in `docs/m0.0/`.
 - When in doubt about *what* to show or *how it behaves*, the **PRD wins**; for PWA
   *visual* details, `frontend/STYLE_GUIDE.md` is authoritative.
 - Don't weaken the five non-negotiables above to make a test pass — that's the bug.
+- **Releases & deploys:** the workflow is GitHub Flow → CI gate (`.github/workflows/ci.yml`)
+  → staging mirror → tag-promoted production. The discipline (env ladder, branch
+  protection, tag promotion, rollback, PWA cache busting) lives in
+  `docs/deployment-workflow.md`; the host scripts live in `deploy/` (`DEPLOY_CONFIG`
+  selects the environment). `deploy.sh` stamps the release into git-ignored
+  `frontend/version.json`, which `/v1/health` echoes and the PWA polls to nudge stale
+  clients to reload.
 </content>
 </invoke>

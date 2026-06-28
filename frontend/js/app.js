@@ -2245,18 +2245,64 @@ async function main() {
   window.addEventListener("offline", () => { state.fromCache = true; renderStatus(state.briefing); });
 }
 
-if ("serviceWorker" in navigator) {
-  // When a freshly deployed service worker takes control, reload once so the page runs
-  // the new shell instead of the one this tab booted with. Guarded so it fires only on
-  // an UPDATE (a controller was already active), never on the first-ever registration.
-  let _swRefreshing = false;
-  const _hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (_swRefreshing || !_hadController) return;
-    _swRefreshing = true;
-    window.location.reload();
-  });
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+// ── Release / stale-client detection ──────────────────────────────────
+// The deployed release is published at version.json (stamped by deploy.sh / Pages CI).
+// On boot we read it and register the service worker as sw.js?v=<release>, so each
+// release is a distinct worker URL — forcing the browser to reinstall and evict the old
+// caches. While the tab stays open we re-check version.json; when the deployed release
+// changes underneath us the running code is stale, so we surface a non-dismissible reload
+// banner (docs/deployment-workflow.md).
+async function fetchRelease() {
+  try {
+    const res = await fetch("version.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    const v = await res.json();
+    return v && v.version ? String(v.version) : null;
+  } catch (_) {
+    return null; // offline / unstamped local dev — no release to compare against
+  }
 }
+
+function showUpdateBanner() {
+  const el = document.getElementById("update-banner");
+  if (!el || !el.hidden) return;
+  el.hidden = false;
+  const btn = document.getElementById("update-reload");
+  if (btn) btn.addEventListener("click", () => window.location.reload());
+}
+
+(async function initReleaseWatch() {
+  const bootRelease = await fetchRelease();
+
+  if ("serviceWorker" in navigator) {
+    // Reload once when a freshly deployed worker takes control, so the page runs the new
+    // shell instead of the one this tab booted with. Guarded to fire only on an UPDATE
+    // (a controller was already active), never on the first-ever registration.
+    let _swRefreshing = false;
+    const _hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (_swRefreshing || !_hadController) return;
+      _swRefreshing = true;
+      window.location.reload();
+    });
+    // Tie the worker URL to the release so a new release reinstalls the SW; fall back to
+    // the bare worker when the release is unknown (offline boot / unstamped local dev).
+    const swUrl = bootRelease ? `sw.js?v=${encodeURIComponent(bootRelease)}` : "sw.js";
+    const register = () => navigator.serviceWorker.register(swUrl).catch(() => {});
+    if (document.readyState === "complete") register();
+    else window.addEventListener("load", register);
+  }
+
+  // Nothing to compare against without a known boot release; skip the drift watch.
+  if (!bootRelease) return;
+  const check = async () => {
+    const current = await fetchRelease();
+    if (current && current !== bootRelease) showUpdateBanner();
+  };
+  // Re-check periodically, and whenever the tab regains focus or connectivity.
+  setInterval(check, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+  window.addEventListener("online", check);
+})();
 
 main();

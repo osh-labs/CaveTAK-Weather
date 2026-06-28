@@ -11,7 +11,12 @@
  * New briefing generation requires connectivity (FR-28); offline is review-only.
  */
 
-const VERSION = "uwx-v9";
+// Cache namespace is tied to the deployed release: app.js registers this worker as
+// `sw.js?v=<release>` (see version.json, docs/deployment-workflow.md). Each release is
+// therefore a new worker URL, so the browser reinstalls and the activate handler below
+// evicts the prior release's caches — no manual version bump in this file anymore.
+const RELEASE = new URL(self.location).searchParams.get("v") || "dev";
+const VERSION = `uwx-${RELEASE}`;
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 
@@ -45,6 +50,10 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
+
+  // Release stamp: always hit the network, never cache. The app polls this to detect a
+  // new deploy, so a cached copy would mask the update (docs/deployment-workflow.md).
+  if (url.pathname.endsWith("version.json")) return;
 
   // Briefing data: network-first, cache fallback (FR-26).
   if (url.pathname.endsWith("sample-briefing.json") || url.pathname.includes("/v1/briefing")) {

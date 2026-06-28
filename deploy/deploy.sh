@@ -38,6 +38,18 @@ fi
 DEPLOYED_SHA="$($RUN_USER git -C "$DEPLOY_APP_DIR" rev-parse --short HEAD)"
 ok "checked out $REF @ $DEPLOYED_SHA"
 
+# --- 1b. Stamp the release into frontend/version.json --------------------------------
+# A single source of truth for "what's deployed": prefer the nearest tag (production
+# deploys a tag), else the short SHA. /v1/health echoes it for ops, and the PWA polls
+# version.json to nudge stale clients to reload after a release (docs/deployment-workflow.md).
+# It's git-ignored and untracked, so the checkout above never clobbers or conflicts with it.
+RELEASE="$($RUN_USER git -C "$DEPLOY_APP_DIR" describe --tags --always 2>/dev/null || echo "$DEPLOYED_SHA")"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+$RUN_USER tee "$DEPLOY_APP_DIR/frontend/version.json" >/dev/null <<EOF
+{"version": "$RELEASE", "sha": "$DEPLOYED_SHA", "built_at": "$BUILT_AT"}
+EOF
+ok "stamped release $RELEASE"
+
 # --- 2. Refresh the virtualenv + install the package (production deps only) -----------
 log "syncing virtualenv (uv)"
 [ -d "$DEPLOY_APP_DIR/.venv" ] || $RUN_USER uv venv --python 3.11 "$DEPLOY_APP_DIR/.venv"

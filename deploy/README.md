@@ -107,6 +107,13 @@ sudo /opt/upstreamwx/deploy/deploy.sh main        # or any branch / tag / commit
 `deploy.sh` fetches the ref as the service user, refreshes the venv (`uv pip install
 -e .`), restarts the service, and **blocks on `/v1/health`** — a deploy that doesn't
 come up healthy exits non-zero and dumps the last 40 journal lines, so it fails loudly.
+It also stamps the deployed release into `frontend/version.json` (git-ignored), which
+`/v1/health` echoes back as `release` and the PWA polls to nudge stale clients to reload.
+
+**Production deploys a tag, not a branch.** A tag is immutable, so "what's in prod" is a
+fixed, knowable thing and rollback is just deploying the previous tag. Deploying a moving
+branch works but leaves prod tracking whatever that branch points at right now. See
+[`../docs/deployment-workflow.md`](../docs/deployment-workflow.md) for the full release flow.
 
 Roll back by deploying an older tag or SHA:
 
@@ -114,6 +121,33 @@ Roll back by deploying an older tag or SHA:
 sudo /opt/upstreamwx/deploy/deploy.sh v0.3.1
 sudo /opt/upstreamwx/deploy/deploy.sh 1a2b3c4
 ```
+
+---
+
+## Staging (a pre-production mirror)
+
+Run a second, identical environment to test a release candidate against **live** data
+before clients see it. The same scripts drive it — point them at a staging config with
+`DEPLOY_CONFIG`. The staging config uses a distinct service name, port, paths, and server
+name, so it coexists with production (same box or a separate one) without collision.
+
+```sh
+# One-time, on the box:
+cp deploy/config.staging.env.example deploy/config.staging.env
+nano deploy/config.staging.env                                      # set server name, etc.
+sudo DEPLOY_CONFIG=deploy/config.staging.env deploy/bootstrap.sh
+sudo nano /etc/upstreamwx-staging/upstreamwx.env                    # NWS contact + secrets
+sudo systemctl restart upstreamwx-staging
+
+# Each release candidate (staging tracks main):
+sudo DEPLOY_CONFIG=deploy/config.staging.env deploy/deploy.sh main
+curl -s http://127.0.0.1:8001/v1/health
+```
+
+Promote to production by tagging the commit you verified on staging and deploying that
+tag with the **default** config (`sudo deploy/deploy.sh v0.5.0`). To conserve resources
+you can set `UPSTREAMWX_API_ENABLE_SCHEDULER=0` in the staging env file — it just means
+staging generates on demand rather than holding a warm cache.
 
 ---
 
@@ -151,7 +185,7 @@ manylinux wheels that bundle them.
 | `deploy.sh` warns `cfgrib failed to import` | ecCodes missing — see the Amazon Linux note above |
 | Service flaps / restarts | `journalctl -u upstreamwx-api -n 80`; usually a bad value in the env file |
 | `/v1/health` 502 from nginx | service down or wrong `DEPLOY_BIND_PORT`; check `systemctl status` |
-| Deploy succeeds but the PWA looks unchanged in the browser | The server *is* updated — it's the client service-worker cache. Confirm the server first: `curl -s https://<host>/sw.js \| grep VERSION` and `curl -s https://<host>/js/app.js \| head`. If those show the new code, do a hard reload (or DevTools → Application → Service Workers → Unregister, then reload). As of the network-first shell, deploys propagate on the next reload automatically — this only bites the one transition onto that SW. |
+| Deploy succeeds but the PWA looks unchanged in the browser | The server *is* updated — it's the client service-worker cache. Confirm the server first: `curl -s https://<host>/v1/health` (check `release`) and `curl -s https://<host>/version.json`. If those show the new release, the open tab will surface an "Update available — reload" banner the next time it re-checks `version.json` (when you switch back to the tab, or within a few minutes); reloading registers `sw.js?v=<release>`, which reinstalls the SW and evicts the old caches. As of the network-first shell, deploys also propagate on the next manual reload regardless. |
 | NWS ingest empty / 403 | set a real contact in `UPSTREAMWX_NWS_USER_AGENT` (FR-5) and restart |
 | No framed summary in briefings | `ANTHROPIC_API_KEY` unset — expected; the structured posture is unaffected |
 | `certbot` can't bind :80 | open the security group / firewall on 80 and 443 |

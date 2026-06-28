@@ -18,6 +18,12 @@
     <link rel="stylesheet" href="styles/app.css" />
   </head>
   <body>
+    <!-- Stale-client nudge: shown (non-dismissible) when a newer release is deployed
+         while this tab is open. Reloading picks up the new shell. Driven by app.js. -->
+    <div class="update-banner" id="update-banner" hidden role="alert">
+      <span class="update-banner__text">A newer version of UpstreamWX is available.</span>
+      <button class="update-banner__btn" id="update-reload" type="button">Reload</button>
+    </div>
     <div class="app">
       <header class="app-header" id="header"></header>
       <nav class="tab-bar" id="tabs" role="tablist" aria-label="Briefing views"></nav>

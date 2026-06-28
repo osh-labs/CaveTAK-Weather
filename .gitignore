@@ -18,7 +18,12 @@ venv/
 
 # Deploy: host-specific config + rendered runtime env (examples ARE committed)
 /deploy/config.env
+/deploy/config.*.env
+!/deploy/config.*.env.example
 /deploy/upstreamwx.env
+
+# Release stamp written by deploy.sh / Pages CI (never committed; regenerated per deploy)
+/frontend/version.json
 
 # Runtime data cache (raw GRIB2/WBD downloads never committed)
 /data/

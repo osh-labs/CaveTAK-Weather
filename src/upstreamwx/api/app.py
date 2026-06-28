@@ -17,6 +17,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -73,9 +74,15 @@ app = FastAPI(
 
 @app.get("/v1/health")
 def health() -> dict:
-    """Liveness probe plus the current/next refresh cycle and cache size."""
+    """Liveness probe plus the current/next refresh cycle, cache size, and release.
+
+    ``release`` is the deployed version stamped into ``frontend/version.json`` by
+    ``deploy/deploy.sh`` (docs/deployment-workflow.md). It makes "what's running" knowable
+    from a curl — the field an uptime check and a rollback both want to confirm.
+    """
     return {
         "status": "ok",
+        "release": _release(),
         "cycle": cycle_key(),
         "next_cycle": next_cycle().isoformat(),
         "cached_briefings": len(service.cache),
@@ -104,6 +111,22 @@ def warm_watershed(req: WatershedWarmRequest) -> dict:
     """
     submitted = service.warm_watershed(req.lat, req.lon)
     return {"status": "submitted" if submitted else "noop"}
+
+
+def _release() -> str:
+    """Return the deployed release stamped in ``frontend/version.json``, or ``"dev"``.
+
+    Written by ``deploy/deploy.sh`` at deploy time (git-ignored, regenerated per deploy).
+    Best-effort: an unstamped checkout (local dev) just reports ``"dev"``.
+    """
+    fe = _frontend_dir()
+    if fe is not None:
+        try:
+            data = json.loads((fe / "version.json").read_text())
+            return str(data.get("version") or "dev")
+        except (OSError, ValueError):
+            pass
+    return "dev"
 
 
 def _frontend_dir() -> Path | None:

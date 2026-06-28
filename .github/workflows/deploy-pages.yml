@@ -48,6 +48,14 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # Stamp the release the same way deploy.sh does for the backend, so the demo build
+      # advertises a version and the stale-client reload nudge works on Pages too.
+      - name: Stamp frontend/version.json
+        run: |
+          printf '{"version": "%s", "sha": "%s", "built_at": "%s"}\n' \
+            "${GITHUB_SHA::7}" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > frontend/version.json
+
       - name: Upload frontend/ as the Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

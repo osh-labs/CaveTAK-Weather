@@ -92,15 +92,18 @@ log "installing systemd unit and nginx site"
 render_template "$DEPLOY_APP_DIR/deploy/systemd/upstreamwx-api.service" \
                 "/etc/systemd/system/${DEPLOY_SERVICE}.service"
 
+# Name the site after the service so a second environment (e.g. staging) installs its
+# own site instead of clobbering production's (docs/deployment-workflow.md).
 if [ -d /etc/nginx/sites-available ]; then
     render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" \
-                    "/etc/nginx/sites-available/upstreamwx.conf"
-    ln -sf /etc/nginx/sites-available/upstreamwx.conf /etc/nginx/sites-enabled/upstreamwx.conf
+                    "/etc/nginx/sites-available/${DEPLOY_SERVICE}.conf"
+    ln -sf "/etc/nginx/sites-available/${DEPLOY_SERVICE}.conf" \
+           "/etc/nginx/sites-enabled/${DEPLOY_SERVICE}.conf"
     [ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
 else
     # Amazon Linux / RHEL nginx uses conf.d, not sites-available.
     render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" \
-                    "/etc/nginx/conf.d/upstreamwx.conf"
+                    "/etc/nginx/conf.d/${DEPLOY_SERVICE}.conf"
 fi
 systemctl daemon-reload
 if nginx -t >/dev/null 2>&1; then

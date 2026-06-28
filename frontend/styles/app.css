@@ -970,6 +970,44 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 }
 .degraded-note { color: var(--color-warn); }
 
+/* ── 7.14a Update-available banner (stale-client nudge) ────────────────
+   Non-dismissible: a newer release is live while this tab runs old code.
+   Fixed to the top, above every view (docs/deployment-workflow.md). */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: max(var(--space-2), env(safe-area-inset-top, 0px))
+           max(var(--space-4), env(safe-area-inset-right, 0px))
+           var(--space-2)
+           max(var(--space-4), env(safe-area-inset-left, 0px));
+  background: var(--sev-high);
+  color: var(--color-bg);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.update-banner[hidden] { display: none; }
+.update-banner__btn {
+  flex-shrink: 0;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--color-bg);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-bg);
+  font-weight: 700;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.update-banner__btn:hover { background: rgba(0, 0, 0, 0.14); }
+.update-banner__btn:focus-visible { outline: 2px solid var(--color-bg); outline-offset: 2px; }
+
 /* ── 7.15 First-run acknowledgment ─────────────────────────────────── */
 .ack-modal {
   position: fixed;

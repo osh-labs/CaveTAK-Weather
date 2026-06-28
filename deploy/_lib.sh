@@ -17,11 +17,19 @@ ok()   { if _have_tty; then printf '\033[1;32m  ✓\033[0m %s\n' "$*"; else prin
 warn() { if _have_tty; then printf '\033[1;33m  ! \033[0m%s\n' "$*" >&2; else printf '  ! %s\n' "$*" >&2; fi; }
 die()  { if _have_tty; then printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; else printf 'error: %s\n' "$*" >&2; fi; exit 1; }
 
-# Load deploy/config.env if present, then let real environment variables win (so
+# Load the deploy config if present, then let real environment variables win (so
 # `DEPLOY_BRANCH=foo ./deploy.sh` overrides the file). Defaults below cover a fresh
-# checkout where config.env hasn't been created yet.
+# checkout where the config file hasn't been created yet.
+#
+# Which file? `config.env` by default; set DEPLOY_CONFIG to point at another (e.g.
+# `sudo DEPLOY_CONFIG=deploy/config.staging.env deploy/deploy.sh v0.5.0`) so ONE set of
+# scripts drives both staging and production, each with its own service name / port /
+# paths (docs/deployment-workflow.md).
 load_config() {
-    local cfg="$DEPLOY_DIR/config.env"
+    local cfg="${DEPLOY_CONFIG:-$DEPLOY_DIR/config.env}"
+    if [ -n "${DEPLOY_CONFIG:-}" ] && [ ! -f "$cfg" ]; then
+        die "DEPLOY_CONFIG=$cfg not found"
+    fi
     if [ -f "$cfg" ]; then
         # shellcheck disable=SC1090
         set -a; source "$cfg"; set +a

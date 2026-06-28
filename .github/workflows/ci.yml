@@ -1,0 +1,49 @@
+name: CI
+
+# Gate every change on the hermetic test suite + lint BEFORE it can reach main.
+# This is the safety net the deploy scripts assume: main is only ever as good as
+# the last green CI run, and production deploys an immutable tag cut from main.
+#
+# Hermetic by design — pytest defaults to `-m 'not network'` (see pyproject.toml),
+# so this runs fully offline against the committed fixtures and needs no secrets.
+# The opt-in live tests (`-m network`, NOMADS/AWS/USGS) are intentionally NOT run
+# here; run them by hand or on a schedule against staging.
+#
+# To make this a required check (so red code cannot merge):
+#   repo Settings -> Branches -> Add branch protection rule for `main`
+#   -> Require status checks to pass -> select "test".
+# See docs/deployment-workflow.md for the full release discipline.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch/PR makes in-flight runs obsolete; cancel them.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.11
+        run: uv venv --python 3.11
+
+      - name: Install the package + dev deps
+        run: uv pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Test (hermetic — offline, committed fixtures)
+        run: uv run pytest
