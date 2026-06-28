@@ -106,7 +106,7 @@ function phaseLabel(hrs) {
 const DEFAULT_SPEC = {
   lat: 34.665, lon: -85.361667, activity: "cave",
   start: "2026-06-18T13:00", end: "2026-06-18T22:00",
-  name: "Pettyjohn's Cave", slot: false, frame: false,
+  name: "Pettyjohn's Cave", slot: false, frame: null,
   radius_km: ROC_DEFAULT_MI * MI_TO_KM,
 };
 // Canonical default name shown italic/grey in the planner until the user types their own.
@@ -124,7 +124,7 @@ function specFromBriefing(b) {
   return {
     lat: m.lat, lon: m.lon, activity: m.activity,
     start: m.window_start, end: m.window_end,
-    name: m.name, slot: m.is_slot, frame: false,
+    name: m.name, slot: m.is_slot, frame: null,
     radius_km: m.radius_km ?? null,
     tz_name: m.tz_name ?? null,
   };
@@ -2101,7 +2101,7 @@ function initPlannerControls() {
       slot: document.getElementById("mp-slot").checked,
       party_size: _mpSpec.party_size ?? null,
       radius_km: _mpSpec.radius_km ?? null,
-      frame: false,
+      frame: null,
     };
     closeMissionPlanner();
     refresh(spec);
