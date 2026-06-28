@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 
 from .. import href
 from ..config import get_settings
-from ..engine.models import Mission
+from ..engine.models import BriefingResult, Mission
 from ..sitrep.generate import GeneratedBriefing, generate_briefing
 from ..sitrep.structured import to_structured
 from ..sref import latest_available_cycle, prune_old_cycles, warm_cycle
@@ -47,6 +47,9 @@ class BriefingService:
     def __init__(self, cache: BriefingCache | None = None) -> None:
         self.cache = cache or BriefingCache()
         self._active: dict[str, _Registered] = {}
+        # Stores the engine BriefingResult alongside its cache key so the streaming
+        # framing endpoint can call Haiku without re-running ingest.
+        self._result_store: dict[str, BriefingResult] = {}
         # Watershed warming: a bounded pool fills the pour-point cache in the background
         # the moment the planner reports a new point, de-duped by cache key so a dragged
         # marker can't flood it. Created in start_warming() (app lifespan), not at import.
@@ -71,13 +74,25 @@ class BriefingService:
         if cached is not None:
             return self._response(cached, token, cached=True)
 
-        briefing = generate_briefing(mission, inputs=inputs, frame=spec.frame, generated_at=now)
+        # Haiku framing is always deferred to the streaming /v1/briefing/frame endpoint
+        # so the structured posture data is returned immediately without waiting for the
+        # LLM call.  The engine result is stored in _result_store for the frame endpoint.
+        briefing = generate_briefing(mission, inputs=inputs, frame=False, generated_at=now)
+        self._result_store[key] = briefing.result
         self.cache.put(key, briefing, token)
         # Track live, still-in-range missions for the scheduler (FR-12). Deterministic
         # offline briefings need no refresh, so they are not registered.
         if inputs is None and now < _as_utc(mission.window_end):
-            self._active[key] = _Registered(mission=mission, frame=spec.frame, key=key)
+            self._active[key] = _Registered(mission=mission, frame=False, key=key)
         return self._response(briefing, token, cached=False)
+
+    def get_result(self, key: str) -> BriefingResult | None:
+        """Return the cached engine result for ``key``, or None on miss.
+
+        Used by the streaming frame endpoint: the ingest pipeline has already run
+        for the briefing, so only the Haiku call remains.
+        """
+        return self._result_store.get(key)
 
     # -- scheduled refresh ----------------------------------------------------------
     def warm_and_prune(self, *, now: datetime | None = None) -> int:
@@ -119,7 +134,8 @@ class BriefingService:
             if now >= _as_utc(reg.mission.window_end):
                 del self._active[key]  # mission is over; stop refreshing it
                 continue
-            briefing = generate_briefing(reg.mission, frame=reg.frame, generated_at=now)
+            briefing = generate_briefing(reg.mission, frame=False, generated_at=now)
+            self._result_store[key] = briefing.result
             self.cache.put(key, briefing, token)
             regenerated += 1
         return regenerated
