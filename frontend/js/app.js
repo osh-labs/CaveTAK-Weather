@@ -2207,12 +2207,16 @@ function initPlannerControls() {
     updatePlannerRoc();
   });
 
-  // Start time: auto-advance end by 4 h whenever start changes, unless the user
-  // has already edited end directly.
+  // Start time: warn if in the past; auto-advance end by 4 h unless user has set it.
   document.getElementById("mp-start").addEventListener("change", () => {
-    if (_mpEndUserSet) return;
     const startVal = document.getElementById("mp-start").value;
-    if (startVal) document.getElementById("mp-end").value = addHoursLocal(startVal, 4);
+    if (!startVal) return;
+    if (new Date(startVal + ":00").getTime() < Date.now()) {
+      setPlannerStatus("Start time is in the past — missions cannot be planned retroactively.", true);
+    } else {
+      setPlannerStatus("");
+    }
+    if (!_mpEndUserSet) document.getElementById("mp-end").value = addHoursLocal(startVal, 4);
   });
 
   // End time: once the user touches this field it stops auto-following start.
@@ -2251,13 +2255,33 @@ function initPlannerControls() {
       setPlannerStatus("Set a point first — long-press the map, search, or use your location.", true);
       return;
     }
+    const startVal = document.getElementById("mp-start").value;
+    const endVal = document.getElementById("mp-end").value;
+    if (!startVal || !endVal) {
+      setPlannerStatus("Set a start and end time for the mission.", true);
+      return;
+    }
+    const startMs = new Date(startVal + ":00").getTime();
+    if (startMs < Date.now()) {
+      setPlannerStatus("Start time must be in the future — missions cannot be planned in the past.", true);
+      return;
+    }
+    const endMs = new Date(endVal + ":00").getTime();
+    const prefs = loadPrefs();
+    const minDurationHr = (prefs.approach_hrs ?? PHASE_DEFAULT_HR) + (prefs.egress_hrs ?? PHASE_DEFAULT_HR);
+    const minDurationMs = minDurationHr * 3600 * 1000;
+    if (endMs - startMs < minDurationMs) {
+      const minLabel = phaseLabel(minDurationHr);
+      setPlannerStatus(`End time must be at least ${minLabel} after start (approach + egress time).`, true);
+      return;
+    }
     const spec = {
       lat: _mpSpec.lat,
       lon: _mpSpec.lon,
       activity: document.getElementById("mp-activity").value,
       name: (document.getElementById("mp-name")?.value || "").trim() || DEFAULT_NAME,
-      start: document.getElementById("mp-start").value,
-      end: document.getElementById("mp-end").value,
+      start: startVal,
+      end: endVal,
       slot: document.getElementById("mp-slot").checked,
       party_size: _mpSpec.party_size ?? null,
       radius_km: _mpSpec.radius_km ?? null,
