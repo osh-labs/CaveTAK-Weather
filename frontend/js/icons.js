@@ -15,7 +15,7 @@ const PATHS = {
     '<path d="M12 2v14"/><path d="M12 8l3-3M12 8L9 5M12 16l3 3M12 16l-3 3"/><path d="M5 12h14M5 12l3-2M5 12l3 2M19 12l-3-2M19 12l-3 2"/>',
   // tab icons
   overview: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
-  briefing: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/>',
+  briefing: '<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
   forecast: '<path d="M3 17l5-5 4 3 6-7"/><path d="M3 21h18"/>',
   map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
   hazards: '<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',

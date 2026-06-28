@@ -106,7 +106,7 @@ function phaseLabel(hrs) {
 const DEFAULT_SPEC = {
   lat: 34.665, lon: -85.361667, activity: "cave",
   start: "2026-06-18T13:00", end: "2026-06-18T22:00",
-  name: "Pettyjohn's Cave", slot: false, frame: false,
+  name: "Pettyjohn's Cave", slot: false, frame: null,
   radius_km: ROC_DEFAULT_MI * MI_TO_KM,
 };
 // Canonical default name shown italic/grey in the planner until the user types their own.
@@ -124,7 +124,7 @@ function specFromBriefing(b) {
   return {
     lat: m.lat, lon: m.lon, activity: m.activity,
     start: m.window_start, end: m.window_end,
-    name: m.name, slot: m.is_slot, frame: false,
+    name: m.name, slot: m.is_slot, frame: null,
     radius_km: m.radius_km ?? null,
     tz_name: m.tz_name ?? null,
   };
@@ -711,10 +711,12 @@ function lineChart(series, labels, colors) {
     return `<path d="${d}" fill="none" stroke="${colors[si]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
   }).join("");
 
-  // Anchor the first label to its start and the last to its end so neither
-  // overruns the chart edge (the rightmost label was being clipped).
+  // Show at most ~5 evenly-spaced tick labels so they don't overlap on mobile.
+  // step=1 for ≤5 labels, step=2 for 6-10, step=3 for 11-15, etc.
+  const tickStep = Math.max(1, Math.ceil(labels.length / 5));
   const ticks = labels.map((l, i) => {
-    const anchor = i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle";
+    if (i % tickStep !== 0) return "";
+    const anchor = i === 0 ? "start" : "middle";
     return `<text x="${xFn(i)}" y="${H - 5}" fill="var(--color-text-muted)" font-size="9" text-anchor="${anchor}">${esc(l)}</text>`;
   }).join("");
 
@@ -1417,8 +1419,10 @@ function _inlineFormat(text) {
     if (tok.t === "link") {
       return `<a href="${esc(tok.url)}" target="_blank" rel="noopener noreferrer">${esc(tok.label)}</a>`;
     }
-    // Escape HTML then apply **bold**.
-    return esc(tok.v).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    // Escape HTML then apply **bold** and _italic_.
+    return esc(tok.v)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/_((?:[^_])+)_/g, "<em>$1</em>");
   }).join("");
 }
 
@@ -1542,7 +1546,7 @@ function renderResources(b) {
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-3)">Export &amp; offline</h2>
       <button class="btn-primary" id="export-pdf">Export briefing to PDF</button>
-      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin-top:var(--space-3)">
+      <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin-top:var(--space-3);overflow-wrap:anywhere">
         The most recent briefing is cached for offline review. ${b.cached || state.fromCache ? "Currently showing a cached copy." : "Online — showing the latest cycle."}
         Threshold matrix version <span class="mono">${esc(b.threshold_version)}</span>.
       </p>
@@ -2101,7 +2105,7 @@ function initPlannerControls() {
       slot: document.getElementById("mp-slot").checked,
       party_size: _mpSpec.party_size ?? null,
       radius_km: _mpSpec.radius_km ?? null,
-      frame: false,
+      frame: null,
     };
     closeMissionPlanner();
     refresh(spec);

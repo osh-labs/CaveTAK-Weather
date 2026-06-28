@@ -171,8 +171,9 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  padding: var(--space-2) var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-1);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -916,7 +917,7 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 /* ── 7.14 Status / currency line ───────────────────────────────────── */
 .status-line {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2);
   /* Right and bottom respect iPhone safe-area insets (viewport-fit=cover). */
   padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right, 0px))
@@ -932,8 +933,6 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   gap: var(--space-2);
   flex: 1;
   min-width: 0;
-  /* Nudge text to align with the gear icon's visual center on the first line. */
-  padding-top: 6px;
 }
 /* Persistent settings gear, pinned to the status bar's top-right (always reachable).
    padding: 4px gives the SVG breathing room near iPhone screen corners. */
@@ -1444,7 +1443,6 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 }
 
 .bmd-table {
-  width: 100%;
   border-collapse: collapse;
   font-size: var(--text-caption);
   line-height: var(--lh-caption);
@@ -1455,7 +1453,6 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
   text-align: left;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
-  white-space: nowrap;
 }
 
 .bmd-table th {
