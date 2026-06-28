@@ -14,13 +14,18 @@ Everything below is the machinery that makes that rule livable.
 | Env | Where | Purpose |
 | --- | --- | --- |
 | **Local** | your laptop, the offline `--inputs` path | write + test changes (network-free, deterministic) |
-| **Staging** | a second backend (`config.staging.env`) on a separate box or port | final check against *live* data before clients see it |
-| **Production** | the real box at `upstreamwx.com` | clients |
+| **Staging** | its own EC2 instance, reachable **only over Tailscale** | final check against *live* data before clients see it |
+| **Production** | the always-on box at `upstreamwx.com` | clients |
 
 Local → staging → production, in increasing blast radius. Staging runs the
 *candidate* version against the *real* upstream feeds (NWS/SREF/HREF), catching
-"works on fixtures, breaks on today's actual GRIB" before a caver does. See
-[`deploy/README.md`](../deploy/README.md) for standing one up.
+"works on fixtures, breaks on today's actual GRIB" before a caver does.
+
+Staging gets its **own instance** (not a second service on the prod box) so its load
+and any bad deploy can't degrade production, and it's **tailnet-only** — no public DNS,
+no public 80/443, reached via the node's Tailscale MagicDNS name. It need not be
+always-on; stop it between release validations. See
+[`deploy/README.md`](../deploy/README.md#staging-a-pre-production-mirror) for standing one up.
 
 ## Branching model (GitHub Flow)
 

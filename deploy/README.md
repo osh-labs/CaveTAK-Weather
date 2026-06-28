@@ -126,28 +126,72 @@ sudo /opt/upstreamwx/deploy/deploy.sh 1a2b3c4
 
 ## Staging (a pre-production mirror)
 
-Run a second, identical environment to test a release candidate against **live** data
-before clients see it. The same scripts drive it — point them at a staging config with
-`DEPLOY_CONFIG`. The staging config uses a distinct service name, port, paths, and server
-name, so it coexists with production (same box or a separate one) without collision.
+Run a second environment to validate a release candidate against **live** data before
+clients see it. For a life-safety app, give staging its **own instance** (not a second
+service on the prod box) so a staging load spike or a bad staging deploy can never touch
+production. Staging need not be always-on — use a smaller instance and/or stop it between
+release validations; only prod needs to stay up to hold a warm cache.
+
+### Access: tailnet-only (no public exposure)
+
+Staging is reached over **Tailscale**, not the public internet. That gates access by
+*device* (works from any machine/network you're signed in on, no password, no IP
+allowlist) and means staging has **zero public attack surface** and can't be indexed or
+stumbled onto — which matters: a publicly reachable staging copy of a hazard-reference
+app is itself a hazard. There is **no public DNS record, no security-group 80/443 rule,
+and no certbot** for staging.
 
 ```sh
-# One-time, on the box:
-cp deploy/config.staging.env.example deploy/config.staging.env
-nano deploy/config.staging.env                                      # set server name, etc.
-sudo DEPLOY_CONFIG=deploy/config.staging.env deploy/bootstrap.sh
-sudo nano /etc/upstreamwx-staging/upstreamwx.env                    # NWS contact + secrets
-sudo systemctl restart upstreamwx-staging
-
-# Each release candidate (staging tracks main):
-sudo DEPLOY_CONFIG=deploy/config.staging.env deploy/deploy.sh main
-curl -s http://127.0.0.1:8001/v1/health
+# On the staging box, join your tailnet (and use Tailscale SSH so you can close port 22):
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh
+# Then in the Tailscale admin console: enable MagicDNS + HTTPS certificates.
 ```
 
-Promote to production by tagging the commit you verified on staging and deploying that
-tag with the **default** config (`sudo deploy/deploy.sh v0.5.0`). To conserve resources
-you can set `UPSTREAMWX_API_ENABLE_SCHEDULER=0` in the staging env file — it just means
-staging generates on demand rather than holding a warm cache.
+The PWA's service worker requires a secure origin (HTTPS) even on the tailnet. Two ways:
+
+- **Simplest — `tailscale serve`** (Tailscale terminates TLS, proxies straight to the
+  uvicorn backend; auto-managed cert, auto-renew, no nginx cert wrangling):
+  ```sh
+  sudo tailscale serve --bg 8000          # serves https://<node>.<tailnet>.ts.net
+  ```
+- **Full nginx fidelity — `tailscale cert` + nginx** (keeps nginx in the request path,
+  matching prod): issue a cert for the node's MagicDNS name and point a TLS server block
+  at it, renewing on a timer:
+  ```sh
+  sudo tailscale cert <node>.<tailnet>.ts.net   # writes <name>.crt / <name>.key
+  # add an nginx :443 server_name <node>.<tailnet>.ts.net block using those files,
+  # and a daily systemd-timer/cron that re-runs `tailscale cert` to renew.
+  ```
+
+### Provision + deploy
+
+Because staging is its **own box**, it doesn't need the same-box `DEPLOY_CONFIG`
+machinery — it just has its own `config.env`:
+
+```sh
+# One-time:
+git clone https://github.com/osh-labs/upstreamwx.git /tmp/upstreamwx-src && cd /tmp/upstreamwx-src
+cp deploy/config.env.example deploy/config.env
+nano deploy/config.env        # DEPLOY_BRANCH="main"; DEPLOY_SERVER_NAME="<node>.<tailnet>.ts.net"
+sudo deploy/bootstrap.sh
+sudo nano /etc/upstreamwx/upstreamwx.env     # NWS UA identifying staging; ANTHROPIC_API_KEY optional
+sudo systemctl restart upstreamwx-api
+
+# Each release candidate (staging tracks main):
+sudo deploy/deploy.sh                          # ref defaults to DEPLOY_BRANCH=main
+curl -s http://127.0.0.1:8000/v1/health        # release should show main's short SHA
+```
+
+To conserve cost, set `UPSTREAMWX_API_ENABLE_SCHEDULER=0` in the staging env file — staging
+then generates on demand rather than holding a warm cache. Promote to production by
+**tagging** the commit you verified on staging and deploying that tag on the prod box
+(`sudo deploy/deploy.sh v0.5.0`).
+
+> **Same-box variant.** If you ever want staging and prod on one host instead, the scripts
+> still support it: `cp deploy/config.staging.env.example deploy/config.staging.env` and
+> run them with `DEPLOY_CONFIG=deploy/config.staging.env` (distinct service/port/paths so
+> the two don't collide). The dedicated-instance model above is preferred for this app.
 
 ---
 
