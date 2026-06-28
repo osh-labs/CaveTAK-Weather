@@ -149,7 +149,7 @@ def test_cave_isolation_posture(client):
         ),
     )
     assert resp.status_code == 200
-    assert "isolated from surface weather" in resp.json()["markdown"]
+    assert "only flash flood evaluated in technical span" in resp.json()["markdown"]
 
 
 _SAMPLE = Path(__file__).resolve().parents[1] / "frontend" / "data" / "sample-briefing.json"

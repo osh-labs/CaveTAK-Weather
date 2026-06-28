@@ -32,8 +32,7 @@ _THERMAL_PRIMARY: dict[Phase, Hazard] = {
 }
 
 CAVE_ISOLATION_NOTE = (
-    "Cave interior treated as isolated from surface weather; only flash flood is "
-    "evaluated for the technical span (FR-14c)."
+    "Cave interior: only flash flood evaluated in technical span."
 )
 INFERRED_PHASES_NOTE = (
     "Phases inferred from the overall window: approach = first hour, egress = last "

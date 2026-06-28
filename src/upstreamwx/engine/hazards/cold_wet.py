@@ -15,7 +15,7 @@ def evaluate(
     inputs: HazardInputs, cfg: HazardThresholds, *, dry_party: bool = False
 ) -> tuple[Tier, list[str], list[str]]:
     drivers: list[str] = []
-    notes: list[str] = ["Assumes a wet party on egress (FR-16)."]
+    notes: list[str] = ["Assumes a wet party on egress."]
     bands = cfg["apparent_temp"]
 
     at = inputs.apparent_temp_f

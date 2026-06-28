@@ -50,7 +50,7 @@
 
 ### Cold/wet
 - Apparent temperature 92 °F (wet-party basis)
-- Assumes a wet party on egress (FR-16).
+- Assumes a wet party on egress.
 
 ## UPSTREAM WATERSHED SUMMARY
 

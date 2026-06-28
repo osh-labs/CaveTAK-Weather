@@ -54,7 +54,7 @@ def test_cave_technical_only_evaluates_flash_flood():
     result = assess(_mission(ActivityType.CAVE), inputs)
     technical = next(p for p in result.phases if p.phase is Phase.TECHNICAL)
     assert list(technical.postures.keys()) == [Hazard.FLASH_FLOOD]
-    assert any("isolated from surface" in n for n in technical.notes)
+    assert any("only flash flood" in n for n in technical.notes)
     # Karst caveat present at the mission level (FR-4).
     assert any("karst" in n.lower() for n in result.notes)
 

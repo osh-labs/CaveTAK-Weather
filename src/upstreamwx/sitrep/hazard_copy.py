@@ -31,13 +31,13 @@ HAZARD_LOGIC: dict[Hazard, str] = {
         "Elevated = SREF 15–39% OR HREF 8–19% OR AFD convective mention "
         "(Appendix B §16.2). Assessed over the Lightning Area of Concern around the "
         "activity, not the upstream watershed (PRD §16.1). "
-        "Cave interior excluded for the technical span (FR-14c)."
+        "Cave interior excluded for the technical span."
     ),
     Hazard.HEAT: (
         "Uses NWS Heat Index categories (FR-15): Caution 80–90 °F, "
         "Extreme Caution 90–103 °F, Danger 103–124 °F, "
         "Extreme Danger ≥125 °F. Surface hazard only — cave interior "
-        "excluded (FR-14c)."
+        "excluded."
     ),
     Hazard.COLD_WET: (
         "Minimal = apparent temp >60 °F for a wet party (Appendix B §16.4). "

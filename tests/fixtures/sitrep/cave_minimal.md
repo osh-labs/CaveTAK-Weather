@@ -23,7 +23,7 @@
 
 ### Technical span (2026-06-20 09:00–2026-06-20 17:00)
 - Flash flood: Minimal
-- _Cave interior treated as isolated from surface weather; only flash flood is evaluated for the technical span (FR-14c)._
+- _Cave interior: only flash flood evaluated in technical span._
 
 ### Egress (2026-06-20 17:00–2026-06-20 18:00)
 - Lightning: Minimal
@@ -43,7 +43,7 @@
 
 ### Cold/wet
 - Apparent temperature 70 °F (wet-party basis)
-- Assumes a wet party on egress (FR-16).
+- Assumes a wet party on egress.
 
 ## UPSTREAM WATERSHED SUMMARY
 
