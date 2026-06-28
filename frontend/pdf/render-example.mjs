@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const briefing = readFileSync(resolve(__dirname, "../data/sample-briefing.json"), "utf8");
+// The live tool seeds app_version from /v1/health; for the worked example we
+// inject a representative release so the masthead/footer show a real value.
+const _b = JSON.parse(readFileSync(resolve(__dirname, "../data/sample-briefing.json"), "utf8"));
+_b.app_version = "0.5.0";
+const briefing = JSON.stringify(_b);
 const template = resolve(__dirname, "briefing-pdf.html");
 const out = process.argv[2] || resolve(__dirname, "example-briefing.pdf");
 
@@ -18,11 +22,8 @@ const page = await browser.newPage();
 await page.addInitScript((data) => { window.__BRIEFING__ = JSON.parse(data); }, briefing);
 await page.goto("file://" + template, { waitUntil: "networkidle" });
 await page.emulateMedia({ media: "print" });
-await page.pdf({
-  path: out,
-  format: "Letter",
-  printBackground: true,
-  margin: { top: "14mm", bottom: "20mm", left: "14mm", right: "14mm" },
-});
+// Let the template's @page rule own size + margins (preferCSSPageSize) so the
+// fixed footer's page-area geometry matches what window.print() will produce.
+await page.pdf({ path: out, printBackground: true, preferCSSPageSize: true });
 await browser.close();
 console.log("wrote", out);
