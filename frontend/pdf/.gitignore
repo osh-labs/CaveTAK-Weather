@@ -1,0 +1,5 @@
+# Generated/installed artifacts for the PDF export worked example (regenerate
+# with: npm install playwright --no-save && node render-example.mjs)
+node_modules/
+package-lock.json
+example-briefing.pdf
