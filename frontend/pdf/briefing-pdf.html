@@ -127,7 +127,7 @@
   .meta-row { display: contents; }
 
   /* ── Section scaffolding ──────────────────────────────────────────────── */
-  .section { margin-top: 11px; }
+  .section { margin-top: 9px; }
   .section--break { break-inside: avoid; }
   .section__head {
     display: flex; align-items: baseline; gap: 8px;
@@ -141,7 +141,7 @@
   /* ── BLUF banner ──────────────────────────────────────────────────────── */
   .bluf {
     display: flex; align-items: center; gap: 14px;
-    padding: 9px 12px; border-radius: 8px;
+    padding: 8px 12px; border-radius: 8px;
     border: 1px solid var(--p-border);
     background: var(--p-surface);
   }
@@ -160,7 +160,7 @@
   /* ── Hazard BLUF table ────────────────────────────────────────────────── */
   table { width: 100%; border-collapse: collapse; }
   .hz-table th, .hz-table td {
-    text-align: left; padding: 5px 8px; font-size: 9pt;
+    text-align: left; padding: 4px 8px; font-size: 9pt;
     border-bottom: 1px solid var(--p-border);
   }
   .hz-table th {
@@ -191,13 +191,13 @@
     break-inside: avoid; background: var(--p-bg);
   }
   .phase__head {
-    padding: 6px 10px; background: var(--p-surface);
+    padding: 5px 10px; background: var(--p-surface);
     border-bottom: 1px solid var(--p-border);
   }
   .phase__name { font-size: 8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--p-ink); }
   .phase__win { font-size: 8pt; color: var(--p-ink-muted); }
   .phase__lead { font-size: 8.5pt; font-weight: 600; color: var(--p-brand-ink); margin-top: 2px; }
-  .phase__body { padding: 6px 10px; font-size: 8.5pt; }
+  .phase__body { padding: 5px 10px 7px; font-size: 8.5pt; }
   .phase__applies { color: var(--p-ink-2); }
   .phase__note {
     margin-top: 6px; padding: 5px 7px; border-radius: 5px;
@@ -447,7 +447,7 @@ function renderHazardTable(b) {
     <td class="mono">${h.is_persistent ? "Through-period" : fmtWindow(h.window)}</td>
   </tr>`).join("");
   return `<div class="section section--break">
-    <div class="section__head">Hazard summary <span class="hint">posture · confidence · window of concern</span></div>
+    <div class="section__head">Hazard summary</div>
     <table class="hz-table">
       <thead><tr><th>Hazard</th><th>Posture</th><th>Confidence</th><th>Window of concern</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -487,7 +487,7 @@ function renderHazardDetail(b) {
   // no room here, so the drivers cards naturally begin the second page. The
   // .section--break keeps each card intact across the break.
   return `<div class="section">
-    <div class="section__head">Key drivers &amp; threshold logic <span class="hint">UpstreamWX ${esc(appVersion(b))} · matrix ${esc(b.threshold_version)}</span></div>
+    <div class="section__head">Key drivers &amp; threshold logic</div>
     ${cards}
   </div>`;
 }
@@ -525,7 +525,6 @@ function renderSourceData(b) {
     ["Thunderstorm Warning", ri.thunderstorm_warning ? "ACTIVE" : "none"],
     ["SPC outlook", ri.spc_category || "—"],
     ["Upstream basin", ws.area_sq_mi ? ws.area_sq_mi + " mi²" : "—"],
-    ["Threshold matrix", b.threshold_version],
   ];
   const kv = (rows) => rows.map(([k, v]) =>
     `<div class="kv__row"><span class="kv__k">${esc(k)}</span><span class="kv__v">${esc(v)}</span></div>`).join("");
