@@ -2404,7 +2404,13 @@ function showUpdateBanner() {
   if (!el || !el.hidden) return;
   el.hidden = false;
   const btn = document.getElementById("update-reload");
-  if (btn) btn.addEventListener("click", () => window.location.reload());
+  if (btn) btn.addEventListener("click", () => {
+    // Flag that this reload was user-initiated via the banner, so the controllerchange
+    // listener below knows not to fire a second reload (which causes a blank screen in
+    // PWA standalone mode when clients.claim() fires mid-load).
+    try { sessionStorage.setItem("uwx-reloading", "1"); } catch (_) {}
+    window.location.reload();
+  });
 }
 
 (async function initReleaseWatch() {
@@ -2418,6 +2424,14 @@ function showUpdateBanner() {
     const _hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (_swRefreshing || !_hadController) return;
+      // If the banner already triggered a reload, the new SW taking control is expected —
+      // don't fire a second reload (blank-screen race in PWA standalone mode).
+      try {
+        if (sessionStorage.getItem("uwx-reloading")) {
+          sessionStorage.removeItem("uwx-reloading");
+          return;
+        }
+      } catch (_) {}
       _swRefreshing = true;
       window.location.reload();
     });
