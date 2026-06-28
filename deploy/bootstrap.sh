@@ -46,6 +46,33 @@ else
     die "no supported package manager (apt/dnf/yum) found"
 fi
 
+# --- 1b. Unattended security updates -------------------------------------------------
+# Keep the host patched without manual intervention — but SECURITY origin only (no feature
+# churn that could break the GRIB stack) and NO automatic reboot: on a single-instance host
+# a surprise reboot is downtime, so reboot manually when /var/run/reboot-required appears
+# (see deploy/README.md). Idempotent; safe to re-run.
+configure_auto_updates() {
+    if command -v apt-get >/dev/null 2>&1; then
+        log "enabling unattended security upgrades (apt)"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unattended-upgrades
+        cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+        ok "unattended-upgrades enabled (security origin; manual reboot)"
+    elif command -v dnf >/dev/null 2>&1; then
+        log "enabling automatic security updates (dnf-automatic)"
+        dnf install -y dnf-automatic >/dev/null
+        sed -i 's/^apply_updates = .*/apply_updates = yes/' /etc/dnf/automatic.conf 2>/dev/null || true
+        sed -i 's/^upgrade_type = .*/upgrade_type = security/' /etc/dnf/automatic.conf 2>/dev/null || true
+        systemctl enable --now dnf-automatic.timer >/dev/null 2>&1 || true
+        ok "dnf-automatic enabled (security; manual reboot)"
+    else
+        warn "no apt/dnf — configure OS auto-updates manually"
+    fi
+}
+configure_auto_updates
+
 # --- 2. uv (Python toolchain, matches the repo) --------------------------------------
 if ! command -v uv >/dev/null 2>&1; then
     log "installing uv"

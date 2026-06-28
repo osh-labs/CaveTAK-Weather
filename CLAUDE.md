@@ -145,6 +145,8 @@ Config is `pydantic-settings` in `config.py`, env prefix `UPSTREAMWX_`, optional
   prefix, via a `validation_alias`). Absent → CLI emits the structured render only.
 - `UPSTREAMWX_API_ENABLE_SCHEDULER` — set `0` to run the API without the background loop.
 - `UPSTREAMWX_API_ENABLE_WARM` — set `0` to disable the background watershed-warming pool.
+- `UPSTREAMWX_HEALTHCHECK_URL` — optional Healthchecks.io-style ping URL; the refresh
+  scheduler pings it each cycle (dead-man's-switch for a stalled scheduler, FR-12). Unset → no pings.
 
 Never commit secrets, `.env`, or anything under `data/`/`cache/`/`*.grib2` (the
 `.gitignore` already excludes these; `tests/fixtures/*.grib2` are the deliberate exception).

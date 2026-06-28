@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     # service; set UPSTREAMWX_API_ENABLE_WARM=0 for tests or a worker-less deployment.
     api_enable_warm: bool = True
 
+    # Dead-man's-switch monitoring (Healthchecks.io or any ping-on-success service). When
+    # set, the SREF/AFD refresh scheduler pings this URL each cycle (".../start" before the
+    # pass, the base URL on success, ".../fail" on error). A stalled scheduler — stale
+    # briefings with no error, the most dangerous failure mode on the always-on host — then
+    # raises an alert instead of going unnoticed. Unset -> no pings. The ping URL is a
+    # secret; keep it in the env file, never in git.
+    healthcheck_url: str | None = None
+
     # Anthropic API key for the M0.2 SITREP Haiku framing layer (FR-21). Read from the
     # standard ANTHROPIC_API_KEY name; the validation_alias bypasses the env_prefix above.
     anthropic_api_key: str | None = Field(
