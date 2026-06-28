@@ -26,7 +26,10 @@
      US Letter with a running footer reserved on every page. */
   @page {
     size: Letter;
-    margin: 14mm;
+    /* Wider side margins (≈0.71") than top/bottom: content was running flush to
+       a 0.55" edge, so any printer drift / non-printable border clipped the
+       right side. The extra horizontal slack keeps nothing near the paper edge. */
+    margin: 14mm 18mm;
   }
 
   :root {
