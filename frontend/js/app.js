@@ -507,7 +507,7 @@ function renderHeader(b) {
   const actSrc = m.activity === "cave" ? "icons/cave.png" : "icons/canyon.png";
   document.getElementById("header").innerHTML = `
     <div class="brand">
-      <img src="icons/logo.jpg" class="brand__logo" alt="UpstreamWX Weather Briefing" />
+      <img src="icons/logo.png" class="brand__logo" alt="UpstreamWX Weather Briefing" />
     </div>
     <div class="app-header__spacer"></div>
     <span class="activity-pill"><img src="${actSrc}" class="activity-pill__icon" alt="" />${esc(m.activity)}</span>
