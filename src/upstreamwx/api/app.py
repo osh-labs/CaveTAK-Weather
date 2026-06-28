@@ -17,16 +17,19 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import json
+import json as _json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings
+from ..sitrep.frame import _SYSTEM_PROMPT, DEFAULT_MODEL, _structured_view
+from .cache import mission_cache_key
 from .cycles import cycle_key, next_cycle
 from .models import BriefingResponse, MissionSpec, WatershedWarmRequest
 from .scheduler import run_scheduler
@@ -101,6 +104,54 @@ def briefing(spec: MissionSpec) -> BriefingResponse:
     return service.get_briefing(spec)
 
 
+@app.post("/v1/briefing/frame")
+async def frame_stream(spec: MissionSpec) -> StreamingResponse:
+    """Stream the Haiku plain-language narrative for a cached briefing as SSE (FR-21).
+
+    The main ``/v1/briefing`` endpoint always skips Haiku so the structured posture
+    data arrives immediately. The PWA calls this endpoint in parallel to stream the
+    Risk Discussion text into the collapsed card as it generates.
+
+    Returns 204 (no body) when no Anthropic API key is configured. Returns 404 when
+    the matching briefing has not been cached yet — call ``/v1/briefing`` first.
+
+    Each SSE event is ``data: <json>\\n\\n``. Chunks carry ``{"text": "..."}``; the
+    terminal event carries ``{"done": true}``.
+    """
+    api_key = get_settings().anthropic_api_key
+    if not api_key:
+        return Response(status_code=204)
+
+    key = mission_cache_key(spec.to_mission(), spec.to_inputs())
+    result = service.get_result(key)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No cached briefing for this spec — call /v1/briefing first.",
+        )
+
+    payload = _json.dumps(_structured_view(result), sort_keys=True, indent=2)
+
+    async def generate():
+        try:
+            import anthropic as anthropic_lib
+
+            client = anthropic_lib.AsyncAnthropic(api_key=api_key)
+            async with client.messages.stream(
+                model=DEFAULT_MODEL,
+                max_tokens=500,
+                system=_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": payload}],
+            ) as stream:
+                async for text in stream.text_stream:
+                    yield f"data: {_json.dumps({'text': text})}\n\n"
+        except Exception:
+            logger.exception("frame stream failed")
+        yield 'data: {"done":true}\n\n'
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
 @app.post("/v1/watershed/warm", status_code=202)
 def warm_watershed(req: WatershedWarmRequest) -> dict:
     """Pre-warm the pour-point watershed cache for a point (FR-3).
@@ -122,7 +173,7 @@ def _release() -> str:
     fe = _frontend_dir()
     if fe is not None:
         try:
-            data = json.loads((fe / "version.json").read_text())
+            data = _json.loads((fe / "version.json").read_text())
             return str(data.get("version") or "dev")
         except (OSError, ValueError):
             pass

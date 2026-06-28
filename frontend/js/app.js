@@ -31,6 +31,7 @@ let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized:
  * briefing whenever the point or mission details change (M0.4). The spec
  * mirrors the API's MissionSpec. */
 const API_BRIEFING = "/v1/briefing";
+const API_FRAME = "/v1/briefing/frame";
 const API_WATERSHED_WARM = "/v1/watershed/warm";
 const MISSION_KEY = "uwx.mission.v1";
 // Seed mission used on first run when nothing is saved (a real CONUS point).
@@ -356,6 +357,68 @@ function warmWatershedDebounced(lat, lon) {
   }, 350);
 }
 
+// Stream the Haiku plain-language narrative into the Risk Discussion card.
+// Called immediately after renderAll(); runs in the background without blocking the UI.
+// If the server returns 204 (no API key) the card is hidden; on any error it is removed.
+function streamSummary(spec) {
+  if (DEMO_MODE) return; // sample data already has b.summary; nothing to stream
+  const card = document.getElementById("risk-discussion");
+  const textEl = document.getElementById("risk-discussion-text");
+  if (!card || !textEl) return;
+
+  const prefs = loadPrefs();
+  const body = {
+    ...spec,
+    approach_end: addHoursLocal(spec.start, prefs.approach_hrs ?? PHASE_DEFAULT_HR),
+    egress_start: addHoursLocal(spec.end, -(prefs.egress_hrs ?? PHASE_DEFAULT_HR)),
+    lightning_radius_km: prefs.laoc_radius_km,
+  };
+
+  fetch(API_FRAME, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(async (res) => {
+    if (res.status === 204 || !res.ok || !res.body) {
+      card.hidden = true;
+      return;
+    }
+    textEl.textContent = ""; // clear loading placeholder
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let text = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // SSE events are separated by double newlines.
+      const parts = buf.split("\n\n");
+      buf = parts.pop(); // keep trailing incomplete chunk
+      for (const part of parts) {
+        if (!part.startsWith("data: ")) continue;
+        let evt;
+        try { evt = JSON.parse(part.slice(6)); } catch (_) { continue; }
+        if (evt.done) {
+          // Streaming complete — append the framing attribution.
+          const note = document.createElement("span");
+          note.className = "framed-by";
+          note.textContent =
+            "Summary wording only — all posture and severity values are deterministic engine output, not model-derived.";
+          textEl.after(note);
+          return;
+        }
+        if (evt.text) {
+          text += evt.text;
+          textEl.textContent = text;
+        }
+      }
+    }
+  }).catch(() => {
+    if (card) card.hidden = true;
+  });
+}
+
 // Load the bundled sample (demo builds and ?demo only).
 async function loadSample() {
   try {
@@ -406,6 +469,7 @@ async function refresh(spec) {
     return;
   }
   renderAll(b);
+  streamSummary(spec);
 }
 
 /* ── Small render helpers ──────────────────────────────────────────── */
@@ -549,11 +613,18 @@ function renderOverview(b) {
 
   document.getElementById("view-overview").innerHTML = `
     ${missionCard(b)}
-    ${b.summary ? `<section class="card">
-      <p class="summary">${esc(b.summary)}
+    <details class="hazard-detail" id="risk-discussion">
+      <summary class="hazard-detail__summary">
+        <span class="hazard-detail__name">Risk Discussion</span>
+        ${icon("chevron", "hazard-detail__chev")}
+      </summary>
+      <div class="hazard-detail__body">
+        <p class="summary" id="risk-discussion-text">
+          ${b.summary ? esc(b.summary) : '<span class="risk-discussion-loading">Loading…</span>'}
+        </p>
         ${b.framed ? '<span class="framed-by">Summary wording only — all posture and severity values are deterministic engine output, not model-derived.</span>' : ""}
-      </p>
-    </section>` : ""}
+      </div>
+    </details>
     <section class="card"><h2 class="section-title" style="margin-bottom:var(--space-2)">Hazards</h2>
       <div class="hazard-list">${hazards}</div>
     </section>
@@ -2238,7 +2309,9 @@ async function main() {
       `source is unavailable — please try again shortly.</p></section>`;
     return;
   }
+  const initialSpec = savedSpec() || DEFAULT_SPEC;
   renderAll(b);
+  streamSummary(initialSpec);
   if (!ackShown) promptFirstRun();
 
   window.addEventListener("online", () => renderStatus(state.briefing));

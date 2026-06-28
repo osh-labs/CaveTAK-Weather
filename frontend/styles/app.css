@@ -469,11 +469,16 @@ main {
   font-size: var(--text-body);
   color: var(--color-text);
 }
-.summary .framed-by {
+.summary .framed-by,
+.hazard-detail__body > .framed-by {
   display: block;
   margin-top: var(--space-2);
   font-size: var(--text-caption);
   color: var(--color-text-muted);
+}
+.risk-discussion-loading {
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 /* ── 7.9 Hazard timeline / Gantt ───────────────────────────────────── */
