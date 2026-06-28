@@ -257,6 +257,15 @@ generates mid-warm is handled by a **single-flight registry** in `watershed/cach
 briefing *joins* the in-flight delineation instead of racing it (cache writes are atomic).
 Warming only fills a cache the briefing already used — engine output is unchanged.
 
+**Briefing tab.** The PWA now has six primary tabs in this order: Overview, Map, Hazards,
+**Briefing**, Forecast, Resources. The Briefing tab renders the full Markdown SITREP
+(`BriefingResponse.markdown`) as formatted HTML using a zero-dependency in-browser converter
+(`renderMarkdown` / `_inlineFormat` in `frontend/js/app.js`) that handles headings, pipe
+tables, bullet lists, bold, and URLs. When Haiku framing is active (`b.framed === true`) a
+non-dismissible attribution banner appears above the text. The `markdown` field is now
+included in `to_structured()` (and therefore in the structured JSON contract and
+`sample-briefing.json`) rather than being spliced in separately by the service layer.
+
 Deferred to **M0.1.1** (requires the always-on EC2 host; cannot be validated in an
 ephemeral container): the recurring SREF scheduler **cadence** and the
 **cross-restart persistent cache**. The host-independent cores (on-demand SREF
@@ -270,7 +279,7 @@ in `docs/m0.0/`.
 
 ## Working agreements
 
-- **Branch:** develop on `claude/claude-md-agent-guide-51fwbu` (create locally if
+- **Branch:** develop on `claude/haiku-briefing-tab-3ywgn6` (create locally if
   needed). Never push to a different branch without explicit permission. Commit with
   clear messages; push with `git push -u origin <branch>` (retry with backoff on
   network errors). **Do not open a PR unless explicitly asked.**
