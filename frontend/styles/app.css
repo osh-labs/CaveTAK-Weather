@@ -171,8 +171,9 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  padding: var(--space-2) var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-1);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
