@@ -90,6 +90,7 @@ tests/                   hermetic suite + committed fixtures + validation corpus
   gen_sitrep_goldens.py    regenerate golden files after an intentional render change
 frontend/                static PWA (M0.4); fetches POST /v1/briefing; STYLE_GUIDE.md is the visual source of truth
   data/sample-briefing.json  the frozen structured contract; rendered ONLY in demo mode (GitHub Pages host or ?demo) — production never falls back to it
+  pdf/briefing-pdf.html      print-optimized PDF export template (FR-27); app hands the live briefing via localStorage + ?print=1 (render-example.mjs renders a worked example headless)
 docs/m0.0../m0.4/        per-milestone findings + spike reports — read these for "why"
 .claude/hooks/           SessionStart hook that installs deps in the web environment
 ```
@@ -272,9 +273,14 @@ Deferred to **M0.1.1** (requires the always-on EC2 host; cannot be validated in 
 ephemeral container): the recurring SREF scheduler **cadence** and the
 **cross-restart persistent cache**. The host-independent cores (on-demand SREF
 processing, cache semantics, cycle arithmetic, a single refresh pass) are built and
-tested. **M0.5** (flesh out the PWA — offline cache timestamp UX FR-26/41, PDF export
-FR-27, remaining timeline polish) is upcoming; `STYLE_GUIDE.md` is the visual source of
-truth.
+tested. **M0.5** (flesh out the PWA — offline cache timestamp UX FR-26/41, remaining
+timeline polish) is in progress; `STYLE_GUIDE.md` is the visual source of truth. **PDF
+export (FR-27)** is built: the Resources view's Export button stashes the structured
+briefing in `localStorage` and opens `frontend/pdf/briefing-pdf.html?print=1`, a
+print-optimized light-theme template that renders the briefing (BLUF, hazard table,
+phase breakdown, hourly forecast, drivers/threshold logic, source drill-down) and
+triggers Save-as-PDF, carrying the §17.3 reference-only footer on every page. The
+template and its logo are precached by `sw.js`, so export works offline.
 
 For the "why" behind any milestone, read `docs/m0.X/README.md` and the spike reports
 in `docs/m0.0/`.

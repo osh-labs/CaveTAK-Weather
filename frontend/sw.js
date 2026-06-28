@@ -31,6 +31,9 @@ const SHELL_ASSETS = [
   "icons/icon.svg",
   "icons/cave.png",
   "icons/canyon.png",
+  // PDF export template + its logo, so Export-to-PDF works offline (FR-27).
+  "pdf/briefing-pdf.html",
+  "pdf/logo-light.png",
 ];
 
 self.addEventListener("install", (event) => {

@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UpstreamWX — Expedition Weather Briefing</title>
+<!--
+  PDF export template (FR-27, PRD §17.3).
+
+  A print-optimized, single-origin render of the structured briefing contract
+  (the same object the PWA renders its views from — frontend/data/sample-briefing.json,
+  api BriefingResponse). Deliberately a LIGHT "paper" document rather than the dark
+  PWA chrome: a PDF is read on paper or a white reader pane, where the dark briefing
+  surface wastes ink and loses contrast. The FR-35 severity ladder is preserved as the
+  ONLY loud color, per the style guide's "severity is the only loud color" principle.
+
+  Reference-only (the five non-negotiables): this renders the engine's structured
+  result verbatim and never emits a verdict. The §17.3 reference-only footer rides on
+  every printed page.
+
+  Data source: window.__BRIEFING__ if injected (the live tool path), else it fetches
+  ../data/sample-briefing.json so the file is openable standalone as a worked example.
+-->
+<style>
+  /* ── Page geometry ─────────────────────────────────────────────────────
+     US Letter with a running footer reserved on every page. */
+  @page {
+    size: Letter;
+    /* Wider side margins (≈0.71") than top/bottom: content was running flush to
+       a 0.55" edge, so any printer drift / non-printable border clipped the
+       right side. The extra horizontal slack keeps nothing near the paper edge. */
+    margin: 14mm 18mm;
+  }
+
+  :root {
+    /* Paper surfaces (light theme — print-first) */
+    --p-bg: #ffffff;
+    --p-surface: #f6f8fa;
+    --p-surface-2: #eef2f6;
+    --p-border: #d3dae3;
+    --p-border-strong: #b6c0cc;
+    --p-ink: #14181f;
+    --p-ink-2: #41505f;
+    --p-ink-muted: #6b7888;
+    --p-brand: #0b76b8;        /* river cyan, darkened for paper contrast */
+    --p-brand-ink: #075681;
+
+    /* FR-35 severity ladder — the only semantic color set */
+    --sev-minimal: #2f9e41;
+    --sev-elevated: #c08a00;
+    --sev-high: #e06a1f;
+    --sev-extreme: #d83631;
+    --heat-caution: #b89000;
+    --heat-ext-caution: #c47a16;
+    --heat-danger: #c4521f;
+    --heat-ext-danger: #c02824;
+
+    --sev-minimal-wash: #e7f5ea;
+    --sev-elevated-wash: #fbf3dd;
+    --sev-high-wash: #fdeede;
+    --sev-extreme-wash: #fce4e3;
+    --heat-caution-wash: #f8f1d6;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #5a6675;           /* screen-only gutter around the page */
+    color: var(--p-ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.45;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .mono { font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace; }
+
+  /* The page sheet — visible on screen, dissolves into the print page. */
+  .sheet {
+    width: 198mm;
+    min-height: 272mm;
+    margin: 10mm auto;
+    padding: 13mm 14mm 16mm;
+    background: var(--p-bg);
+    box-shadow: 0 2px 14px rgba(0,0,0,0.35);
+  }
+
+  /* ── Masthead ─────────────────────────────────────────────────────────── */
+  .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--p-brand);
+  }
+  .brand__logo { height: 42px; width: auto; display: block; flex: none; }
+  .masthead__doc {
+    text-align: right;
+    font-size: 7.5pt; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--p-ink-muted); font-weight: 600;
+  }
+  .masthead__doc strong { display: block; font-size: 11pt; letter-spacing: 0.02em; color: var(--p-ink); margin-top: 2px; }
+
+  /* ── Mission meta strip ───────────────────────────────────────────────── */
+  .mission {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-top: 9px;
+  }
+  .mission__title { font-size: 18pt; font-weight: 700; line-height: 1.1; margin: 0; }
+  .mission__sub { font-size: 9pt; color: var(--p-ink-2); margin-top: 3px; }
+  .meta-grid {
+    display: grid; grid-template-columns: auto auto; gap: 2px 18px;
+    font-size: 8.5pt; text-align: right; color: var(--p-ink-2);
+  }
+  .meta-grid dt { color: var(--p-ink-muted); }
+  .meta-grid dd { margin: 0; font-weight: 600; color: var(--p-ink); }
+  .meta-row { display: contents; }
+
+  /* ── Section scaffolding ──────────────────────────────────────────────── */
+  .section { margin-top: 9px; }
+  .section--break { break-inside: avoid; }
+  .section__head {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 8pt; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--p-brand-ink);
+    border-bottom: 1px solid var(--p-border);
+    padding-bottom: 4px; margin-bottom: 9px;
+  }
+  .section__head .hint { margin-left: auto; font-weight: 600; letter-spacing: 0.04em; color: var(--p-ink-muted); }
+
+  /* ── BLUF banner ──────────────────────────────────────────────────────── */
+  .bluf {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 12px; border-radius: 8px;
+    border: 1px solid var(--p-border);
+    background: var(--p-surface);
+  }
+  .bluf__posture { display: flex; flex-direction: column; gap: 3px; }
+  .bluf__eyebrow { font-size: 7.5pt; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--p-ink-muted); }
+  .bluf__chip {
+    align-self: flex-start;
+    font-size: 15pt; font-weight: 800; line-height: 1;
+    padding: 6px 14px; border-radius: 7px; color: #fff;
+  }
+  .bluf__conf { font-size: 8.5pt; color: var(--p-ink-2); }
+  .bluf__conf strong { color: var(--p-ink); }
+  .bluf__summary { font-size: 9.5pt; line-height: 1.5; margin: 0; color: var(--p-ink); }
+  .bluf__divider { width: 1px; align-self: stretch; background: var(--p-border); }
+
+  /* ── Hazard BLUF table ────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; }
+  .hz-table th, .hz-table td {
+    text-align: left; padding: 4px 8px; font-size: 9pt;
+    border-bottom: 1px solid var(--p-border);
+  }
+  .hz-table th {
+    font-size: 7.5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--p-ink-muted); border-bottom: 1px solid var(--p-border-strong);
+  }
+  .hz-table td.hz-name { font-weight: 600; }
+  .hz-table .col-c { text-align: center; }
+  .hz-icon { width: 15px; height: 15px; vertical-align: -2px; margin-right: 6px; color: var(--p-ink-2); }
+
+  /* Severity chip (inline, table + phases) */
+  .chip {
+    display: inline-block; font-size: 8pt; font-weight: 700;
+    padding: 2px 9px; border-radius: 999px; color: #fff; white-space: nowrap;
+  }
+  .chip--ghost { background: transparent !important; color: var(--p-ink-muted) !important; border: 1px solid var(--p-border-strong); font-weight: 600; }
+
+  /* Confidence pip + label */
+  .conf { display: inline-flex; align-items: center; gap: 5px; font-size: 8.5pt; color: var(--p-ink-2); }
+  .conf__dots { display: inline-flex; gap: 2px; }
+  .conf__dot { width: 6px; height: 6px; border-radius: 999px; border: 1px solid var(--p-brand-ink); }
+  .conf__dot.on { background: var(--p-brand-ink); }
+
+  /* ── Phase breakdown ──────────────────────────────────────────────────── */
+  /* minmax(0, 1fr) (not bare 1fr) so columns can shrink below the min-content
+     of unbreakable strings ('Lightning — Extreme', 'Cold/wet'); bare 1fr lets
+     those push the grid past the right margin and clip the last card. */
+  .phases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+  .phase {
+    border: 1px solid var(--p-border); border-radius: 8px; overflow: hidden;
+    break-inside: avoid; background: var(--p-bg);
+  }
+  .phase__head {
+    padding: 5px 10px; background: var(--p-surface);
+    border-bottom: 1px solid var(--p-border);
+  }
+  .phase__name { font-size: 8pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--p-ink); }
+  .phase__win { font-size: 8pt; color: var(--p-ink-muted); }
+  .phase__lead { font-size: 8.5pt; font-weight: 600; color: var(--p-brand-ink); margin-top: 2px; }
+  .phase__body { padding: 5px 10px 7px; font-size: 8.5pt; }
+  .phase__applies { color: var(--p-ink-2); }
+  .phase__note {
+    margin-top: 6px; padding: 5px 7px; border-radius: 5px;
+    background: var(--sev-elevated-wash); color: #7a5b00;
+    font-size: 7.8pt; line-height: 1.35;
+  }
+
+  /* ── Hazard detail cards ──────────────────────────────────────────────── */
+  .hz-detail { break-inside: avoid; padding: 9px 0; border-bottom: 1px solid var(--p-border); }
+  .hz-detail:last-child { border-bottom: 0; }
+  .hz-detail__head { display: flex; align-items: center; gap: 9px; margin-bottom: 5px; }
+  .hz-detail__name { font-size: 10.5pt; font-weight: 700; }
+  .hz-detail__name .hz-icon { width: 17px; height: 17px; }
+  .hz-detail ul { margin: 4px 0 0; padding-left: 16px; }
+  .hz-detail li { font-size: 9pt; line-height: 1.4; margin-bottom: 1px; }
+  .hz-detail__logic { font-size: 8pt; color: var(--p-ink-muted); margin-top: 5px; line-height: 1.4; }
+  .hz-detail__assume {
+    font-size: 8pt; color: #7a5b00; margin-top: 5px; line-height: 1.4;
+    padding-left: 18px; position: relative;
+  }
+  .hz-detail__assume::before { content: "▲"; position: absolute; left: 4px; font-size: 7pt; top: 1px; }
+
+  /* ── Forecast hourly table ────────────────────────────────────────────── */
+  .fx-wrap { overflow: hidden; border: 1px solid var(--p-border); border-radius: 8px; }
+  .fx-table { font-size: 8pt; }
+  .fx-table th, .fx-table td {
+    padding: 3px 4px; text-align: center; border-bottom: 1px solid var(--p-border);
+    border-right: 1px solid var(--p-border);
+  }
+  .fx-table th:last-child, .fx-table td:last-child { border-right: 0; }
+  .fx-table tr:last-child td { border-bottom: 0; }
+  .fx-table thead th { background: var(--p-surface-2); font-weight: 700; font-size: 7.5pt; }
+  .fx-table tbody th {
+    text-align: left; font-weight: 600; color: var(--p-ink-2);
+    background: var(--p-surface); white-space: nowrap; font-size: 7.8pt;
+  }
+  .fx-table td.mono { font-variant-numeric: tabular-nums; }
+
+  /* ── Source data + resources ──────────────────────────────────────────── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .kv { font-size: 8.5pt; }
+  .kv__row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 2.5px 0; border-bottom: 1px dotted var(--p-border); }
+  .kv__row:last-child { border-bottom: 0; }
+  .kv__k { color: var(--p-ink-2); flex: 1 1 auto; min-width: 0; }
+  .kv__v { font-weight: 600; font-variant-numeric: tabular-nums; flex: none; white-space: nowrap; text-align: right; }
+  .src { font-size: 8.5pt; padding: 5px 0; border-bottom: 1px solid var(--p-border); break-inside: avoid; }
+  .src:last-child { border-bottom: 0; }
+  .src__title { font-weight: 600; }
+  .src__url { color: var(--p-brand-ink); word-break: break-all; font-size: 7.8pt; }
+  .src__sub { color: var(--p-ink-muted); font-size: 7.8pt; }
+
+  /* ── Framing attribution banner ───────────────────────────────────────── */
+  .framed-banner {
+    margin-top: 10px; padding: 6px 10px; border-radius: 6px;
+    background: var(--p-surface-2); border: 1px solid var(--p-border);
+    font-size: 7.8pt; color: var(--p-ink-2);
+  }
+
+  /* ── Pagination ───────────────────────────────────────────────────────── */
+  .page-break-before { break-before: page; }
+
+  /* ── Reference-only running footer (§17.3, FR-29/FR-40) ───────────────────
+     The classic robust repeating-footer technique, chosen because it works in
+     BOTH the live window.print() path and headless page.pdf():
+       · the content is wrapped in a <table class="layout">;
+       · a <tfoot> with a fixed-height spacer (.foot-reserve) is repeated by the
+         browser at the bottom of EVERY printed page, reserving the footer's
+         height so no content can flow under it (this is what overlapped before);
+       · the actual footer (.page-foot) is position:fixed at the page-area
+         bottom, so it is painted on every page, overlaying the reserved band. */
+  .layout { width: 100%; border-collapse: collapse; }
+  .layout > tbody > tr > td, .layout > tfoot > tr > td { padding: 0; }
+  .foot-reserve { height: 10mm; }
+
+  .page-foot {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 14px;
+    border-top: 1.5px solid var(--p-brand); padding-top: 4px;
+    font-size: 7pt; line-height: 1.4; color: var(--p-ink-2);
+    background: var(--p-bg);
+  }
+  .page-foot__note { max-width: 158mm; }
+  .page-foot__note strong { color: var(--p-ink); }
+  .page-foot__meta { flex: none; text-align: right; white-space: nowrap; color: var(--p-ink-muted); }
+
+  /* ── Print overrides ──────────────────────────────────────────────────── */
+  @media print {
+    html, body { background: #fff; }
+    .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+    .no-print { display: none !important; }
+  }
+
+  /* Screen-only toolbar */
+  .toolbar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: #11161f; color: #e6edf3;
+    font-size: 9pt;
+  }
+  .toolbar button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    background: #0b76b8; color: #fff; border: 0; border-radius: 6px; padding: 6px 14px;
+  }
+  .toolbar span { color: #9aa7b8; }
+</style>
+</head>
+<body>
+<div class="toolbar no-print">
+  <button onclick="window.print()">Save as PDF / Print</button>
+  <span>UpstreamWX briefing export template — worked example renders below.</span>
+</div>
+
+<div class="sheet" id="sheet">
+  <p class="no-print" style="text-align:center;color:#6b7888;margin-top:40px">Loading briefing…</p>
+</div>
+
+<script>
+/* ── Severity + icon helpers ──────────────────────────────────────────────── */
+const SEV_COLOR = {
+  "sev-minimal": "var(--sev-minimal)",
+  "sev-elevated": "var(--sev-elevated)",
+  "sev-high": "var(--sev-high)",
+  "sev-extreme": "var(--sev-extreme)",
+  "heat-caution": "var(--heat-caution)",
+  "heat-ext-caution": "var(--heat-ext-caution)",
+  "heat-danger": "var(--heat-danger)",
+  "heat-ext-danger": "var(--heat-ext-danger)",
+};
+const sevColor = (cls) => SEV_COLOR[cls] || "var(--p-ink-2)";
+
+const HAZARD_LABEL = {
+  flash_flood: "Flash flood",
+  lightning: "Lightning",
+  heat: "Heat",
+  cold_wet: "Cold / wet",
+};
+
+/* Minimal inline glyphs (1.75px stroke, 24px grid), currentColor. */
+const ICON = {
+  flash_flood: '<path d="M3 7c2-2 4 2 6 0s4 2 6 0 4 2 6 0M3 13c2-2 4 2 6 0s4 2 6 0 4 2 6 0M3 19c2-2 4 2 6 0s4 2 6 0 4 2 6 0"/>',
+  lightning: '<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/>',
+  heat: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+  cold_wet: '<path d="M12 2v14M12 2 8 6M12 2l4 4M5 9l7 4 7-4M5 15l7 4 7-4"/>',
+};
+function hazIcon(hz, cls = "hz-icon") {
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${ICON[hz] || ""}</svg>`;
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* Confidence → filled pips (Low 1 / Moderate 2 / High 3). */
+function confPips(label) {
+  const n = { Low: 1, Moderate: 2, High: 3 }[label] ?? 0;
+  const dots = [0, 1, 2].map((i) => `<span class="conf__dot ${i < n ? "on" : ""}"></span>`).join("");
+  return `<span class="conf"><span class="conf__dots">${dots}</span>${esc(label)}</span>`;
+}
+
+/* "1400–2100" → "14:00–21:00"; pass through other shapes untouched. */
+function fmtWindow(w) {
+  if (!w) return "—";
+  return w.replace(/\b(\d{2})(\d{2})\b/g, "$1:$2");
+}
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString("en-US", {
+    year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
+function fmtWindowRange(b) {
+  const s = new Date(b.mission.window_start), e = new Date(b.mission.window_end);
+  const day = { month: "short", day: "numeric" };
+  const t = { hour: "2-digit", minute: "2-digit", hour12: false };
+  return `${s.toLocaleDateString("en-US", day)}, ${s.toLocaleTimeString("en-US", t)}–${e.toLocaleTimeString("en-US", t)} ${b.mission.timezone}`;
+}
+
+/* ── Section renderers ────────────────────────────────────────────────────── */
+function renderMasthead(b) {
+  const activity = b.mission.activity === "cave" ? "Cave" : (b.mission.is_slot ? "Slot canyon" : "Canyon");
+  return `<div class="masthead">
+    <img class="brand__logo" src="logo-light.png" alt="UpstreamWX — Weather Briefing" />
+    <div class="masthead__doc">Document<strong>Expedition Weather Briefing</strong></div>
+  </div>`;
+}
+
+function renderMission(b) {
+  const m = b.mission;
+  const domain = b.watershed?.area_sq_mi
+    ? `Upstream basin ≈ ${b.watershed.area_sq_mi} mi²` + (b.roc ? ` · RoC ${b.roc.radius_mi} mi` : "")
+    : "Point conditions";
+  return `<div class="mission">
+    <div>
+      <h1 class="mission__title">${esc(m.name)}</h1>
+      <div class="mission__sub">${fmtWindowRange(b)} &nbsp;·&nbsp; ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)} &nbsp;·&nbsp; ${esc(domain)}</div>
+    </div>
+    <dl class="meta-grid">
+      <div class="meta-row"><dt>Activity</dt><dd>${b.mission.activity === "cave" ? "Cave" : (b.mission.is_slot ? "Slot canyon" : "Canyon")}</dd></div>
+      <div class="meta-row"><dt>Generated</dt><dd>${fmtWhen(b.generated_at)} UTC</dd></div>
+      <div class="meta-row"><dt>SREF cycle</dt><dd class="mono">${esc(b.cache_cycle)}</dd></div>
+      <div class="meta-row"><dt>UpstreamWX</dt><dd class="mono">${esc(appVersion(b))}</dd></div>
+    </dl>
+  </div>`;
+}
+
+function renderBluf(b) {
+  const ovClass = (b.bluf.find((x) => x.label === b.overall_posture)?.severity_class)
+    || severityClassFor(b.overall_posture);
+  return `<div class="section">
+    <div class="section__head">Bottom line up front</div>
+    <div class="bluf">
+      <div class="bluf__posture">
+        <span class="bluf__eyebrow">Overall posture</span>
+        <span class="bluf__chip" style="background:${sevColor(ovClass)}">${esc(b.overall_posture)}</span>
+        <span class="bluf__conf">Confidence: <strong>${esc(b.overall_confidence)}</strong></span>
+      </div>
+      <div class="bluf__divider"></div>
+      <p class="bluf__summary">${esc(b.summary)}</p>
+    </div>
+    ${b.framed ? `<div class="framed-banner">Plain-language summary framed by an AI language model. It narrates the engine's structured result and does not change any posture, tier, or confidence.</div>` : ""}
+  </div>`;
+}
+function severityClassFor(label) {
+  return { Minimal: "sev-minimal", Elevated: "sev-elevated", High: "sev-high", Extreme: "sev-extreme" }[label] || "";
+}
+
+function renderHazardTable(b) {
+  const rows = b.bluf.map((h) => `<tr>
+    <td class="hz-name">${hazIcon(h.hazard)}${esc(HAZARD_LABEL[h.hazard] || h.hazard)}</td>
+    <td><span class="chip" style="background:${sevColor(h.severity_class)}">${esc(h.label)}</span></td>
+    <td>${confPips(h.confidence)}</td>
+    <td class="mono">${h.is_persistent ? "Through-period" : fmtWindow(h.window)}</td>
+  </tr>`).join("");
+  return `<div class="section section--break">
+    <div class="section__head">Hazard summary</div>
+    <table class="hz-table">
+      <thead><tr><th>Hazard</th><th>Posture</th><th>Confidence</th><th>Window of concern</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function renderPhases(b) {
+  const cards = b.phases.map((p) => `<div class="phase">
+    <div class="phase__head">
+      <div><span class="phase__name">${esc(p.phase)}</span> <span class="phase__win">${fmtWindow(p.window)}</span></div>
+      <div class="phase__lead">${esc(p.lead_label)}</div>
+    </div>
+    <div class="phase__body">
+      <div class="phase__applies">Applies: ${esc(p.applicable)}</div>
+      ${p.note ? `<div class="phase__note">${esc(p.note)}</div>` : ""}
+    </div>
+  </div>`).join("");
+  return `<div class="section section--break">
+    <div class="section__head">Phase breakdown <span class="hint">approach → technical → egress</span></div>
+    <div class="phases">${cards}</div>
+  </div>`;
+}
+
+function renderHazardDetail(b) {
+  const cards = b.hazard_detail.map((h) => `<div class="hz-detail">
+    <div class="hz-detail__head">
+      <span class="hz-detail__name">${hazIcon(h.hazard)}${esc(HAZARD_LABEL[h.hazard] || h.hazard)}</span>
+      <span class="chip" style="background:${sevColor(h.severity_class)}">${esc(h.label)}</span>
+      ${confPips(h.confidence)}
+    </div>
+    <ul>${h.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
+    ${h.assumptions.map((a) => `<div class="hz-detail__assume">${esc(a)}</div>`).join("")}
+    <div class="hz-detail__logic">${esc(h.logic)}</div>
+  </div>`).join("");
+  // This section flows onto page 2: page 1 fills through the forecast, leaving
+  // no room here, so the drivers cards naturally begin the second page. The
+  // .section--break keeps each card intact across the break.
+  return `<div class="section">
+    <div class="section__head">Key drivers &amp; threshold logic</div>
+    ${cards}
+  </div>`;
+}
+
+function renderForecast(b) {
+  const fx = b.forecast_hourly;
+  if (!fx) return "";
+  const head = `<tr><th>Hour</th>${fx.hours.map((h) => `<th>${fmtWindow(h).slice(0, 5)}</th>`).join("")}</tr>`;
+  const body = fx.rows.map((r) => `<tr>
+    <th>${esc(r.label)}</th>
+    ${r.values.map((v) => `<td class="mono">${esc(v)}</td>`).join("")}
+  </tr>`).join("");
+  return `<div class="section section--break">
+    <div class="section__head">Hourly forecast</div>
+    <div class="fx-wrap"><table class="fx-table">
+      <thead>${head}</thead><tbody>${body}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderSourceData(b) {
+  const ri = b.risk_inputs || {};
+  const ws = b.watershed || {};
+  const ensemble = [
+    ["SREF P(precip/thunder)", ri.sref_p_precip != null ? ri.sref_p_precip + "%" : "—"],
+    ["SREF P(thunderstorm)", ri.sref_p_tstm != null ? ri.sref_p_tstm + "%" : "—"],
+    ["CAPE", ri.cape_jkg != null ? ri.cape_jkg + " J/kg" : "—"],
+    ["HREF P(QPF)", ri.href_in_range && ri.href_p_precip != null ? ri.href_p_precip + "%" : "n/a"],
+    ["HREF P(lightning)", ri.href_in_range && ri.href_p_lightning != null ? ri.href_p_lightning + "%" : "n/a"],
+    ["HREF cycle", ri.href_cycle || "—"],
+  ];
+  const nws = [
+    ["Flash Flood Warning", ri.flash_flood_warning ? "ACTIVE" : "none"],
+    ["Flash Flood Watch", ri.flash_flood_watch ? "active" : "none"],
+    ["Thunderstorm Warning", ri.thunderstorm_warning ? "ACTIVE" : "none"],
+    ["SPC outlook", ri.spc_category || "—"],
+    ["Upstream basin", ws.area_sq_mi ? ws.area_sq_mi + " mi²" : "—"],
+  ];
+  const kv = (rows) => rows.map(([k, v]) =>
+    `<div class="kv__row"><span class="kv__k">${esc(k)}</span><span class="kv__v">${esc(v)}</span></div>`).join("");
+  return `<div class="section section--break">
+    <div class="section__head">Source data <span class="hint">drill-down</span></div>
+    <div class="grid-2">
+      <div class="kv">${kv(nws)}</div>
+      <div class="kv">${kv(ensemble)}</div>
+    </div>
+  </div>`;
+}
+
+/* UpstreamWX software version: the live tool seeds it from /v1/health (the
+   release stamped into version.json); standalone it falls back to "dev". */
+function appVersion(b) {
+  return b.app_version || b.version || "dev";
+}
+
+/* §17.3 reference-only footer (FR-29/FR-40). position:fixed in print, so this
+   one element repeats the persistent disclaimer on EVERY page. */
+function renderPageFoot(b) {
+  return `<div class="page-foot">
+    <span class="page-foot__note"><strong>UpstreamWX — planning reference only.</strong>
+      Not an official forecast or warning. Verify against official NWS sources.
+      The go/no-go decision always rests with you and your party.</span>
+    <span class="page-foot__meta">UpstreamWX ${esc(appVersion(b))}<br>${esc(fmtWhen(b.generated_at))} UTC</span>
+  </div>`;
+}
+
+function render(b) {
+  document.title = `UpstreamWX — ${b.mission.name} briefing`;
+  const content =
+    renderMasthead(b) +
+    renderMission(b) +
+    renderBluf(b) +
+    renderHazardTable(b) +
+    renderPhases(b) +
+    renderForecast(b) +
+    renderHazardDetail(b) +
+    renderSourceData(b);
+  // Wrap in a layout table whose <tfoot> reserves the footer band on every
+  // printed page; the fixed .page-foot is painted over that band per page.
+  document.getElementById("sheet").innerHTML =
+    `<table class="layout">
+       <tbody><tr><td>${content}</td></tr></tbody>
+       <tfoot><tr><td><div class="foot-reserve"></div></td></tr></tfoot>
+     </table>`;
+  document.body.insertAdjacentHTML("beforeend", renderPageFoot(b));
+}
+
+/* The app hands off the live briefing through localStorage (one-shot, read and
+   cleared here) and opens this page with ?print=1 to drive Save-as-PDF. */
+const PDF_HANDOFF_KEY = "uwx.pdf.briefing";
+function readHandoffBriefing() {
+  try {
+    const raw = localStorage.getItem(PDF_HANDOFF_KEY);
+    if (raw) {
+      localStorage.removeItem(PDF_HANDOFF_KEY);
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    /* storage blocked — fall through to the opener reference */
+  }
+  try {
+    if (window.opener && window.opener.__uwxPdfBriefing) return window.opener.__uwxPdfBriefing;
+  } catch (e) {
+    /* cross-origin opener — ignore */
+  }
+  return null;
+}
+/* Don't print before the masthead logo has decoded, or the PDF shows an empty
+   logo box. */
+function whenLogoReady() {
+  const im = document.querySelector(".brand__logo");
+  if (!im || (im.complete && im.naturalWidth > 0)) return Promise.resolve();
+  return new Promise((resolve) => {
+    im.addEventListener("load", resolve, { once: true });
+    im.addEventListener("error", resolve, { once: true });
+    setTimeout(resolve, 3000);
+  });
+}
+
+/* Data precedence: injected (the headless example renderer) → app handoff →
+   the committed worked example (standalone open). */
+(async function boot() {
+  try {
+    let b = window.__BRIEFING__ || readHandoffBriefing();
+    if (!b) {
+      const res = await fetch("../data/sample-briefing.json", { cache: "no-store" });
+      b = await res.json();
+    }
+    render(b);
+    if (new URLSearchParams(location.search).has("print")) {
+      await whenLogoReady();
+      window.focus();
+      window.print();
+    }
+  } catch (e) {
+    document.getElementById("sheet").innerHTML =
+      `<p style="color:#b00">Could not load briefing data: ${esc(e.message)}</p>`;
+  }
+})();
+</script>
+</body>
+</html>
