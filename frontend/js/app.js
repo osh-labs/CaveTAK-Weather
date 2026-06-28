@@ -24,7 +24,7 @@ const esc = (s) =>
 // Only rewrites bare HHMM tokens, so years/HUC codes are left alone.
 const fmtClock = (s) => String(s).replace(/\b(\d{2})(\d{2})\b/g, "$1:$2");
 
-let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized: false };
+let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized: false, appVersion: null };
 
 /* ── Mission spec (the POST /v1/briefing request) ──────────────────────
  * The PWA holds a mission spec, persists it locally, and re-fetches a live
@@ -1634,7 +1634,7 @@ function renderResources(b) {
         Threshold matrix version <span class="mono">${esc(b.threshold_version)}</span>.
       </p>
     </section>
-    <div class="disclaimer">UpstreamWX — planning reference only. Not an official forecast or warning. The go/no-go decision is always the responsibility of the user and their party.</div>`;
+    <div class="disclaimer">UpstreamWX — planning reference only. Not an official forecast or warning. The go/no-go decision is always the responsibility of the user and their party.${formatAppVersion(state.appVersion) ? `<br><span style="opacity:0.7">${esc(formatAppVersion(state.appVersion))}</span>` : ""}</div>`;
 
   linkifyAcronyms(document.getElementById("view-resources"));
   const pdf = document.getElementById("export-pdf");
@@ -2399,6 +2399,17 @@ async function fetchRelease() {
   }
 }
 
+// Returns "UpstreamWX v0.5.0 - Public Beta" for pre-1.0 or "UpstreamWX v1.0.0" for 1.0+.
+// Returns null when the version is unknown (local dev / offline first boot).
+function formatAppVersion(release) {
+  if (!release) return null;
+  const raw = release.startsWith("v") ? release.slice(1) : release;
+  const parts = raw.split(".").map(Number);
+  const major = parts[0] ?? 0;
+  const label = `UpstreamWX v${raw}`;
+  return major < 1 ? `${label} - Public Beta` : label;
+}
+
 function showUpdateBanner() {
   const el = document.getElementById("update-banner");
   if (!el || !el.hidden) return;
@@ -2415,6 +2426,7 @@ function showUpdateBanner() {
 
 (async function initReleaseWatch() {
   const bootRelease = await fetchRelease();
+  state.appVersion = bootRelease;
 
   if ("serviceWorker" in navigator) {
     // Reload once when a freshly deployed worker takes control, so the page runs the new
