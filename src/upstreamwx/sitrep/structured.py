@@ -404,9 +404,9 @@ def _summary(markdown: str, framed: bool) -> str | None:
 def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> dict:
     """Map a generated briefing onto the PWA's structured JSON contract (M0.4).
 
-    ``cached``/``cache_cycle`` are the service's cache provenance. The returned dict holds
-    every :class:`~upstreamwx.api.models.BriefingResponse` field *except* ``markdown`` (the
-    service supplies that), so the response is ``BriefingResponse(markdown=..., **dict)``.
+    ``cached``/``cache_cycle`` are the service's cache provenance. The returned dict
+    covers every :class:`~upstreamwx.api.models.BriefingResponse` field including
+    ``markdown`` (the full Markdown SITREP used by the Briefing tab in the PWA).
     """
     result = gen.result
     bundle = gen.bundle
@@ -417,6 +417,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
     forecast_hourly, temp_series, wind_series = _forecast(bundle)
     risk_inputs = _risk_inputs(bundle)
     return {
+        "markdown": gen.markdown,
         "mission": {
             "name": mission.name,
             "activity": mission.activity_type.value,

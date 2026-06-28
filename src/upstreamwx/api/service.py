@@ -174,10 +174,8 @@ class BriefingService:
     def _response(
         self, briefing: GeneratedBriefing, token: str, *, cached: bool
     ) -> BriefingResponse:
-        # One serializer builds the whole structured contract (M0.4); the service only
-        # supplies the cache provenance and the Markdown artifact.
-        structured = to_structured(briefing, cached=cached, cache_cycle=token)
-        return BriefingResponse(markdown=briefing.markdown, **structured)
+        # One serializer builds the whole structured contract (M0.4), including markdown.
+        return BriefingResponse(**to_structured(briefing, cached=cached, cache_cycle=token))
 
 
 def _as_utc(value: datetime) -> datetime:

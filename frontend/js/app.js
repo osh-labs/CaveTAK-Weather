@@ -9,9 +9,10 @@ import { icon, HAZARD_LABELS, PHASE_LABELS } from "./icons.js";
 
 const TABS = [
   { id: "overview", label: "Overview" },
-  { id: "forecast", label: "Forecast" },
   { id: "map", label: "Map" },
   { id: "hazards", label: "Hazards" },
+  { id: "briefing", label: "Briefing" },
+  { id: "forecast", label: "Forecast" },
   { id: "resources", label: "Resources" },
 ];
 
@@ -1397,6 +1398,101 @@ function initMainMap(b) {
   state.mapInitialized = true;
 }
 
+/* ── 7.11 Briefing (full Markdown SITREP + optional Haiku framing) ── */
+
+// Convert a bare URL or [label](url) fragment into a safe <a> tag.
+// Tokenises text so URLs are extracted before HTML escaping, preventing
+// esc() from double-encoding '&' inside query strings.
+function _inlineFormat(text) {
+  const tokens = [];
+  const re = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s<>"]+)/g;
+  let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) tokens.push({ t: "text", v: text.slice(last, m.index) });
+    tokens.push({ t: "link", label: m[1] != null ? m[1] : m[3], url: m[2] != null ? m[2] : m[3] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) tokens.push({ t: "text", v: text.slice(last) });
+  return tokens.map((tok) => {
+    if (tok.t === "link") {
+      return `<a href="${esc(tok.url)}" target="_blank" rel="noopener noreferrer">${esc(tok.label)}</a>`;
+    }
+    // Escape HTML then apply **bold**.
+    return esc(tok.v).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  }).join("");
+}
+
+// Lightweight Markdown → HTML converter for the deterministic SITREP skeleton.
+// Handles headings, pipe tables, bullet lists, paragraphs, bold, and URLs.
+// Only a subset of Markdown is produced by render.py / frame.py, so a full
+// parser is unnecessary; this keeps the bundle zero-dependency.
+function renderMarkdown(md) {
+  if (!md) return '<p class="briefing-empty">No briefing text available for this cycle.</p>';
+  const lines = md.split("\n");
+  const out = [];
+  let inList = false;
+  let inTable = false;
+
+  const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+  const closeTable = () => { if (inTable) { out.push("</tbody></table>"); inTable = false; } };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd();
+
+    if (line.startsWith("### ")) {
+      closeList(); closeTable();
+      out.push(`<h3 class="bmd-h3">${_inlineFormat(line.slice(4))}</h3>`);
+    } else if (line.startsWith("## ")) {
+      closeList(); closeTable();
+      out.push(`<h2 class="bmd-h2">${_inlineFormat(line.slice(3))}</h2>`);
+    } else if (line.startsWith("# ")) {
+      closeList(); closeTable();
+      out.push(`<h1 class="bmd-h1">${_inlineFormat(line.slice(2))}</h1>`);
+    } else if (line.startsWith("|")) {
+      // Pipe table row; peek ahead to detect the header separator.
+      const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+      const next = (lines[i + 1] || "").trim();
+      if (!inTable && /^\|[\s:|-]+\|/.test(next)) {
+        closeList();
+        out.push('<div class="bmd-table-wrap"><table class="bmd-table"><thead><tr>');
+        cells.forEach((c) => out.push(`<th>${_inlineFormat(c)}</th>`));
+        out.push("</tr></thead><tbody>");
+        inTable = true;
+        i++; // skip separator line
+      } else if (!inTable) {
+        closeList();
+        out.push('<div class="bmd-table-wrap"><table class="bmd-table"><tbody><tr>');
+        cells.forEach((c) => out.push(`<td>${_inlineFormat(c)}</td>`));
+        out.push("</tr>");
+        inTable = true;
+      } else {
+        out.push("<tr>");
+        cells.forEach((c) => out.push(`<td>${_inlineFormat(c)}</td>`));
+        out.push("</tr>");
+      }
+    } else if (line.startsWith("- ")) {
+      closeTable();
+      if (!inList) { out.push('<ul class="bmd-list">'); inList = true; }
+      out.push(`<li>${_inlineFormat(line.slice(2))}</li>`);
+    } else if (line.trim() === "") {
+      closeList(); closeTable();
+    } else {
+      closeList(); closeTable();
+      out.push(`<p class="bmd-p">${_inlineFormat(line)}</p>`);
+    }
+  }
+  closeList(); closeTable();
+  return out.join("");
+}
+
+function renderBriefing(b) {
+  const framedNote = b.framed
+    ? `<div class="briefing-framed-note">Summary wording (top section) by Claude Haiku — all hazard postures and severity tiers are deterministic engine output, not model-derived.</div>`
+    : "";
+  document.getElementById("view-briefing").innerHTML =
+    `${framedNote}<div class="briefing-md">${renderMarkdown(b.markdown)}</div>`;
+}
+
 /* ── 7.12 Resources ────────────────────────────────────────────────── */
 function renderResources(b) {
   const links = b.resources
@@ -2101,9 +2197,10 @@ function renderAll(b) {
   state.briefing = b;
   renderHeader(b);
   renderOverview(b);
-  renderForecast(b);
   renderMap(b);
   renderHazards(b);
+  renderBriefing(b);
+  renderForecast(b);
   renderResources(b);
   renderAbout(b);
   renderStatus(b);
