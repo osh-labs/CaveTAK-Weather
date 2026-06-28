@@ -188,6 +188,16 @@ then generates on demand rather than holding a warm cache. Promote to production
 **tagging** the commit you verified on staging and deploying that tag on the prod box
 (`sudo deploy/deploy.sh v0.5.0`).
 
+> **Expected on a scheduler-off staging box: HREF may show degraded.** HREF backfills the
+> current run's spin-up hours (f01–f05) from the *previous* cached run (`href_cache_keep_cycles`).
+> A cold box with the scheduler off never accumulates that prior run, so when the current
+> run isn't fully published yet, HREF can't be assembled and the briefing reports
+> `sources_ok.href = false` (graceful degradation, NFR-6 — the engine still postures from
+> SREF). This is **not a fault and not a staging misconfiguration**; prod hides it because
+> its always-on scheduler keeps the prior run warm. The tell that it's this and not a
+> network problem: SREF (same NOMADS source) still succeeds. To make staging match prod
+> here, set `UPSTREAMWX_API_ENABLE_SCHEDULER=1` and let it warm over a cycle or two.
+
 > **Same-box variant.** If you ever want staging and prod on one host instead, the scripts
 > still support it: `cp deploy/config.staging.env.example deploy/config.staging.env` and
 > run them with `DEPLOY_CONFIG=deploy/config.staging.env` (distinct service/port/paths so
