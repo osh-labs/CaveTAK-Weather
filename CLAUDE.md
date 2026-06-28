@@ -276,7 +276,9 @@ processing, cache semantics, cycle arithmetic, a single refresh pass) are built 
 tested. **M0.5** (flesh out the PWA — offline cache timestamp UX FR-26/41, remaining
 timeline polish) is in progress; `STYLE_GUIDE.md` is the visual source of truth. **PDF
 export (FR-27)** is built: the Resources view's Export button stashes the structured
-briefing in `localStorage` and opens `frontend/pdf/briefing-pdf.html?print=1`, a
+briefing in `localStorage` and navigates the current tab to
+`frontend/pdf/briefing-pdf.html?print=1` (single-tab on purpose — iOS traps print
+popups; the template offers a Back control), a
 print-optimized light-theme template that renders the briefing (BLUF, hazard table,
 phase breakdown, hourly forecast, drivers/threshold logic, source drill-down) and
 triggers Save-as-PDF, carrying the §17.3 reference-only footer on every page. The

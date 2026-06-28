@@ -298,13 +298,15 @@
     font: inherit; font-weight: 600; cursor: pointer;
     background: #0b76b8; color: #fff; border: 0; border-radius: 6px; padding: 6px 14px;
   }
+  .toolbar button.secondary { background: transparent; border: 1px solid #9aa7b8; color: #e6edf3; }
   .toolbar span { color: #9aa7b8; }
 </style>
 </head>
 <body>
 <div class="toolbar no-print">
-  <button onclick="window.print()">Save as PDF / Print</button>
-  <span>UpstreamWX briefing export template — worked example renders below.</span>
+  <button id="tb-print">Save as PDF</button>
+  <button id="tb-back" class="secondary">Back</button>
+  <span>Use the browser's share or print menu to save this briefing as a PDF.</span>
 </div>
 
 <div class="sheet" id="sheet">
@@ -563,6 +565,7 @@ function render(b) {
    cleared here) and opens this page with ?print=1 to drive Save-as-PDF. */
 const PDF_HANDOFF_KEY = "uwx.pdf.briefing";
 function readHandoffBriefing() {
+  // Same-tab navigation, so localStorage carries the briefing across the load.
   try {
     const raw = localStorage.getItem(PDF_HANDOFF_KEY);
     if (raw) {
@@ -570,15 +573,23 @@ function readHandoffBriefing() {
       return JSON.parse(raw);
     }
   } catch (e) {
-    /* storage blocked — fall through to the opener reference */
-  }
-  try {
-    if (window.opener && window.opener.__uwxPdfBriefing) return window.opener.__uwxPdfBriefing;
-  } catch (e) {
-    /* cross-origin opener — ignore */
+    /* storage blocked — fall back to the template's own data path */
   }
   return null;
 }
+
+/* Toolbar (screen only): Back returns to the app — history.back() restores the
+   PWA from bfcache; otherwise navigate to the app root. */
+function wireToolbar() {
+  const print = document.getElementById("tb-print");
+  if (print) print.addEventListener("click", () => window.print());
+  const back = document.getElementById("tb-back");
+  if (back) back.addEventListener("click", () => {
+    if (history.length > 1) history.back();
+    else window.location.assign("../");
+  });
+}
+wireToolbar();
 /* Don't print before the masthead logo has decoded, or the PDF shows an empty
    logo box. */
 function whenLogoReady() {
