@@ -256,6 +256,7 @@ manylinux wheels that bundle them.
 | NWS ingest empty / 403 | set a real contact in `UPSTREAMWX_NWS_USER_AGENT` (FR-5) and restart |
 | No framed summary in briefings | `ANTHROPIC_API_KEY` unset — expected; the structured posture is unaffected |
 | `certbot` can't bind :80 | open the security group / firewall on 80 and 443 |
+| Briefing requests return **429** | nginx rate limit on `/v1/briefing` + `/v1/watershed/warm` (2 r/s, burst 10, per IP). Normal use never hits it; tune `rate`/`burst` in `deploy/nginx/upstreamwx.conf` if needed, then re-run `bootstrap.sh`. |
 
 ## Security notes
 
@@ -265,3 +266,8 @@ manylinux wheels that bundle them.
   `deploy/config.env` and any real env file are git-ignored.
 - The systemd unit is hardened (`ProtectSystem=strict`, `NoNewPrivileges`,
   `PrivateTmp`, writable path restricted to the data dir).
+- nginx **rate-limits the expensive endpoints** (`/v1/briefing`, `/v1/watershed/warm`)
+  per client IP, so a request flood can't exhaust the single uvicorn process and DoS the
+  box. Static assets and `/v1/health` are unthrottled.
+- nginx sends baseline **security headers** (`X-Content-Type-Options`, `Referrer-Policy`,
+  `X-Frame-Options`, and HSTS once TLS is on via certbot).
