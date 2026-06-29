@@ -80,6 +80,23 @@ a { color: var(--color-brand); }
 }
 .cta:hover { background: var(--color-brand-strong); }
 
+/* ── App screenshot (below hero CTA) ─────────────────────────────── */
+.screenshot-fig {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+}
+.screenshot {
+  max-height: 540px;
+  width: auto;
+  border-radius: 28px;
+  box-shadow: var(--shadow-pop), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  display: block;
+}
+@media (max-height: 700px) {
+  .screenshot { max-height: 420px; }
+}
+
 /* ── Install / Add to Home Screen card ─────────────────────────────── */
 .install { border-color: rgba(56, 189, 248, 0.30); }
 .install__lead { font-size: var(--text-label); line-height: var(--lh-body); color: var(--color-text-secondary); margin: var(--space-2) 0 0; }
