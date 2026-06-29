@@ -59,15 +59,24 @@ def _chromium_path() -> str | None:
     for p in _CHROMIUM_CANDIDATES:
         if Path(p).exists():
             return p
-    pw_browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-    if pw_browsers:
-        # Sort descending: highest chromium-NNNN revision wins (most recently installed).
-        candidates = sorted(
-            Path(pw_browsers).glob("chromium*/chrome-linux/chrome"), reverse=True
-        )
-        for candidate in candidates:
-            if candidate.exists():
-                return str(candidate)
+    # Playwright's default browser cache when PLAYWRIGHT_BROWSERS_PATH is unset:
+    # ~/.cache/ms-playwright (i.e. $HOME/.cache/ms-playwright for the service user).
+    _default_pw = Path.home() / ".cache" / "ms-playwright"
+    _explicit_pw = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    for search_root in filter(None, [
+        Path(_explicit_pw) if _explicit_pw else None,
+        _default_pw,
+    ]):
+        # Newer Playwright (≥1.46) uses the headless shell; older builds used the full browser.
+        # Sort descending so the highest installed revision wins.
+        for pattern in [
+            "chromium_headless_shell*/chrome-headless-shell-linux64/chrome-headless-shell",
+            "chromium*/chrome-linux/chrome",
+        ]:
+            candidates = sorted(search_root.glob(pattern), reverse=True)
+            for candidate in candidates:
+                if candidate.exists():
+                    return str(candidate)
     for name in _CHROMIUM_WHICH:
         found = shutil.which(name)
         # Skip snap wrappers — they need a user login session (XDG_RUNTIME_DIR,
