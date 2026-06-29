@@ -109,6 +109,17 @@ class Settings(BaseSettings):
     # 512 distinct missions is generous for a single-host beta; raise where RAM allows.
     api_cache_max_entries: int = 512
 
+    # Cap concurrent live briefing GENERATIONS (the cold, memory/CPU-heavy ingest path) so a burst
+    # of simultaneous distinct missions can't OOM/thrash a small host — excess requests wait briefly
+    # for a slot, then return a fast 503 "busy, retry" (the PWA shows a retry banner) instead of all
+    # spiking at once. Cache hits never count against this. ~2 suits a 2-vCPU/4 GiB box; raise where
+    # there is headroom. Set 0 to disable the cap.
+    briefing_max_concurrency: int = 2
+    # Seconds a queued generation waits for a free slot before returning 503. A short wait lets a
+    # quick collision resolve (and possibly hit the cache the in-flight request fills); past it the
+    # client is told to retry rather than risk overrunning the gateway timeout (a 504).
+    briefing_busy_timeout_s: float = 2.0
+
     # Dead-man's-switch monitoring (Healthchecks.io or any ping-on-success service). When
     # set, the GEFS/REFS + AFD refresh scheduler pings this URL each cycle (".../start" before the
     # pass, the base URL on success, ".../fail" on error). A stalled scheduler — stale

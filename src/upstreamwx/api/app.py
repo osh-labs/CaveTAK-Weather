@@ -36,7 +36,7 @@ from .cache import mission_cache_key
 from .cycles import cycle_key, next_cycle
 from .models import BriefingResponse, MissionSpec, WatershedWarmRequest
 from .scheduler import run_scheduler
-from .service import BriefingService
+from .service import BriefingBusy, BriefingService
 
 logger = logging.getLogger("upstreamwx.api")
 
@@ -114,8 +114,18 @@ def briefing(spec: MissionSpec) -> BriefingResponse:
     Non-mandatory source outages degrade gracefully (NFR-6): the briefing still renders
     with the missing input marked unavailable in ``sources_ok``/``degraded`` rather than
     erroring.
+
+    When the host is at its concurrent-generation cap, returns 503 with ``Retry-After`` so the
+    PWA shows a "busy — retry" banner instead of every request piling on and OOM-ing the host.
     """
-    return service.get_briefing(spec)
+    try:
+        return service.get_briefing(spec)
+    except BriefingBusy:
+        raise HTTPException(
+            status_code=503,
+            detail="The briefing service is busy right now — please retry in a moment.",
+            headers={"Retry-After": "10"},
+        ) from None
 
 
 @app.post("/v1/briefing/frame")

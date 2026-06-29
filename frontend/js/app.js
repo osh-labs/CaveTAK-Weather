@@ -338,7 +338,11 @@ async function postBriefing(spec) {
       const j = await res.clone().json();
       if (j && j.detail) detail = `${res.status}: ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)}`;
     } catch (_) { /* non-JSON body (e.g. proxy 504) — keep the status */ }
-    throw new Error(detail);
+    const err = new Error(detail);
+    // 503 (server's concurrent-generation cap: "busy") and 504 (gateway timeout) are transient —
+    // the caller surfaces a retry banner rather than a dead-end error.
+    err.retryable = res.status === 503 || res.status === 504;
+    throw err;
   }
   state.fromCache = !navigator.onLine;
   return await res.json();
@@ -473,15 +477,48 @@ async function refresh(spec) {
   try {
     b = await postBriefing(spec);
   } catch (e) {
-    if (status) {
+    // 503/504 (server busy / gateway timeout) and bare network failures (TypeError from fetch)
+    // are transient: surface a yellow retry banner wired to re-run THIS spec, and keep the
+    // previous briefing on screen. Other errors (bad request, 500) get the inline status note.
+    const transient = !!e && (e.retryable || e instanceof TypeError);
+    if (transient) {
+      showBusyBanner(spec);
+      if (status) {
+        status.innerHTML =
+          `<span class="status-line__currency">Showing the previous briefing.</span>`;
+      }
+    } else if (status) {
       status.innerHTML =
         `<span class="status-line__currency">Could not update briefing (${esc(String(e.message || e))}). ` +
         `Showing the previous briefing — try again in a moment.</span>`;
     }
     return;
   }
+  hideBusyBanner();
   renderAll(b);
   streamSummary(spec);
+}
+
+// Transient-failure banner: a 503/504/network error during generation shows a yellow bar with a
+// Retry button that re-runs the same mission spec. The button is wired once, lazily.
+function showBusyBanner(spec) {
+  state.retrySpec = spec;
+  const el = document.getElementById("busy-banner");
+  if (!el) return;
+  el.hidden = false;
+  const btn = document.getElementById("busy-retry");
+  if (btn && !btn._wired) {
+    btn._wired = true;
+    btn.addEventListener("click", () => {
+      hideBusyBanner();
+      refresh(state.retrySpec || savedSpec() || DEFAULT_SPEC);
+    });
+  }
+}
+
+function hideBusyBanner() {
+  const el = document.getElementById("busy-banner");
+  if (el) el.hidden = true;
 }
 
 /* ── Small render helpers ──────────────────────────────────────────── */
@@ -2498,6 +2535,11 @@ async function main() {
   try {
     b = await loadBriefing(savedSpec() || DEFAULT_SPEC);
   } catch (e) {
+    // A transient failure (server busy / gateway timeout / network) gets the retry banner so the
+    // user can re-run without reloading the app; other errors show the inline explanation.
+    if (e && (e.retryable || e instanceof TypeError)) {
+      showBusyBanner(savedSpec() || DEFAULT_SPEC);
+    }
     document.getElementById("view-overview").innerHTML =
       `<section class="card"><p class="summary">Could not generate a briefing ` +
       `(${esc(String(e.message || e))}). The briefing service may be busy or a data ` +

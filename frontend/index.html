@@ -24,6 +24,12 @@
       <span class="update-banner__text">A newer version of UpstreamWX is available.</span>
       <button class="update-banner__btn" id="update-reload" type="button">Reload</button>
     </div>
+    <!-- Transient-failure nudge: shown when a briefing request returns 503 (server busy) or 504
+         (gateway timeout). Lets the user retry the same mission without a confusing dead-end. -->
+    <div class="busy-banner" id="busy-banner" hidden role="alert">
+      <span class="busy-banner__text">The briefing service is busy. Your last briefing is still shown.</span>
+      <button class="busy-banner__btn" id="busy-retry" type="button">Retry</button>
+    </div>
     <div class="app">
       <header class="app-header" id="header"></header>
       <nav class="tab-bar" id="tabs" role="tablist" aria-label="Briefing views"></nav>
