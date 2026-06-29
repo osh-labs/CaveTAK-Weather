@@ -1629,6 +1629,7 @@ function renderResources(b) {
     <section class="card">
       <h2 class="section-title" style="margin-bottom:var(--space-3)">Export &amp; offline</h2>
       <button class="btn-primary" id="export-pdf">Export briefing to PDF</button>
+      <p id="export-pdf-error" hidden style="font-size:var(--text-caption);color:var(--color-extreme);margin-top:var(--space-2)"></p>
       <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin-top:var(--space-3);overflow-wrap:anywhere">
         The most recent briefing is cached for offline review. ${b.cached || state.fromCache ? "Currently showing a cached copy." : "Online — showing the latest cycle."}
         Threshold matrix version <span class="mono">${esc(b.threshold_version)}</span>.
@@ -1645,19 +1646,18 @@ function renderResources(b) {
 
 /* Export the current briefing to PDF (FR-27).
  *
- * Sends the structured briefing to POST /v1/briefing/pdf, which renders
- * briefing-pdf.html server-side via headless Chromium and returns a clean PDF
- * with no browser URL chrome or iOS print-preview traps.  The user downloads
- * it and prints at will.
- *
- * Falls back to the client-side localStorage → print path when the server
- * endpoint is unavailable (offline PWA, older deploy without Playwright). */
+ * POST /v1/briefing/pdf renders briefing-pdf.html server-side via headless
+ * Chromium and returns a clean application/pdf blob.  The browser saves it as
+ * a file — no window.print(), no browser resize, no URL chrome in the output.
+ * The user can then print or share the saved file however they like. */
 async function exportBriefingPdf(b) {
   const briefing = b || state.briefing;
   if (!briefing) return;
 
   const btn = document.getElementById("export-pdf");
+  const errEl = document.getElementById("export-pdf-error");
   if (btn) { btn.disabled = true; btn.textContent = "Generating PDF…"; }
+  if (errEl) errEl.hidden = true;
 
   try {
     const res = await fetch("/v1/briefing/pdf", {
@@ -1665,7 +1665,11 @@ async function exportBriefingPdf(b) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(briefing),
     });
-    if (!res.ok) throw new Error(`server pdf: ${res.status}`);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1677,9 +1681,10 @@ async function exportBriefingPdf(b) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   } catch (e) {
-    // Server unavailable or offline — fall back to the client-side print path.
-    try { localStorage.setItem("uwx.pdf.briefing", JSON.stringify(briefing)); } catch (_) {}
-    window.location.assign("pdf/briefing-pdf.html?print=1");
+    if (errEl) {
+      errEl.textContent = `PDF export failed: ${e.message}`;
+      errEl.hidden = false;
+    }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Export briefing to PDF"; }
   }

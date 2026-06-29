@@ -81,9 +81,10 @@ async def render_pdf(briefing: dict) -> bytes:
                 format="Letter",
                 print_background=True,
                 display_header_footer=False,
-                # @page margins in the CSS own the geometry; set to zero here so
-                # Playwright doesn't add its own margin on top.
-                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+                # Let the template's @page CSS own all geometry (size, margins,
+                # running footer placement).  prefer_css_page_size=True prevents
+                # Playwright's own margin defaults from overriding @page rules.
+                prefer_css_page_size=True,
             )
         finally:
             await browser.close()
