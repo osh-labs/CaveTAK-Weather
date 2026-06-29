@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("upstreamwx.pdf")
@@ -84,40 +86,47 @@ async def render_pdf(briefing: dict) -> bytes:
     exe = _chromium_path()
     launch_kwargs: dict = {
         "headless": True,
-        # --no-sandbox: Chromium's renderer sandbox uses Linux user namespaces, which the
-        # production systemd unit restricts (RestrictNamespaces=true).  We only ever load
-        # a local file:// URL we generate, so losing the sandbox here has no security impact.
-        # --disable-dev-shm-usage: avoids /dev/shm exhaustion in constrained environments
-        # (systemd PrivateTmp, containers); Chromium falls back to /tmp instead.
-        "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        "args": [
+            "--no-sandbox",           # RestrictNamespaces=true blocks the renderer sandbox
+            "--disable-dev-shm-usage",  # PrivateTmp constrains /dev/shm; fall back to /tmp
+            "--disable-crash-reporter",  # suppress crashpad trying to write a database
+        ],
     }
     if exe:
         launch_kwargs["executable_path"] = exe
 
     briefing_json = json.dumps(briefing)
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(**launch_kwargs)
-        try:
-            page = await browser.new_page()
-            # Inject before any page script runs so boot() sees window.__BRIEFING__.
-            await page.add_init_script(f"window.__BRIEFING__ = {briefing_json};")
-            await page.goto(
-                template_path.as_uri(),
-                wait_until="networkidle",
-                timeout=30_000,
-            )
-            pdf_bytes = await page.pdf(
-                format="Letter",
-                print_background=True,
-                display_header_footer=False,
-                # Let the template's @page CSS own all geometry (size, margins,
-                # running footer placement).  prefer_css_page_size=True prevents
-                # Playwright's own margin defaults from overriding @page rules.
-                prefer_css_page_size=True,
-            )
-        finally:
-            await browser.close()
+    # google-chrome-stable is a shell wrapper that tries to create
+    # $HOME/.local/share/applications/ before exec-ing the real binary.
+    # Under ProtectSystem=strict the service user's HOME (/opt/upstreamwx) is
+    # read-only, so that mkdir fails and Chrome exits before it even starts.
+    # Point HOME at a throwaway temp dir for the duration of this call.
+    with tempfile.TemporaryDirectory(prefix="uwx-chrome-home-") as tmp_home:
+        launch_kwargs["env"] = {**os.environ, "HOME": tmp_home}
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(**launch_kwargs)
+            try:
+                page = await browser.new_page()
+                # Inject before any page script runs so boot() sees window.__BRIEFING__.
+                await page.add_init_script(f"window.__BRIEFING__ = {briefing_json};")
+                await page.goto(
+                    template_path.as_uri(),
+                    wait_until="networkidle",
+                    timeout=30_000,
+                )
+                pdf_bytes = await page.pdf(
+                    format="Letter",
+                    print_background=True,
+                    display_header_footer=False,
+                    # Let the template's @page CSS own all geometry (size, margins,
+                    # running footer placement).  prefer_css_page_size=True prevents
+                    # Playwright's own margin defaults from overriding @page rules.
+                    prefer_css_page_size=True,
+                )
+            finally:
+                await browser.close()
 
     logger.info("pdf rendered: %d bytes", len(pdf_bytes))
     return pdf_bytes
