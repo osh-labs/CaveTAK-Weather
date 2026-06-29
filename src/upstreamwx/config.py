@@ -95,11 +95,11 @@ class Settings(BaseSettings):
     api_enable_decode_pool: bool = False
     # Worker count for the decode pool when enabled. Keep small — see the RSS-per-worker note above.
     decode_pool_workers: int = Field(default_factory=lambda: min(4, (os.cpu_count() or 2)))
-    # Resident byte budget for the in-process decoded-grid LRU (memory-aware eviction). The old
-    # flat count cap thrashed on a GEFS briefing's working set; this bounds memory while keeping
-    # grids resident across briefings. With the pool off, the LRU holds full ~16.5 MB GEFS grids, so
-    # this is the main-process cap — 256 MiB is safe on a ≤2 GB host (raise it where RAM allows).
-    decode_cache_max_bytes: int = 256 * 1024 * 1024
+    # Resident byte budget for the in-process decoded-grid LRU (memory-aware eviction). GEFS decodes
+    # are cropped at decode time (~KB each), so this mainly bounds the larger REFS native grids; a
+    # conservative 128 MiB keeps the resident cache safe on a ≤2 GB host (raise where RAM allows).
+    # Replaces the old flat 48-entry count cap that retained full grids.
+    decode_cache_max_bytes: int = 128 * 1024 * 1024
 
     # Hard entry cap for the in-process briefing cache and the engine-result store (M0.3).
     # Both are keyed by mission and were previously unbounded dicts — on an always-on host

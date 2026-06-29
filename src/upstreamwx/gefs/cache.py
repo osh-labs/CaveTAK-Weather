@@ -84,16 +84,18 @@ def _decode(path: Path) -> xr.DataArray:
 def _decode_cropped(
     path: Path, bbox: tuple[float, float, float, float], margin: float
 ) -> xr.DataArray:
-    """Decode a member subset and crop+normalize to ``bbox`` (the decode-pool worker callable).
+    """Decode a member subset and crop+normalize to ``bbox``, returning a small detached array.
 
-    Top-level (hence picklable) so it can run in the decode :class:`ProcessPoolExecutor` via
-    ``functools.partial(_decode_cropped, bbox=..., margin=...)``. Cropping in the worker means it
-    returns a few-hundred-cell array (~KB) instead of the ~16.5 MB global grid, so the cross-process
-    result transfer is cheap — that is what makes the pool a net win for GEFS (FR-7). The crop is
-    identical to what :func:`crop_and_normalize` applies per-polygon; aggregation then masks each
-    domain over the cropped grid unchanged (NFR-4).
+    Top-level (hence picklable) so it can also run in the decode :class:`ProcessPoolExecutor` via
+    ``functools.partial(_decode_cropped, bbox=..., margin=...)``. Used on **both** paths: in the
+    pool worker (the small result is cheap to ship back) and in-process (the default on a small
+    host). The trailing ``.copy()`` is load-bearing for the in-process path — xarray slicing returns
+    a *view* that pins the whole ~16.5 MB global grid alive, so without it the LRU and the 16-way
+    member fan-out would each retain full grids (the OOM that 502'd the 2 GB host). Copying the
+    few-hundred-cell crop lets the full grid be freed immediately. The crop is identical to
+    :func:`crop_and_normalize` per-polygon; aggregation masks each domain over it unchanged (NFR-4).
     """
-    return crop_bbox_normalize(_decode(path), bbox, margin=margin)
+    return crop_bbox_normalize(_decode(path), bbox, margin=margin).copy(deep=True)
 
 
 def _ensure_member_subset(
@@ -151,27 +153,31 @@ def load_member_field_cached(
     under the cycle dir, then decoded. ``fcst`` selects the accumulation/valid-time window;
     ``level`` disambiguates (e.g. CAPE ``surface`` vs ``180-0 mb above ground``).
 
-    When ``crop_bbox`` is given and ``use_pool`` is set, the decode runs in the out-of-process
-    decode pool and crops+normalizes to ``crop_bbox`` *inside the worker* (so a ~KB array crosses
-    the process boundary, not the 16.5 MB global grid). The returned ``data`` is then already
-    cropped to [-180, 180) — callers must NOT crop again. Otherwise the field is decoded in-process
-    and returned uncropped (the legacy path; the on-disk subset cache stays polygon-agnostic).
+    When ``crop_bbox`` is given the decode crops+normalizes to it (in the pool worker if
+    ``use_pool`` and one is installed, else in-process), so ``data`` comes back as the small cropped
+    grid already in [-180, 180) — callers must NOT crop again. Cropping at decode time (not after)
+    keeps the retained/in-flight arrays ~KB rather than the 16.5 MB global grid, which is what makes
+    GEFS fit in memory on a small host. With ``crop_bbox`` unset it returns the uncropped grid (the
+    on-disk subset cache stays polygon-agnostic either way).
     """
     settings = settings or get_settings()
     path, selected = _ensure_member_subset(
         cycle, member, fhour, var, fcst, level, res_set, settings=settings, refresh=refresh
     )
 
-    cropped = crop_bbox is not None and use_pool
+    # Crop in the decode whenever a bbox is supplied — in the pool worker if one is installed, else
+    # in-process. Either way the retained/returned array is the small cropped grid, not the 16.5 MB
+    # global one (the in-process full-grid retention is what OOM-killed the 2 GB host).
+    cropped = crop_bbox is not None
     if cropped:
         da = decode_cached(
             path,
             functools.partial(_decode_cropped, bbox=crop_bbox, margin=margin),
-            use_pool=True,
+            use_pool=use_pool,
             key_extra=("crop", crop_bbox, margin),
         )
     else:
-        da = decode_cached(path, _decode)
+        da = decode_cached(path, _decode, use_pool=use_pool)
     return GefsField(
         name=var,
         member=member,

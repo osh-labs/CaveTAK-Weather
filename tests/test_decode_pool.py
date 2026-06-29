@@ -218,6 +218,20 @@ def test_pool_crop_aggregate_matches_in_process() -> None:
         assert pooled == in_proc  # exact equality — NFR-4 determinism
 
 
+def test_decode_cropped_returns_detached_small_array(monkeypatch, tmp_path: Path) -> None:
+    """_decode_cropped returns a SMALL, DETACHED array so the 16.5 MB global grid is freed.
+
+    In-process, xarray slicing returns a view that pins the full grid alive; the .copy(deep=True)
+    in _decode_cropped is what releases it (the fix for the 2 GB-host OOM). Assert the result is
+    much smaller than the global grid and not a view into it (``.values.base is None``).
+    """
+    da = _synthetic_global_grid()
+    monkeypatch.setattr("upstreamwx.gefs.cache._decode", lambda _p: da)
+    out = _decode_cropped(tmp_path / "x.grib2", (-112.0, 36.0, -110.0, 38.0), 1.0)
+    assert out.size < da.size / 10  # cropped to a small neighborhood
+    assert out.values.base is None  # detached copy — full grid can be GC'd
+
+
 def test_crop_and_normalize_matches_bbox_core() -> None:
     """``crop_and_normalize(da, poly)`` is exactly the bbox core over ``poly.bounds`` (refactor)."""
     da = _synthetic_global_grid()

@@ -287,19 +287,21 @@ every cfgrib decode was serialized on one global lock (eccodes is not thread-saf
 member fan-out decoded one-at-a-time. Three fixes: (1) **GEFS warming is on by default** — the
 scheduler *and* `deploy/deploy.sh` pre-warm the `gefs_warm_fhours` band (default f24–f120 / 6 h, the
 horizon GEFS owns beyond REFS), via a parallel **download-only** `gefs.warm_cycle` (no wasted decode
-at warm time); (2) the per-member GEFS **decode can run in a spawn `ProcessPoolExecutor`** owned by
-the API lifespan (`api_enable_decode_pool`, **opt-in / default OFF**; absent in CLI/tests too), with
-the crop pushed *into the worker* (`gefs.cache._decode_cropped` over the union of the watershed +
-LAoC bboxes) so only a ~KB array crosses the process boundary, and the pool path skips the compute
-lock (cross-process decode is eccodes-safe; broken-pool falls back in-process, NFR-6). **The pool is
-off by default because each spawn worker re-imports the scientific stack (xarray + cfgrib +
-regionmask/rasterio + timezonefinder) at ~300–500 MB RSS each — it OOM-killed uvicorn on the ≤2 GB
-prod host (→ nginx 502). Only enable it on a host with real RAM headroom; otherwise the
-single-interpreter in-process decode plus GEFS warming is the safe path.** (3) the decoded-grid LRU
-(`grib/cache.py`) is now **memory-budget-aware** (`decode_cache_max_bytes`, default ~256 MiB — the
-main-process cap when the pool is off and the LRU holds full grids) with a count backstop instead of
-a flat 48-entry cap. Engine output is unchanged — the union-crop-then-mask is bit-identical to
-decode-full-then-crop-per-domain (NFR-4).
+at warm time); (2) each per-member GEFS **decode crops to the union of the watershed + LAoC bboxes
+at decode time** (`gefs.cache._decode_cropped`, returning a detached ~KB array, *not* the 16.5 MB
+global grid) — this happens **in-process by default** so the 16-way member fan-out and the LRU never
+retain full grids (retaining full grids in-process is what OOM-killed uvicorn on the ≤2 GB prod host
+→ nginx 502). The crop can *optionally* run in a spawn `ProcessPoolExecutor` owned by the API
+lifespan (`api_enable_decode_pool`, **opt-in / default OFF**; the pool path skips the compute lock —
+cross-process decode is eccodes-safe — and falls back in-process on a broken pool, NFR-6). **The
+pool is off by default because each spawn worker re-imports the scientific stack (xarray + cfgrib +
+regionmask/rasterio + timezonefinder) at ~300–500 MB RSS each, which OOMs a small host; only enable
+it where there is real RAM headroom.** Cropping at decode time is bit-identical to the old
+decode-full-then-crop-per-domain (NFR-4). (3) the decoded-grid LRU
+(`grib/cache.py`) is now **memory-budget-aware** (`decode_cache_max_bytes`, default ~128 MiB; with
+GEFS cropped at decode time this mainly bounds the larger REFS native grids) with a count backstop
+instead of a flat 48-entry cap. Engine output is unchanged — the union-crop-then-mask is
+bit-identical to decode-full-then-crop-per-domain (NFR-4).
 
 **Briefing tab.** The PWA now has six primary tabs in this order: Overview, Map, Hazards,
 **Briefing**, Forecast, Resources. The Briefing tab renders the full Markdown SITREP
