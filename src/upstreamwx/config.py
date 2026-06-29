@@ -31,24 +31,29 @@ class Settings(BaseSettings):
     # override for a packaged deployment, or to "" to disable static serving entirely.
     frontend_dir: Path | None = None
 
-    # Optional override for the SREF source base URL once Spike A pins it.
-    sref_base_url: str | None = None
+    # Optional override for the GEFS source base URL (NOMADS gens/prod; SREF replacement).
+    gefs_base_url: str | None = None
 
-    # Optional override for the HREF source base URL (same-day supplement, Spike C).
-    href_base_url: str | None = None
+    # Optional override for the REFS source base URL (AWS rrfs_a; HREF replacement).
+    refs_base_url: str | None = None
 
     # The NWS API (api.weather.gov) requires a self-identifying User-Agent with a
     # contact (FR-5). Override via UPSTREAMWX_NWS_USER_AGENT to your own contact.
     nws_user_agent: str = "UpstreamWX/0.1 (+https://upstreamwx.com)"
 
-    # Number of recent SREF cycles to retain in the on-disk grid cache before pruning
-    # (roadmap §M0.1.1). 4 covers NOMADS's ~2-day retention (4 cycles/day at 03/09/15/21Z).
-    sref_cache_keep_cycles: int = 4
+    # Number of recent GEFS cycles to retain in the on-disk member cache before pruning.
+    # 4 covers ~1 day of GEFS's four daily cycles (00/06/12/18Z).
+    gefs_cache_keep_cycles: int = 4
 
-    # Number of recent HREF *runs* (00/12Z) to retain in the on-disk grid cache (roadmap
-    # §M0.1.1). 3 guarantees the previous run is present to backfill the current run's
-    # spin-up hours (f01-f05) even on a missed scheduler tick or a late publish.
-    href_cache_keep_cycles: int = 3
+    # Number of recent REFS *runs* (00/06/12/18Z) to retain in the on-disk grid cache. 3
+    # guarantees the previous run is present to backfill the current run's spin-up hours
+    # even on a missed scheduler tick or a late publish.
+    refs_cache_keep_cycles: int = 3
+
+    # GEFS forecast hours the scheduler pre-warms each cycle. GEFS is per-member (31×fields),
+    # so warming is heavy: empty by default → GEFS serves on demand via its parallel
+    # cache-through fetch. Set e.g. UPSTREAMWX_GEFS_WARM_FHOURS=[24,36,48] to pre-warm a band.
+    gefs_warm_fhours: list[int] = Field(default_factory=list)
 
     # Start the M0.3 API's background refresh scheduler on app startup (FR-12). Default
     # on for the always-on EC2 service; set UPSTREAMWX_API_ENABLE_SCHEDULER=0 to run the
@@ -62,7 +67,7 @@ class Settings(BaseSettings):
     api_enable_warm: bool = True
 
     # Dead-man's-switch monitoring (Healthchecks.io or any ping-on-success service). When
-    # set, the SREF/AFD refresh scheduler pings this URL each cycle (".../start" before the
+    # set, the GEFS/REFS + AFD refresh scheduler pings this URL each cycle (".../start" before the
     # pass, the base URL on success, ".../fail" on error). A stalled scheduler — stale
     # briefings with no error, the most dangerous failure mode on the always-on host — then
     # raises an alert instead of going unnoticed. Unset -> no pings. The ping URL is a

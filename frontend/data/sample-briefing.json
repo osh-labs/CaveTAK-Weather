@@ -1,5 +1,5 @@
 {
-  "_comment": "Live briefing for Pettyjohn's Cave, 2026-06-18. Generated from a real engine run against live NWS/SREF/HREF/Open-Meteo ingest. At M0.4 this fetch is swapped for POST /v1/briefing; the render layer is unchanged. A 3 km Radius of Concern was added for the M0.5 demo: the watershed geometry is the clipped (kept) basin, excluded_geometry is the hatched remainder, and roc is the dashed ring.",
+  "_comment": "Live briefing for Pettyjohn's Cave, 2026-06-18. Generated from a real engine run against live NWS/GEFS/REFS/Open-Meteo ingest. At M0.4 this fetch is swapped for POST /v1/briefing; the render layer is unchanged. A 3 km Radius of Concern was added for the M0.5 demo: the watershed geometry is the clipped (kept) basin, excluded_geometry is the hatched remainder, and roc is the dashed ring.",
   "mission": {
     "name": "Pettyjohn's Cave",
     "activity": "cave",
@@ -860,7 +860,7 @@
   },
   "overall_posture": "Extreme",
   "overall_confidence": "Moderate",
-  "threshold_version": "flash_flood=1.2.0;lightning=1.1.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0",
+  "threshold_version": "flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0",
   "generated_at": "2026-06-18T16:20:40.058819+00:00",
   "cache_cycle": "2026061815z",
   "framed": false,
@@ -875,8 +875,8 @@
     "href": true
   },
   "warnings": [],
-  "markdown": "# UPSTREAMWX \u2014 MISSION BRIEFING\n\n**Mission:** Pettyjohn\u2019s Cave  |  **Type:** Cave  |  **Window:** 2026-06-18 13:00\u20132026-06-18 22:00\n**Location:** 34.665, -85.361667  |  **Upstream domain:** pour-point delineation (~2 mi\u00b2)\n\n## BLUF\n\n**OVERALL POSTURE: Extreme**  \u00b7  Confidence: Moderate\n\n| Hazard | Posture | Confidence | Window of concern |\n|---|---|---|---|\n| Flash flood | High | Moderate | 14:00\u201321:00 |\n| Lightning | Extreme | Moderate | 13:00\u201314:00 |\n| Heat | Caution | Moderate | 13:00\u201314:00 |\n| Cold/wet | Minimal | Moderate | \u2014 |\n\n## PHASE BREAKDOWN\n\n### Approach (13:00\u201314:00)\n- Lightning: Extreme (primary)\n- Heat: Caution\n- Cold/wet: Minimal\n\n### Technical span (14:00\u201321:00)\n- Flash flood: High (primary)\n- Heat: Caution\n- Cold/wet: Minimal\n\n### Egress (21:00\u201322:00)\n- Cold/wet: Minimal (primary)\n- Heat: Caution\n\n## KEY DRIVERS (per active hazard)\n\n### Flash flood\n- SREF P(precip/thunder) 65% \u2265 60% over upstream domain\n- HREF neighborhood P(QPF) 4% below High threshold\n\n### Lightning\n- SREF P(tstm) 92% \u2265 70% (Extreme threshold)\n- SPC slight risk over window\n- AFD: scattered convection\n\n### Heat\n- Heat index 87 \u00b0F \u2192 Caution\n- Approach involves exertion under load.\n\n### Cold/wet\n- Apparent temperature 72 \u00b0F (wet-party basis)\n- Assumes a wet party on egress (FR-16).\n\n## UPSTREAM WATERSHED SUMMARY\n\nFlash-flood assessment aggregates over a pour-point delineated basin (~2 mi\u00b2, 3 km Radius of Concern applied).\n\n## SOURCE DATA (drill-down)\n\nThreshold config: flash_flood=1.2.0;lightning=1.1.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0\n\nActive NWS products:\n- Flash Flood Warning: no\n- Flash Flood Watch: no\n- Thunderstorm Warning: no\n- SPC outlook: slight\n\nSREF ensemble (upstream domain):\n- P(precip/thunder): 65%\n- P(thunderstorm): 92%\n- CAPE: 2800 J/kg\n\nDerived fields (Open-Meteo):\n- Heat index: 87 \u00b0F\n- Apparent temp: 72 \u00b0F\n- Wind: 12 mph\n\n## SOURCES (verify)\n\n- NWS active alerts: https://api.weather.gov/alerts/active?point=34.665,-85.3617\n- NWS point forecast / AFD: https://forecast.weather.gov/MapClick.php?lat=34.665&lon=-85.3617\n- Model source (SREF): https://nomads.ncep.noaa.gov/pub/data/nccf/com/sref/prod\n\n## DISCLAIMER\n\nReference only. Not a decision-making tool. Verify against NWS.\n\nPlanning reference only \u2014 not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked above, and let what you see in the field overrule this briefing. The go/no-go decision is yours and your party\u2019s.\n",
-  "summary": "Flash flood risk is High (SREF 65%, HREF 4%). Lightning risk is Extreme, with SREF placing thunderstorm probability at 92%. Heat reaches the Caution threshold on the surface approach, where NWS reports a heat index of 87 \u00b0F. Cold/wet exposure risk is Minimal, with an apparent temperature of 72 \u00b0F on egress. Phase ratings were inferred from the overall forecast window rather than discrete phase data \u2014 verify against the linked NWS sources before entry.",
+  "markdown": "# UPSTREAMWX \u2014 MISSION BRIEFING\n\n**Mission:** Pettyjohn\u2019s Cave  |  **Type:** Cave  |  **Window:** 2026-06-18 13:00\u20132026-06-18 22:00\n**Location:** 34.665, -85.361667  |  **Upstream domain:** pour-point delineation (~2 mi\u00b2)\n\n## BLUF\n\n**OVERALL POSTURE: Extreme**  \u00b7  Confidence: Moderate\n\n| Hazard | Posture | Confidence | Window of concern |\n|---|---|---|---|\n| Flash flood | High | Moderate | 14:00\u201321:00 |\n| Lightning | Extreme | Moderate | 13:00\u201314:00 |\n| Heat | Caution | Moderate | 13:00\u201314:00 |\n| Cold/wet | Minimal | Moderate | \u2014 |\n\n## PHASE BREAKDOWN\n\n### Approach (13:00\u201314:00)\n- Lightning: Extreme (primary)\n- Heat: Caution\n- Cold/wet: Minimal\n\n### Technical span (14:00\u201321:00)\n- Flash flood: High (primary)\n- Heat: Caution\n- Cold/wet: Minimal\n\n### Egress (21:00\u201322:00)\n- Cold/wet: Minimal (primary)\n- Heat: Caution\n\n## KEY DRIVERS (per active hazard)\n\n### Flash flood\n- GEFS P(precip/thunder) 65% \u2265 60% over upstream domain\n- REFS neighborhood P(QPF) 4% below High threshold\n\n### Lightning\n- GEFS P(tstm) 92% \u2265 70% (Extreme threshold)\n- SPC slight risk over window\n- AFD: scattered convection\n\n### Heat\n- Heat index 87 \u00b0F \u2192 Caution\n- Approach involves exertion under load.\n\n### Cold/wet\n- Apparent temperature 72 \u00b0F (wet-party basis)\n- Assumes a wet party on egress (FR-16).\n\n## UPSTREAM WATERSHED SUMMARY\n\nFlash-flood assessment aggregates over a pour-point delineated basin (~2 mi\u00b2, 3 km Radius of Concern applied).\n\n## SOURCE DATA (drill-down)\n\nThreshold config: flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0\n\nActive NWS products:\n- Flash Flood Warning: no\n- Flash Flood Watch: no\n- Thunderstorm Warning: no\n- SPC outlook: slight\n\nSREF ensemble (upstream domain):\n- P(precip/thunder): 65%\n- P(thunderstorm): 92%\n- CAPE: 2800 J/kg\n\nDerived fields (Open-Meteo):\n- Heat index: 87 \u00b0F\n- Apparent temp: 72 \u00b0F\n- Wind: 12 mph\n\n## SOURCES (verify)\n\n- NWS active alerts: https://api.weather.gov/alerts/active?point=34.665,-85.3617\n- NWS point forecast / AFD: https://forecast.weather.gov/MapClick.php?lat=34.665&lon=-85.3617\n- Model source (GEFS): https://nomads.ncep.noaa.gov/pub/data/nccf/com/gens/prod\n\n## DISCLAIMER\n\nReference only. Not a decision-making tool. Verify against NWS.\n\nPlanning reference only \u2014 not a forecast, not a decision. Conditions change fast and models can be wrong. Verify against the official NWS sources linked above, and let what you see in the field overrule this briefing. The go/no-go decision is yours and your party\u2019s.\n",
+  "summary": "Flash flood risk is High (GEFS 65%, REFS 4%). Lightning risk is Extreme, with GEFS placing thunderstorm probability at 92%. Heat reaches the Caution threshold on the surface approach, where NWS reports a heat index of 87 \u00b0F. Cold/wet exposure risk is Minimal, with an apparent temperature of 72 \u00b0F on egress. Phase ratings were inferred from the overall forecast window rather than discrete phase data \u2014 verify against the linked NWS sources before entry.",
   "bluf": [
     {
       "hazard": "flash_flood",
@@ -938,7 +938,7 @@
       "icon": "lightning",
       "value": "92",
       "unit": "%",
-      "sub": "SREF P(tstm)"
+      "sub": "GEFS P(tstm)"
     }
   ],
   "phases": [
@@ -1058,10 +1058,10 @@
       "severity_class": "sev-high",
       "confidence": "Moderate",
       "drivers": [
-        "SREF P(precip/thunder) 65% \u2265 60% over upstream domain",
+        "GEFS P(precip/thunder) 65% \u2265 60% over upstream domain",
         "AFD excessive-rainfall / flooding discussion concurs"
       ],
-      "logic": "Extreme = active Flash Flood Warning; High = Watch OR SREF \u226560% w/ convective rate; Elevated = SREF 20\u201359% OR HREF NEP(\u22650.5 in/1 h) 20\u201339% (Appendix B \u00a716.1).",
+      "logic": "Extreme = active Flash Flood Warning; High = Watch OR GEFS \u226560% w/ convective rate; Elevated = GEFS 20\u201359% OR REFS NEP(\u22650.5 in/1 h) 20\u201339% (Appendix B \u00a716.1).",
       "assumptions": []
     },
     {
@@ -1070,11 +1070,11 @@
       "severity_class": "sev-extreme",
       "confidence": "Moderate",
       "drivers": [
-        "SREF P(tstm) 92% \u2265 70%",
+        "GEFS P(tstm) 92% \u2265 70%",
         "SPC marginal risk over window",
         "AFD mentions isolated/scattered afternoon convection"
       ],
-      "logic": "Extreme = SREF P(tstm) \u226570% OR SPC Moderate+ during any exposed phase (Appendix B \u00a716.2). Cave interior excluded for the technical span (FR-14c).",
+      "logic": "Extreme = GEFS P(tstm) \u226570% OR SPC Moderate+ during any exposed phase (Appendix B \u00a716.2). Cave interior excluded for the technical span (FR-14c).",
       "assumptions": []
     },
     {
@@ -1308,7 +1308,7 @@
     {
       "icon": "model",
       "title": "Model & ensemble source",
-      "sub": "Open-Meteo (HRRR-derived) \u00b7 SREF + HREF (NOMADS ensprod, in-house)",
+      "sub": "Open-Meteo (HRRR-derived) \u00b7 GEFS (member exceedance) + REFS (3 km enspost NEP)",
       "url": "https://open-meteo.com/"
     },
     {

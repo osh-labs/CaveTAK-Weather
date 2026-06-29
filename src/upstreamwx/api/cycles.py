@@ -1,4 +1,4 @@
-"""Refresh-cycle arithmetic aligned to the SREF/AFD update cadence (PRD FR-12).
+"""Refresh-cycle arithmetic aligned to the GEFS/REFS + AFD update cadence (PRD FR-12).
 
 Briefings are cached and regenerated on the model cycle, not per request, so reopening
 the app costs nothing (PRD §7, §11). The SREF ensemble runs every six hours at
@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-# SREF run cycle (UTC hours). The refresh cadence anchors here (roadmap §M0.1.1).
-SREF_CYCLE_HOURS: tuple[int, ...] = (3, 9, 15, 21)
+# GEFS/REFS run cycle (UTC hours); both run 00/06/12/18Z. The refresh cadence anchors here.
+ENSEMBLE_CYCLE_HOURS: tuple[int, ...] = (0, 6, 12, 18)
 
 
 def _as_utc(now: datetime) -> datetime:
@@ -26,28 +26,28 @@ def _as_utc(now: datetime) -> datetime:
 
 
 def current_cycle(now: datetime | None = None) -> datetime:
-    """The most recent SREF cycle boundary at or before ``now`` (UTC, hour-floored)."""
+    """The most recent ensemble cycle boundary at or before ``now`` (UTC, hour-floored)."""
     now = _as_utc(now or datetime.now(UTC))
     floor = now.replace(minute=0, second=0, microsecond=0)
-    for hour in reversed(SREF_CYCLE_HOURS):
+    for hour in reversed(ENSEMBLE_CYCLE_HOURS):
         if floor.hour >= hour:
             return floor.replace(hour=hour)
     # Before the day's first boundary -> the last boundary of the previous day.
     prev = floor - timedelta(days=1)
-    return prev.replace(hour=SREF_CYCLE_HOURS[-1])
+    return prev.replace(hour=ENSEMBLE_CYCLE_HOURS[-1])
 
 
 def next_cycle(now: datetime | None = None) -> datetime:
-    """The next SREF cycle boundary strictly after ``now`` (UTC)."""
+    """The next ensemble cycle boundary strictly after ``now`` (UTC)."""
     now = _as_utc(now or datetime.now(UTC))
     floor = now.replace(minute=0, second=0, microsecond=0)
-    for hour in SREF_CYCLE_HOURS:
+    for hour in ENSEMBLE_CYCLE_HOURS:
         candidate = floor.replace(hour=hour)
         if candidate > now:
             return candidate
     # Past the day's last boundary -> the first boundary of the next day.
     nxt = floor + timedelta(days=1)
-    return nxt.replace(hour=SREF_CYCLE_HOURS[0])
+    return nxt.replace(hour=ENSEMBLE_CYCLE_HOURS[0])
 
 
 def cycle_key(now: datetime | None = None) -> str:

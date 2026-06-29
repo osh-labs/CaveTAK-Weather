@@ -19,7 +19,6 @@ import pytest
 
 from upstreamwx.config import Settings
 from upstreamwx.sref.cache import (
-    DEFAULT_FIELDS,
     _cycle_dir,
     _subset_name,
     cached_cycles,
@@ -198,31 +197,35 @@ def test_cached_cycles_empty_when_no_cache(settings: Settings) -> None:
 
 # --- warm_and_prune + scheduler cadence (no real clock) ---------------------
 
-def test_warm_and_prune_warms_live_cycle(settings: Settings, fixtures_dir: Path) -> None:
-    """The service warms the live cycle's full field set and reports the count."""
+# NB (SREF->GEFS, HREF->REFS transition): the scheduler now warms GEFS + REFS. These two
+# tests pin the service-level orchestration of warm_and_prune (warm each ensemble, sum the
+# count, prune) by mocking the per-ensemble warm; the package-level cache primitives above
+# still cover the SREF subset machinery the REFS cache reuses.
+def test_warm_and_prune_warms_live_cycle(settings: Settings) -> None:
+    """The service warms each live ensemble cycle and reports the summed count."""
     from upstreamwx.api.service import BriefingService
+    from upstreamwx.refs.sources import RefsCycle
 
+    rcycle = RefsCycle(date="20260617", hour=12)
     with (
-        patch("upstreamwx.api.service.latest_available_cycle", return_value=CYCLE),
-        # HREF is warmed independently in the same pass; isolate the SREF count here.
-        patch("upstreamwx.api.service.href.latest_available_cycle", return_value=None),
-        patch("upstreamwx.sref.cache.fetch_idx", return_value=[]),
-        patch("upstreamwx.sref.cache.select_messages", return_value=["msg"]),
-        patch("upstreamwx.sref.cache.download_subset", side_effect=_fake_download(fixtures_dir)),
+        # GEFS warming is off by default (empty gefs_warm_fhours) → isolate the REFS count.
+        patch("upstreamwx.api.service.gefs.latest_available_cycle", return_value=None),
+        patch("upstreamwx.api.service.refs.latest_available_cycle", return_value=rcycle),
+        patch("upstreamwx.api.service.refs.warm_cycle", return_value=["a", "b", "c"]),
+        patch("upstreamwx.api.service.refs.prune_old_cycles", return_value=[]),
     ):
         warmed = BriefingService().warm_and_prune()
 
-    assert warmed == len(DEFAULT_FIELDS)
-    assert (settings.data_dir / "sref" / "20260617_15").is_dir()
+    assert warmed == 3
 
 
 def test_warm_and_prune_no_live_cycle(settings: Settings) -> None:
-    """No live cycle on NOMADS is non-fatal — warm reports 0 and does not raise (NFR-6)."""
+    """No live cycle for either ensemble is non-fatal — warm reports 0, no raise (NFR-6)."""
     from upstreamwx.api.service import BriefingService
 
     with (
-        patch("upstreamwx.api.service.latest_available_cycle", return_value=None),
-        patch("upstreamwx.api.service.href.latest_available_cycle", return_value=None),
+        patch("upstreamwx.api.service.gefs.latest_available_cycle", return_value=None),
+        patch("upstreamwx.api.service.refs.latest_available_cycle", return_value=None),
     ):
         assert BriefingService().warm_and_prune() == 0
 

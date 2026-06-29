@@ -31,11 +31,11 @@ def _utc(y, m, d, h, mi=0):
 @pytest.mark.parametrize(
     "now,expected_hour,expected_day",
     [
-        (_utc(2026, 6, 18, 16), 15, 18),   # mid-afternoon -> 15Z
-        (_utc(2026, 6, 18, 3), 3, 18),     # exactly on a boundary -> that boundary
-        (_utc(2026, 6, 18, 1), 21, 17),    # before first boundary -> prior day's 21Z
-        (_utc(2026, 6, 18, 9, 59), 9, 18),
-        (_utc(2026, 6, 18, 23), 21, 18),
+        (_utc(2026, 6, 18, 16), 12, 18),   # mid-afternoon -> 12Z
+        (_utc(2026, 6, 18, 6), 6, 18),     # exactly on a boundary -> that boundary
+        (_utc(2026, 6, 18, 23), 18, 18),
+        (_utc(2026, 6, 18, 9, 59), 6, 18),
+        (_utc(2026, 6, 18, 1), 0, 18),     # after the day's first boundary (00Z)
     ],
 )
 def test_current_cycle(now, expected_hour, expected_day):
@@ -46,10 +46,10 @@ def test_current_cycle(now, expected_hour, expected_day):
 @pytest.mark.parametrize(
     "now,expected_hour,expected_day",
     [
-        (_utc(2026, 6, 18, 16), 21, 18),
-        (_utc(2026, 6, 18, 3), 9, 18),     # strictly after, not equal
-        (_utc(2026, 6, 18, 23), 3, 19),    # rolls to next day's first boundary
-        (_utc(2026, 6, 18, 1), 3, 18),
+        (_utc(2026, 6, 18, 16), 18, 18),
+        (_utc(2026, 6, 18, 6), 12, 18),    # strictly after, not equal
+        (_utc(2026, 6, 18, 23), 0, 19),    # rolls to next day's first boundary
+        (_utc(2026, 6, 18, 1), 6, 18),
     ],
 )
 def test_next_cycle(now, expected_hour, expected_day):
@@ -58,12 +58,12 @@ def test_next_cycle(now, expected_hour, expected_day):
 
 
 def test_cycle_key_and_seconds():
-    assert cycle_key(_utc(2026, 6, 18, 16)) == "2026-06-18T15Z"
-    assert seconds_until_next_cycle(_utc(2026, 6, 18, 16)) == 5 * 3600  # 16Z -> 21Z
+    assert cycle_key(_utc(2026, 6, 18, 16)) == "2026-06-18T12Z"
+    assert seconds_until_next_cycle(_utc(2026, 6, 18, 16)) == 2 * 3600  # 16Z -> 18Z
 
 
 def test_naive_datetime_treated_as_utc():
-    assert current_cycle(datetime(2026, 6, 18, 16)).hour == 15
+    assert current_cycle(datetime(2026, 6, 18, 16)).hour == 12
 
 
 def test_cache_hit_miss_by_cycle():

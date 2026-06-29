@@ -173,19 +173,19 @@ const GLOSSARY = [
   ["WFO", "Weather Forecast Office", "A local NWS office responsible for forecasts and warnings in its area (e.g. WFO MRX)."],
   ["AFD", "Area Forecast Discussion", "The forecaster's plain-language reasoning behind the local forecast, published by each WFO."],
   ["SPC", "Storm Prediction Center", "The NWS center that issues severe-thunderstorm and tornado outlooks."],
-  ["SREF", "Short-Range Ensemble Forecast", "An NWS ensemble of model runs, used here for hazard probabilities beyond the same-day window."],
-  ["HREF", "High-Resolution Ensemble Forecast", "An NWS high-resolution (~3 km) ensemble, used here for same-day (~6 to 36 h) probabilities."],
+  ["GEFS", "Global Ensemble Forecast System", "NWS's global ensemble (31 members), used here for hazard probabilities beyond the same-day window. Replaced SREF after its 2026-08-31 retirement."],
+  ["REFS", "Rapid Ensemble Forecast System", "NWS's high-resolution (~3 km) convection-allowing ensemble (the RRFS Ensemble), used here for same-day (~6 to 36 h) probabilities. Replaced HREF after its 2026-08-31 retirement."],
   ["HRRR", "High-Resolution Rapid Refresh", "An hourly-updating high-resolution NWS model. The Open-Meteo derived fields shown here are HRRR-based."],
   ["HUC-12", "Hydrologic Unit Code (12-digit)", "A USGS watershed identifier. HUC-12 is the small sub-watershed scale used to aggregate rain upstream of your point."],
   ["HUC", "Hydrologic Unit Code", "A USGS nested watershed identifier. Smaller units (more digits) mean a finer drainage area."],
   ["QPF", "Quantitative Precipitation Forecast", "Forecast precipitation amount (e.g. inches) over a given period."],
   ["NEP", "Neighborhood Ensemble Probability", "The probability an event occurs within a neighborhood of a point across the ensemble members."],
   ["CAPE", "Convective Available Potential Energy", "A measure of atmospheric instability (J/kg). Higher CAPE means more energy available for storm development; used to modulate lightning confidence, not to set the tier directly."],
-  ["P(tstm)", "Probability of Thunderstorms", "The SREF ensemble probability that at least one member produces a thunderstorm over the aggregation domain. The primary lightning tier driver beyond the same-day window."],
-  ["P(precip)", "Probability of Precipitation", "The SREF ensemble probability of measurable precipitation over the upstream watershed. A primary input to the flash flood tier."],
-  ["P(ltg)", "Probability of Lightning", "The HREF same-day probability of a lightning strike within the aggregation domain (~6–36 h window). Sharpens the lightning tier when HREF is in range."],
-  ["RoC", "Radius of Concern", "The user-configured maximum distance from the expedition point used to clip the upstream watershed before SREF/HREF aggregation. Smaller values focus the weather domain on the immediate drainage area."],
-  ["LAoC", "Lightning Area of Concern", "The disk around the expedition point over which SREF and HREF lightning probabilities are aggregated. Lightning uses a disk, not the upstream watershed, because it is a point and corridor hazard — not basin-routed."],
+  ["P(tstm)", "Probability of Thunderstorms", "A GEFS-derived convective proxy (CAPE × precip member co-occurrence) over the aggregation domain — GEFS has no native thunderstorm field. The lightning tier driver beyond the same-day window; in-window, REFS lightning takes over."],
+  ["P(precip)", "Probability of Precipitation", "The GEFS member-exceedance probability of measurable precipitation over the upstream watershed. A primary input to the flash flood tier."],
+  ["P(ltg)", "Probability of Lightning", "The REFS same-day probability of a lightning strike within the aggregation domain (~6–36 h window). Sharpens the lightning tier when REFS is in range."],
+  ["RoC", "Radius of Concern", "The user-configured maximum distance from the expedition point used to clip the upstream watershed before GEFS/REFS aggregation. Smaller values focus the weather domain on the immediate drainage area."],
+  ["LAoC", "Lightning Area of Concern", "The disk around the expedition point over which GEFS and REFS lightning probabilities are aggregated. Lightning uses a disk, not the upstream watershed, because it is a point and corridor hazard — not basin-routed."],
 ];
 
 const GLOSSARY_MAP = new Map(GLOSSARY.map(([acr, term, def]) => [acr, { term, def }]));
@@ -706,7 +706,7 @@ function renderForecast(b) {
   linkifyAcronyms(document.getElementById("view-forecast"));
 }
 
-// Risk analysis inputs section — shows the scalar engine inputs (SREF/HREF probs,
+// Risk analysis inputs section — shows the scalar engine inputs (GEFS/REFS probs,
 // physical params, NWS alerts) so users can verify what drove each hazard tier (FR-20).
 function renderRiskInputs(ri) {
   if (!ri || !Object.keys(ri).length) return "";
@@ -721,13 +721,13 @@ function renderRiskInputs(ri) {
 
   const cards = [];
   if (ri.gefs_p_precip != null)
-    cards.push(riCard("SREF P(precip)", "flash_flood", ri.gefs_p_precip, "%", "Flood input"));
+    cards.push(riCard("GEFS P(precip)", "flash_flood", ri.gefs_p_precip, "%", "Flood input"));
   if (ri.gefs_p_tstm != null)
-    cards.push(riCard("SREF P(tstm)", "lightning", ri.gefs_p_tstm, "%", "T-storm input"));
+    cards.push(riCard("GEFS P(tstm)", "lightning", ri.gefs_p_tstm, "%", "T-storm input"));
   if (ri.refs_in_range && ri.refs_p_precip != null)
-    cards.push(riCard("HREF P(QPF)", "flash_flood", ri.refs_p_precip, "%", "Same-day flood"));
+    cards.push(riCard("REFS P(QPF)", "flash_flood", ri.refs_p_precip, "%", "Same-day flood"));
   if (ri.refs_in_range && ri.refs_p_lightning != null)
-    cards.push(riCard("HREF P(ltg)", "lightning", ri.refs_p_lightning, "%", "Same-day ltg"));
+    cards.push(riCard("REFS P(ltg)", "lightning", ri.refs_p_lightning, "%", "Same-day ltg"));
   if (ri.cape_jkg != null)
     cards.push(riCard("CAPE", "lightning", ri.cape_jkg, " J/kg", "Instability"));
   if (ri.convective_rate_in_per_hr != null)
@@ -740,13 +740,13 @@ function renderRiskInputs(ri) {
   if (ri.flood_watch) badges.push(`<span class="ri-badge ri-badge--watch">Flood watch</span>`);
   if (ri.thunderstorm_warning) badges.push(`<span class="ri-badge ri-badge--warn">Thunderstorm warning</span>`);
   if (ri.spc_category) badges.push(`<span class="ri-badge">SPC ${esc(ri.spc_category)}</span>`);
-  if (ri.refs_in_range && ri.refs_cycle) badges.push(`<span class="ri-badge">HREF ${esc(ri.refs_cycle)}</span>`);
+  if (ri.refs_in_range && ri.refs_cycle) badges.push(`<span class="ri-badge">REFS ${esc(ri.refs_cycle)}</span>`);
 
   return `<section class="card">
     <h2 class="section-title" style="margin-bottom:var(--space-2)">Risk analysis inputs</h2>
     <div class="metric-grid">${cards.join("")}</div>
     ${badges.length ? `<div class="ri-badges">${badges.join("")}</div>` : ""}
-    <div class="disclaimer">Raw inputs to the deterministic engine — SREF/HREF probabilities aggregated over the upstream watershed. The Hazards view shows how each threshold fired.</div>
+    <div class="disclaimer">Raw inputs to the deterministic engine — GEFS/REFS probabilities aggregated over the upstream watershed. The Hazards view shows how each threshold fired.</div>
   </section>`;
 }
 
@@ -1698,8 +1698,8 @@ async function exportBriefingPdf(b) {
 const ABOUT_SOURCES = [
   ["NWS API", "api.weather.gov", "Forecast discussions (AFD), watches, warnings, advisories, and NWS Heat Index categories. The authoritative anchor and a mandatory source.", "doc"],
   ["Open-Meteo", "HRRR-derived fields", "Derived numerical fields (QPF, precip probability, CAPE / lifted index, temperature, humidity, apparent temperature, wind) feeding all four hazard models.", "model"],
-  ["SREF (in-house)", "NCEP GRIB2, processed server-side", "Short-Range Ensemble probabilities of precip and thunder, with member spread, over the upstream domain to the full planning horizon.", "model"],
-  ["HREF (in-house)", "~3 km, same-day ~6 to 36 h", "High-Resolution Ensemble neighborhood probabilities (1 h / 3 h QPF, lightning, reflectivity) that sharpen the same-day window. The engine takes the higher of SREF and HREF.", "model"],
+  ["GEFS + REFS (in-house)", "NCEP GRIB2, processed server-side", "Global-ensemble (GEFS) member-exceedance probabilities of precip and a convective proxy over the upstream domain to the full planning horizon, sharpened inside the same-day window by the 3 km convection-allowing REFS ensemble.", "model"],
+  ["REFS (in-house)", "~3 km, same-day ~6 to 36 h", "High-Resolution Ensemble neighborhood probabilities (1 h / 3 h QPF, lightning, reflectivity) that sharpen the same-day window. The engine takes the higher of GEFS and REFS.", "model"],
   ["SPC outlook", "Storm Prediction Center", "Categorical and probabilistic severe and thunderstorm outlook, a secondary cross-check for lightning.", "alert"],
   ["USGS NHD / WBD", "NLDI and Watershed Boundary Dataset", "The stream network and watershed boundaries used to delineate the upstream contributing basin (a pour-point trace, with a HUC-12 fallback).", "map"],
 ];
@@ -1707,16 +1707,16 @@ const ABOUT_SOURCES = [
 const ABOUT_THRESHOLDS = [
   ["flash_flood", "Flash flood", "Upstream contributing basin", [
     ["Extreme", "sev-extreme", "Active Flash Flood Warning for the area or the upstream domain"],
-    ["High", "sev-high", "Flash Flood Watch or Flood Warning, or SREF P(precip) at or above 60% over the upstream domain with a convective-rate proxy"],
-    ["Elevated", "sev-elevated", "Flood Advisory, Flood Watch, or AFD excessive-rainfall mention; or SREF P(precip) 20 to 59% with measurable forecast precip"],
+    ["High", "sev-high", "Flash Flood Watch or Flood Warning, or GEFS P(precip) at or above 60% over the upstream domain with a convective-rate proxy"],
+    ["Elevated", "sev-elevated", "Flood Advisory, Flood Watch, or AFD excessive-rainfall mention; or GEFS P(precip) 20 to 59% with measurable forecast precip"],
     ["Minimal", "sev-minimal", "Low convective probability, dry upstream forecast"],
-  ], "Same-day windows also evaluate HREF neighborhood P(QPF) (at or above 40% → High, 10 to 39% → Elevated) and take the higher of the SREF- and HREF-derived tiers. Antecedent rain bumps up one tier. For slot canyons, a convective rate at or above 0.5 in/hr over the domain is treated as at least High."],
+  ], "Same-day windows also evaluate REFS neighborhood P(QPF) (at or above 40% → High, 10 to 39% → Elevated) and take the higher of the GEFS- and REFS-derived tiers. Antecedent rain bumps up one tier. For slot canyons, a convective rate at or above 0.5 in/hr over the domain is treated as at least High."],
   ["lightning", "Lightning", "Activity point and approach corridor (excluded in the technical span)", [
-    ["Extreme", "sev-extreme", "Active thunderstorm warning, or SREF P(tstm) at or above 80% (85% when HREF is in-window), or HREF P(lightning) at or above 45%, or SPC categorical / Moderate / High risk"],
-    ["High", "sev-high", "SREF P(tstm) 40 to 79%, or HREF P(lightning) 20 to 44%, or SPC Slight or Enhanced during an exposed phase"],
-    ["Elevated", "sev-elevated", "SREF P(tstm) 15 to 39%, or HREF P(lightning) 8 to 19%, or SPC Marginal, or AFD describes isolated or scattered convection"],
-    ["Minimal", "sev-minimal", "SREF P(tstm) below 15%, no convective signal"],
-  ], "CAPE and lifted index modulate confidence but never set the tier. When the AFD describes isolated convection the final tier is capped at Elevated; scattered caps at High — unless HREF P(lightning) is at or above 60%, which bypasses the cap. HREF P(lightning) and P(reflectivity) are evaluated only in the same-day window (~6–36 h)."],
+    ["Extreme", "sev-extreme", "Active thunderstorm warning, or GEFS P(tstm) at or above 80% (85% when REFS is in-window), or REFS P(lightning) at or above 45%, or SPC categorical / Moderate / High risk"],
+    ["High", "sev-high", "GEFS P(tstm) 40 to 79%, or REFS P(lightning) 20 to 44%, or SPC Slight or Enhanced during an exposed phase"],
+    ["Elevated", "sev-elevated", "GEFS P(tstm) 15 to 39%, or REFS P(lightning) 8 to 19%, or SPC Marginal, or AFD describes isolated or scattered convection"],
+    ["Minimal", "sev-minimal", "GEFS P(tstm) below 15%, no convective signal"],
+  ], "CAPE and lifted index modulate confidence but never set the tier. When the AFD describes isolated convection the final tier is capped at Elevated; scattered caps at High — unless REFS P(lightning) is at or above 60%, which bypasses the cap. REFS P(lightning) and P(reflectivity) are evaluated only in the same-day window (~6–36 h)."],
   ["heat", "Heat stress", "Activity point, using NWS Heat Index categories", [
     ["Extreme Danger", "heat-extreme_danger", "Heat index at or above 125 °F"],
     ["Danger", "heat-danger", "103 to 124 °F"],
@@ -1773,7 +1773,7 @@ function renderAbout(b) {
 
     <section class="card about-support">
       <div class="eyebrow">Support UpstreamWX</div>
-      <p class="about-p">Running UpstreamWX has real costs: the servers that process the SREF and HREF ensembles, the map and watershed data, and the time to keep the app up to date. It stays free because people who find it useful chip in. If it saved you time planning a trip, a donation helps keep it online for the next expedition.</p>
+      <p class="about-p">Running UpstreamWX has real costs: the servers that process the GEFS and REFS ensembles, the map and watershed data, and the time to keep the app up to date. It stays free because people who find it useful chip in. If it saved you time planning a trip, a donation helps keep it online for the next expedition.</p>
       <a class="about-donate" href="${DONATE_URL}" target="_blank" rel="noopener noreferrer">${icon("external", "about-donate__icon")}Donate</a>
       <p class="about-support__note">Secure checkout handled by Stripe. Give once or monthly, any amount.</p>
     </section>
@@ -1795,7 +1795,7 @@ function renderAbout(b) {
           <li>Four hazards are scored independently on a common scale (${["Minimal", "Elevated", "High", "Extreme"].map(displayTier).join(", ")}).</li>
           <li>Each hazard applies only in the expedition phases where it is relevant (approach, technical span, egress) and per activity type. A cave technical span is treated as isolated from surface weather and shows flash flood only.</li>
           <li>The overall expedition posture is the maximum across all applicable hazards, and every hazard stays visible, so a high lightning posture on approach is never hidden behind a low flood posture.</li>
-          <li>A confidence qualifier per hazard comes from SREF ensemble agreement and cross-source consistency, including SREF and HREF agreement on same-day windows.</li>
+          <li>A confidence qualifier per hazard comes from GEFS ensemble agreement and cross-source consistency, including GEFS and REFS agreement on same-day windows.</li>
         </ul>
       </div>
     </details>
@@ -1830,7 +1830,7 @@ function renderAbout(b) {
           <li>If a point will not snap, the system falls back to a deterministic alternative: resolve the containing USGS HUC-12 sub-watershed and collect every HUC-12 that drains into it from the Watershed Boundary Dataset. This is snap-free and reproducible, but coarser, since it counts whole sub-watersheds.</li>
           <li>Areas are measured on an equal-area projection, and each delineation is cached, so the same point yields the same basin and is reused across briefings.</li>
         </ul>
-        <p class="about-p">The map's shaded basin is this delineated domain, labeled approximate. Surface delineation is a defensible proxy for canyoneering, but in karst terrain, this is a rough estimate at best. Underground drainage can cut across surface drainage basins, and cannot be readily modeled by available methodologies. Flash flood risk is intentionally assessed using the 16-km SREF grid, which gives a reasonable buffer area around the edges of the watershed and somewhat accounts for the influence of subsurface drainage. However, user judgment is always required.</p>
+        <p class="about-p">The map's shaded basin is this delineated domain, labeled approximate. Surface delineation is a defensible proxy for canyoneering, but in karst terrain, this is a rough estimate at best. Underground drainage can cut across surface drainage basins, and cannot be readily modeled by available methodologies. Flash flood risk is intentionally assessed using the coarse global GEFS grid (~0.5°, ~25 km) for the planning horizon, which gives a reasonable buffer area around the edges of the watershed and somewhat accounts for the influence of subsurface drainage, sharpened inside the same-day window by the 3 km REFS ensemble. However, user judgment is always required.</p>
       </div>
     </details>
 
