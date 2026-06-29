@@ -222,13 +222,18 @@ then generates on demand rather than holding a warm cache. Promote to production
 
 ```sh
 systemctl status upstreamwx-api            # state
-journalctl -u upstreamwx-api -f            # live logs (scheduler refreshes log here)
+journalctl --namespace=upstreamwx -u upstreamwx-api -f   # live logs (scheduler refreshes log here)
 sudo systemctl restart upstreamwx-api      # apply env changes
 sudo systemctl stop upstreamwx-api         # take it down
 ```
 
 - **Logs:** the scheduler logs each cycle's regenerated-briefing count; the app logs
-  the resolved PWA directory and degraded sources.
+  the resolved PWA directory and degraded sources. The service logs to a **private journald
+  namespace** (`LogNamespace=upstreamwx`), so always pass `--namespace=upstreamwx` to
+  `journalctl` to see them. Retention is capped at **~10 days** there
+  (`deploy/systemd/journald@upstreamwx.conf`, `MaxRetentionSec=10day`), independent of the
+  host's system journal; older entries are pruned automatically. Edit that file and
+  `sudo systemctl restart systemd-journald@upstreamwx` to change the window.
 - **Config changes** (`/etc/upstreamwx/upstreamwx.env`) require a restart.
 - **The data cache** at `/var/lib/upstreamwx` is intentionally outside the code tree, so
   redeploys never clear it — important given NOMADS's ~2-day SREF retention.
@@ -263,7 +268,7 @@ manylinux wheels that bundle them.
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `deploy.sh` warns `cfgrib failed to import` | ecCodes missing — see the Amazon Linux note above |
-| Service flaps / restarts | `journalctl -u upstreamwx-api -n 80`; usually a bad value in the env file |
+| Service flaps / restarts | `journalctl --namespace=upstreamwx -u upstreamwx-api -n 80`; usually a bad value in the env file |
 | `/v1/health` 502 from nginx | service down or wrong `DEPLOY_BIND_PORT`; check `systemctl status` |
 | Deploy succeeds but the PWA looks unchanged in the browser | The server *is* updated — it's the client service-worker cache. Confirm the server first: `curl -s https://<host>/v1/health` (check `release`) and `curl -s https://<host>/version.json`. If those show the new release, the open tab will surface an "Update available — reload" banner the next time it re-checks `version.json` (when you switch back to the tab, or within a few minutes); reloading registers `sw.js?v=<release>`, which reinstalls the SW and evicts the old caches. As of the network-first shell, deploys also propagate on the next manual reload regardless. |
 | NWS ingest empty / 403 | set a real contact in `UPSTREAMWX_NWS_USER_AGENT` (FR-5) and restart |

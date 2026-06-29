@@ -130,6 +130,16 @@ log "installing systemd unit and nginx site"
 render_template "$DEPLOY_APP_DIR/deploy/systemd/upstreamwx-api.service" \
                 "/etc/systemd/system/${DEPLOY_SERVICE}.service"
 
+# Private journald namespace for the API (LogNamespace=upstreamwx in the unit) so its logs
+# prune to ~10 days independently of the system journal (deploy/systemd/journald@upstreamwx.conf).
+install -o root -g root -m 0644 \
+    "$DEPLOY_APP_DIR/deploy/systemd/journald@upstreamwx.conf" \
+    /etc/systemd/journald@upstreamwx.conf
+# Pick up the retention config now (and on re-runs). The namespaced journald is a template
+# instance started on demand when the app logs; restart applies the conf, starting it if
+# needed. Best-effort — the app's first start would bring it up regardless.
+systemctl restart systemd-journald@upstreamwx 2>/dev/null || true
+
 # Name the site after the service so a second environment (e.g. staging) installs its
 # own site instead of clobbering production's (docs/deployment-workflow.md). The landing
 # site (apex) installs as a SECOND site, only when DEPLOY_LANDING_SERVER_NAME is set — a

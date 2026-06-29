@@ -26,6 +26,12 @@ ExecStart=__APP_DIR__/.venv/bin/uvicorn upstreamwx.api.app:app --host __BIND_HOS
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
+
+# Route this service's stdout/stderr into a private journald namespace so its logs prune
+# independently of the system journal. The namespace's retention (keep ~10 days) lives in
+# deploy/systemd/journald@upstreamwx.conf. Read with:
+#   journalctl --namespace=upstreamwx -u upstreamwx-api -f
+LogNamespace=upstreamwx
 # Give a clean cycle: the scheduler swallows per-cycle errors, so SIGTERM is enough.
 KillSignal=SIGTERM
 TimeoutStopSec=30
