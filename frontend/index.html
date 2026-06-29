@@ -40,6 +40,9 @@
 
       <div class="status-line">
         <div class="status-line__content" id="status"></div>
+        <!-- Add-to-Home-Screen: shown only when the browser offers an install prompt
+             (beforeinstallprompt). Hidden by default; app.js unhides + wires it. -->
+        <button class="status-line__install" id="install-app" type="button" hidden>Install app</button>
         <button class="status-line__gear" id="settings-open" type="button" aria-label="Settings" title="Settings"></button>
       </div>
     </div>

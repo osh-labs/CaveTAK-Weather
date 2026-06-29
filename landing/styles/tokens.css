@@ -1,0 +1,108 @@
+/*
+ * UpstreamWX design tokens — VENDORED COPY of frontend/styles/tokens.css so the static
+ * landing site (served from its own nginx root, separate from the PWA) shares the PWA's
+ * visual language. Keep in lockstep with the source if those tokens change.
+ * Source of truth: frontend/styles/tokens.css / STYLE_GUIDE.md §3–§6.
+ */
+
+:root {
+  /* ── 3.1 Surfaces & chrome ───────────────────────────────────────── */
+  --color-bg: #0a0e14;
+  --color-surface: #11161f;
+  --color-surface-2: #1a212d;
+  --color-surface-3: #232d3b;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+  --color-overlay: rgba(8, 11, 16, 0.72);
+
+  /* ── 3.2 Text ────────────────────────────────────────────────────── */
+  --color-text: #e6edf3;
+  --color-text-secondary: #9aa7b8;
+  --color-text-muted: #5f6b7c;
+  --color-text-inverse: #0a0e14;
+
+  /* ── 3.3 Brand (river cyan) ──────────────────────────────────────── */
+  --color-brand: #38bdf8;
+  --color-brand-strong: #0ea5e9;
+  --color-brand-dim: rgba(56, 189, 248, 0.14);
+
+  /* ── 3.4 Severity ladder (FR-35): Minimal/Elevated/High/Extreme ──── */
+  --sev-minimal: #3fb950;
+  --sev-minimal-wash: rgba(63, 185, 80, 0.16);
+  --sev-minimal-text: #56d364;
+  --sev-elevated: #d9a514;
+  --sev-elevated-wash: rgba(217, 165, 20, 0.16);
+  --sev-elevated-text: #e3b341;
+  --sev-high: #f0883e;
+  --sev-high-wash: rgba(240, 136, 62, 0.16);
+  --sev-high-text: #f0a763;
+  --sev-extreme: #f85149;
+  --sev-extreme-wash: rgba(248, 81, 73, 0.18);
+  --sev-extreme-text: #ff7b72;
+
+  /* ── 3.5 Heat — NWS Heat Index categories (FR-15) ────────────────── */
+  --heat-caution: #e3c01a;
+  --heat-ext-caution: #f0a020;
+  --heat-danger: #ec6a2c;
+  --heat-ext-danger: #da3633;
+
+  /* ── 3.6 Confidence (FR-36): style, not hue ──────────────────────── */
+  --confidence-mod-opacity: 0.82;
+  --confidence-hatch: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    rgba(255, 255, 255, 0.22) 5px 7px
+  );
+
+  /* ── 3.7 Utility / feedback ──────────────────────────────────────── */
+  --color-info: #58a6ff;
+  --color-warn: #d9a514;
+  --color-offline: #bc8cff;
+  --color-success: #3fb950;
+
+  /* ── 4. Typography ───────────────────────────────────────────────── */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+
+  --text-display: 28px;
+  --lh-display: 34px;
+  --text-h1: 22px;
+  --lh-h1: 28px;
+  --text-h2: 17px;
+  --lh-h2: 24px;
+  --text-body: 15px;
+  --lh-body: 22px;
+  --text-label: 13px;
+  --lh-label: 18px;
+  --text-caption: 11px;
+  --lh-caption: 16px;
+  --tracking-wide: 0.06em;
+
+  /* ── 5. Spacing / radius / elevation / motion ────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.55);
+
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+
+  /* ── 6. Layout ───────────────────────────────────────────────────── */
+  --app-max-width: 480px;
+  --pill-w: 150px;     /* equal-width hazard posture pills + confidence bar */
+  --pill-w-lg: 160px;  /* overall-posture pill (is-lg) + its confidence bar */
+}

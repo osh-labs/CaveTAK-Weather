@@ -15,7 +15,7 @@ Everything below is the machinery that makes that rule livable.
 | --- | --- | --- |
 | **Local** | your laptop, the offline `--inputs` path | write + test changes (network-free, deterministic) |
 | **Staging** | its own EC2 instance, reachable **only over Tailscale** | final check against *live* data before clients see it |
-| **Production** | the always-on box at `upstreamwx.com` | clients |
+| **Production** | the always-on box: app at `app.upstreamwx.com`, static landing at `upstreamwx.com` | clients |
 
 Local → staging → production, in increasing blast radius. Staging runs the
 *candidate* version against the *real* upstream feeds (NWS/SREF/HREF), catching
@@ -95,6 +95,11 @@ An installed PWA is cached software on someone's phone, so "I deployed the fix" 
 When you change the `/v1/briefing` JSON shape, **add fields, don't repurpose them** —
 an old cached client may still be reading the old shape until it reloads.
 
+**Origin note.** The app's home is `app.upstreamwx.com`; the apex `upstreamwx.com` serves
+the static landing page. A PWA's install identity is its origin, so the manifest `id` is
+pinned to `https://app.upstreamwx.com/`. The apex never hosts the app — anyone landing
+there gets the landing page's "Open the app" button.
+
 ## Observability (do this before real users depend on it)
 
 - **Scheduler dead-man's-switch** — the most important one for this app. A silently
@@ -116,8 +121,9 @@ an old cached client may still be reading the old shape until it reloads.
   single-instance host a surprise reboot is downtime, so reboot manually when
   `/var/run/reboot-required` appears.
 - **TLS renewal** — prod's certbot installs its own renewal timer (`certbot.timer`);
-  confirm with `sudo certbot renew --dry-run`. Tailnet staging via `tailscale serve` is
-  auto-renewed by Tailscale.
+  confirm with `sudo certbot renew --dry-run`. One multi-SAN cert covers the app
+  (`app.upstreamwx.com`) and the landing (`upstreamwx.com`, `www.upstreamwx.com`). Tailnet
+  staging via `tailscale serve` is auto-renewed by Tailscale.
 
 ## Secrets
 

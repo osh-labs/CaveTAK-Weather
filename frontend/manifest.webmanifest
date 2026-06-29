@@ -2,7 +2,7 @@
   "name": "UpstreamWX — Weather Briefing",
   "short_name": "UpstreamWX",
   "description": "Expedition-specific, multi-hazard weather briefings for caving and canyoneering. Reference only.",
-  "id": "/",
+  "id": "https://app.upstreamwx.com/",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

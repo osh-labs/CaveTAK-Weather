@@ -120,18 +120,30 @@ render_template "$DEPLOY_APP_DIR/deploy/systemd/upstreamwx-api.service" \
                 "/etc/systemd/system/${DEPLOY_SERVICE}.service"
 
 # Name the site after the service so a second environment (e.g. staging) installs its
-# own site instead of clobbering production's (docs/deployment-workflow.md).
-if [ -d /etc/nginx/sites-available ]; then
-    render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" \
-                    "/etc/nginx/sites-available/${DEPLOY_SERVICE}.conf"
-    ln -sf "/etc/nginx/sites-available/${DEPLOY_SERVICE}.conf" \
-           "/etc/nginx/sites-enabled/${DEPLOY_SERVICE}.conf"
-    [ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
+# own site instead of clobbering production's (docs/deployment-workflow.md). The landing
+# site (apex) installs as a SECOND site, only when DEPLOY_LANDING_SERVER_NAME is set — a
+# tailnet-only staging box leaves it empty and gets just the app site.
+install_nginx_site() {
+    # install_nginx_site TEMPLATE SITE_NAME
+    local template="$1" name="$2"
+    if [ -d /etc/nginx/sites-available ]; then
+        render_template "$template" "/etc/nginx/sites-available/${name}.conf"
+        ln -sf "/etc/nginx/sites-available/${name}.conf" \
+               "/etc/nginx/sites-enabled/${name}.conf"
+    else
+        # Amazon Linux / RHEL nginx uses conf.d, not sites-available.
+        render_template "$template" "/etc/nginx/conf.d/${name}.conf"
+    fi
+}
+
+install_nginx_site "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" "$DEPLOY_SERVICE"
+if [ -n "${DEPLOY_LANDING_SERVER_NAME:-}" ]; then
+    install_nginx_site "$DEPLOY_APP_DIR/deploy/nginx/landing.conf" "${DEPLOY_SERVICE}-landing"
+    ok "landing site enabled for: $DEPLOY_LANDING_SERVER_NAME"
 else
-    # Amazon Linux / RHEL nginx uses conf.d, not sites-available.
-    render_template "$DEPLOY_APP_DIR/deploy/nginx/upstreamwx.conf" \
-                    "/etc/nginx/conf.d/${DEPLOY_SERVICE}.conf"
+    warn "DEPLOY_LANDING_SERVER_NAME empty — skipping the apex landing site"
 fi
+[ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
 systemctl daemon-reload
 if nginx -t >/dev/null 2>&1; then
     systemctl enable --now nginx >/dev/null 2>&1 || true
@@ -152,6 +164,6 @@ $(ok "bootstrap complete")
 Next steps:
   1. Edit secrets/contact:   sudo nano $DEPLOY_ENV_FILE
                              sudo systemctl restart $DEPLOY_SERVICE
-  2. Add TLS (recommended):  sudo certbot --nginx -d $DEPLOY_SERVER_NAME
+  2. Add TLS (recommended):  sudo certbot --nginx -d $DEPLOY_APP_SERVER_NAME${DEPLOY_LANDING_SERVER_NAME:+ $(printf -- '-d %s ' $DEPLOY_LANDING_SERVER_NAME)}
   3. Verify:                 curl -s http://127.0.0.1:$DEPLOY_BIND_PORT/v1/health
 EOF

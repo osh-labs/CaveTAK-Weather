@@ -284,6 +284,18 @@ phase breakdown, hourly forecast, drivers/threshold logic, source drill-down) an
 triggers Save-as-PDF, carrying the §17.3 reference-only footer on every page. The
 template and its logo are precached by `sw.js`, so export works offline.
 
+**Domain split (app subdomain + static landing).** The app (PWA + `/v1/*`, still
+single-origin) now lives at **`app.upstreamwx.com`**; the apex **`upstreamwx.com`** (+ `www`)
+serves a standalone **static landing page** from `landing/` — a vendored-token mirror of the
+PWA's About view (who-we-are, donate, condensed methodology) with the reference-only
+disclaimer and a prominent "Open the app" / install CTA. nginx grew a second server block
+(`deploy/nginx/landing.conf`, installed only when `DEPLOY_LANDING_SERVER_NAME` is set; the app
+block is `deploy/nginx/upstreamwx.conf`), config gained `DEPLOY_APP_SERVER_NAME` /
+`DEPLOY_LANDING_SERVER_NAME` / `DEPLOY_LANDING_ROOT`, and one multi-SAN cert covers both names.
+The frontend is origin-portable (relative `/v1/*` paths, `./` manifest scope), so the move
+needed no API rewiring or CORS; `manifest.webmanifest` `id` is pinned to the app origin and an
+in-app "Add to Home Screen" pill (status bar) captures `beforeinstallprompt`.
+
 For the "why" behind any milestone, read `docs/m0.X/README.md` and the spike reports
 in `docs/m0.0/`.
 

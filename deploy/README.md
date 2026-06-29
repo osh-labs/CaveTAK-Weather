@@ -4,10 +4,16 @@ This folder deploys the UpstreamWX briefing backend to the always-on host the PR
 assumes (PRD §7, roadmap §M0.1.1) — the EC2 instance whose job is to keep a current
 briefing cache warm on the SREF/AFD cycle (FR-12).
 
-It installs **one** thing: the FastAPI service (`upstreamwx-api`), run as a single
-uvicorn process under systemd, with **nginx** in front for TLS. The API serves the PWA
+It installs **one** service: the FastAPI app (`upstreamwx-api`), run as a single uvicorn
+process under systemd, with **nginx** in front for TLS. The API serves the PWA
 single-origin (M0.4), so there is no separate frontend deployment — the same process
 answers `/v1/briefing`, `/v1/health`, and the static PWA.
+
+The app lives on its **own subdomain** (`app.upstreamwx.com`); nginx serves a small
+**static landing page** at the apex (`upstreamwx.com` + `www`) from `landing/` in the
+checkout. Both names go in **one** multi-SAN TLS cert. Set the names in `config.env`
+(`DEPLOY_APP_SERVER_NAME`, `DEPLOY_LANDING_SERVER_NAME`); leave the landing name empty to
+serve app-only (e.g. tailnet staging).
 
 > **Single process, on purpose.** The app's lifespan starts the in-process SREF-cycle
 > refresh scheduler (`api/app.py` → `scheduler.run_scheduler`). That scheduler is a
@@ -23,7 +29,8 @@ answers `/v1/briefing`, `/v1/health`, and the static PWA.
 | `/var/lib/upstreamwx` | runtime cache (`UPSTREAMWX_DATA_DIR`) — survives redeploys |
 | `/etc/upstreamwx/upstreamwx.env` | runtime env + secrets (`EnvironmentFile`, mode 0640) |
 | `/etc/systemd/system/upstreamwx-api.service` | the service unit |
-| `/etc/nginx/.../upstreamwx.conf` | reverse proxy (`:80` → `127.0.0.1:8000`) |
+| `/etc/nginx/.../upstreamwx-api.conf` | app site: reverse proxy (`:80` → `127.0.0.1:8000`) for `app.upstreamwx.com` |
+| `/etc/nginx/.../upstreamwx-api-landing.conf` | landing site: static apex (`upstreamwx.com` + `www`) from `landing/` |
 
 ## Files in this folder
 
@@ -47,8 +54,9 @@ The `systemd` and `nginx` files are **templates**: `bootstrap.sh` substitutes th
 
 Everything runs **on the server**: you SSH in, clone the repo to get the scripts, and
 run them there. There is no push-from-laptop step — the server pulls its own code from
-git. You need: an EC2 instance (Ubuntu/Debian recommended), a sudo login, DNS pointed at
-it (`upstreamwx.com`), and security-group ingress on 80/443.
+git. You need: an EC2 instance (Ubuntu/Debian recommended), a sudo login, DNS A/AAAA
+records for `app.upstreamwx.com`, `upstreamwx.com`, and `www.upstreamwx.com` all pointed
+at it, and security-group ingress on 80/443.
 
 ## First-time install
 
@@ -58,10 +66,11 @@ sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/osh-labs/upstreamwx.git /tmp/upstreamwx-src
 cd /tmp/upstreamwx-src
 
-# Configure the target (server name, paths, branch). The defaults already point at
-# upstreamwx.com and the standard /opt + /var/lib layout, so usually no edits are needed.
+# Configure the target (server names, paths, branch). The defaults already point at
+# app.upstreamwx.com (app) + upstreamwx.com/www (landing) and the standard /opt + /var/lib
+# layout, so usually no edits are needed.
 cp deploy/config.env.example deploy/config.env
-nano deploy/config.env          # optional: override DEPLOY_BRANCH, paths, etc.
+nano deploy/config.env          # optional: override DEPLOY_BRANCH, server names, paths, etc.
 
 # Provision: system packages, user, dirs, systemd + nginx, venv, first start.
 sudo deploy/bootstrap.sh
@@ -78,16 +87,18 @@ Then finish the two manual steps it prints:
 sudo nano /etc/upstreamwx/upstreamwx.env       # set NWS contact; add ANTHROPIC_API_KEY
 sudo systemctl restart upstreamwx-api
 
-# 2. TLS (strongly recommended). certbot rewrites the nginx site in place.
+# 2. TLS (strongly recommended). One multi-SAN cert covers the app + landing names;
+#    certbot rewrites both nginx sites in place.
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d upstreamwx.com
+sudo certbot --nginx -d app.upstreamwx.com -d upstreamwx.com -d www.upstreamwx.com
 ```
 
 Verify:
 
 ```sh
-curl -s http://127.0.0.1:8000/v1/health        # on the server
-curl -s https://upstreamwx.com/v1/health
+curl -s  http://127.0.0.1:8000/v1/health         # on the server
+curl -s  https://app.upstreamwx.com/v1/health    # the app
+curl -sI https://upstreamwx.com/                 # the static landing (200)
 ```
 
 `/v1/health` returns the current refresh cycle and cache size — proof the scheduler and
@@ -173,7 +184,9 @@ machinery — it just has its own `config.env`:
 # One-time:
 git clone https://github.com/osh-labs/upstreamwx.git /tmp/upstreamwx-src && cd /tmp/upstreamwx-src
 cp deploy/config.env.example deploy/config.env
-nano deploy/config.env        # DEPLOY_BRANCH="main"; DEPLOY_SERVER_NAME="<node>.<tailnet>.ts.net"
+# DEPLOY_BRANCH="main"; DEPLOY_APP_SERVER_NAME="<node>.<tailnet>.ts.net"; and
+# DEPLOY_LANDING_SERVER_NAME="" so staging is app-only (no public apex landing).
+nano deploy/config.env
 sudo deploy/bootstrap.sh
 sudo nano /etc/upstreamwx/upstreamwx.env     # NWS UA identifying staging; ANTHROPIC_API_KEY optional
 sudo systemctl restart upstreamwx-api

@@ -44,7 +44,12 @@ load_config() {
     : "${DEPLOY_ENV_FILE:=/etc/upstreamwx/upstreamwx.env}"
     : "${DEPLOY_BIND_HOST:=127.0.0.1}"
     : "${DEPLOY_BIND_PORT:=8000}"
-    : "${DEPLOY_SERVER_NAME:=upstreamwx.com}"
+    # The app (PWA + /v1/*) lives on its own subdomain; the apex serves a static landing
+    # page (deploy/nginx/landing.conf). DEPLOY_APP_SERVER_NAME falls back to the legacy
+    # single DEPLOY_SERVER_NAME so an existing staging config keeps working unchanged.
+    : "${DEPLOY_APP_SERVER_NAME:=${DEPLOY_SERVER_NAME:-app.upstreamwx.com}}"
+    : "${DEPLOY_LANDING_SERVER_NAME:=upstreamwx.com www.upstreamwx.com}"
+    : "${DEPLOY_LANDING_ROOT:=${DEPLOY_APP_DIR}/landing}"
     : "${DEPLOY_SERVICE:=upstreamwx-api}"
 }
 
@@ -58,7 +63,10 @@ render_template() {
         -e "s|__ENV_FILE__|${DEPLOY_ENV_FILE}|g" \
         -e "s|__BIND_HOST__|${DEPLOY_BIND_HOST}|g" \
         -e "s|__BIND_PORT__|${DEPLOY_BIND_PORT}|g" \
-        -e "s|__SERVER_NAME__|${DEPLOY_SERVER_NAME}|g" \
+        -e "s|__APP_SERVER_NAME__|${DEPLOY_APP_SERVER_NAME}|g" \
+        -e "s|__SERVER_NAME__|${DEPLOY_APP_SERVER_NAME}|g" \
+        -e "s|__LANDING_SERVER_NAME__|${DEPLOY_LANDING_SERVER_NAME}|g" \
+        -e "s|__LANDING_ROOT__|${DEPLOY_LANDING_ROOT}|g" \
         "$src" > "$dest"
 }
 

@@ -959,6 +959,25 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 .status-line__gear:hover { color: var(--color-text); }
 .status-line__gear:focus-visible { outline: 2px solid var(--sev-high); outline-offset: 2px; }
 .status-line__gear svg { width: 20px; height: 20px; }
+/* Add-to-Home-Screen pill: appears (next to the gear) only when the browser exposes
+   an install prompt, so the status bar gains a one-tap install when one is available. */
+.status-line__install {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--color-brand);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand-dim);
+  color: var(--color-brand);
+  font-size: var(--text-caption);
+  font-weight: 650;
+  cursor: pointer;
+}
+.status-line__install:hover { background: var(--color-brand); color: var(--color-text-inverse); }
+.status-line__install:focus-visible { outline: 2px solid var(--sev-high); outline-offset: 2px; }
+/* When the install pill is present it owns the left-auto margin; the gear then just
+   sits beside it rather than re-pushing to the far right. */
+.status-line__install:not([hidden]) ~ .status-line__gear { margin-left: var(--space-1); }
 .status-line__currency { font-family: var(--font-mono); }
 .cached-badge {
   display: inline-flex;

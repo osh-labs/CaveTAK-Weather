@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0e14" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="UpstreamWX — a planning-reference, multi-hazard weather briefing for caving and canyoneering. Reference only; it never tells you whether to go."
+    />
+    <link rel="canonical" href="https://upstreamwx.com/" />
+
+    <!-- Social / link previews -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="UpstreamWX — Weather Briefing for Caving & Canyoneering" />
+    <meta
+      property="og:description"
+      content="Official and modeled weather for four life-safety hazards — flash flooding, lightning, heat, and cold/wet hypothermia — over the upstream watershed. Reference only."
+    />
+    <meta property="og:url" content="https://upstreamwx.com/" />
+    <meta name="twitter:card" content="summary" />
+
+    <title>UpstreamWX — Weather Briefing for Caving &amp; Canyoneering</title>
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon.svg" />
+    <link rel="stylesheet" href="styles/tokens.css" />
+    <link rel="stylesheet" href="styles/landing.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <!-- Hero: identity + the one action that matters — open the app. -->
+      <header class="hero">
+        <img class="hero__logo" src="icons/icon.svg" alt="UpstreamWX logo" width="84" height="84" />
+        <h1 class="hero__name">UpstreamWX</h1>
+        <p class="hero__tagline">
+          A planning-reference weather briefing for caving and canyoneering. It gathers
+          official and modeled weather, assesses four life-safety hazards — flash flooding,
+          lightning, heat, and cold/wet hypothermia — and shows the reasoning. It never
+          tells you whether to go.
+        </p>
+        <a class="cta" href="https://app.upstreamwx.com">Open the app &rarr;</a>
+      </header>
+
+      <!-- Add to Home Screen. The PWA install prompt only fires on the app's own origin
+           (app.upstreamwx.com), and iOS never fires it at all — so the honest, reliable
+           instruction is: open the app, then add it from the browser. -->
+      <section class="card install">
+        <div class="eyebrow">Install it on your phone</div>
+        <p class="install__lead">
+          UpstreamWX installs as an app straight from your browser — no app store, no
+          account. <a href="https://app.upstreamwx.com">Open the app</a>, then:
+        </p>
+        <ul class="install__steps">
+          <li>
+            <span class="install__plat">iPhone &amp; iPad (Safari)</span>
+            Tap <kbd>Share</kbd> &rarr; <kbd>Add to Home Screen</kbd>.
+          </li>
+          <li>
+            <span class="install__plat">Android &amp; desktop (Chrome / Edge)</span>
+            Use the <kbd>Install</kbd> button in the app, or the browser menu &rarr;
+            <kbd>Install app</kbd> / <kbd>Add to Home Screen</kbd>.
+          </li>
+        </ul>
+      </section>
+
+      <!-- Who makes it (mirrors the PWA About view). -->
+      <section class="card">
+        <div class="eyebrow">Who makes UpstreamWX</div>
+        <p class="about-p">
+          UpstreamWX is built and maintained by Southeast Expedition Medical, a small team
+          of cavers and wilderness medicine practitioners. We built the briefing tool we
+          wanted for our own trips: one place that pulls the official forecast, the ensemble
+          models, and the upstream watershed together, and shows the reasoning behind the
+          risk assessment. It is free, has no ads, and asks for no personal data.
+        </p>
+        <a class="about-contact" href="mailto:info@southeastexpeditionmed.com">info@southeastexpeditionmed.com</a>
+      </section>
+
+      <!-- Support / donate (mirrors the PWA About view). -->
+      <section class="card about-support">
+        <div class="eyebrow">Support UpstreamWX</div>
+        <p class="about-p">
+          Running UpstreamWX has real costs: the servers that process the SREF and HREF
+          ensembles, the map and watershed data, and the time to keep the app up to date.
+          It stays free because people who find it useful chip in. If it saved you time
+          planning a trip, a donation helps keep it online for the next expedition.
+        </p>
+        <a class="about-donate" href="https://donate.stripe.com/3cIbIT75o6Jxept4aw4c800" target="_blank" rel="noopener noreferrer">Donate</a>
+        <p class="about-support__note">Secure checkout handled by Stripe. Give once or monthly, any amount.</p>
+      </section>
+
+      <!-- Methodology, condensed from the About view's collapsible cards. -->
+      <div class="about-section-head">How this works</div>
+
+      <details class="card about-fold">
+        <summary class="about-fold__summary">
+          <span class="about-fold__head">
+            <span class="eyebrow">The deterministic engine</span>
+            <span class="about-fold__teaser">Why identical inputs always produce an identical posture.</span>
+          </span>
+          <span class="about-fold__chev" aria-hidden="true">&#9662;</span>
+        </summary>
+        <div class="about-fold__body">
+          <p class="about-p">
+            Every hazard posture, confidence level, and window of concern is decided by a
+            deterministic, documented rule engine. Identical inputs always produce an
+            identical result. The language model used for summary generation only frames
+            the wording of the summary. It can never compute, raise, or lower a posture.
+          </p>
+          <ul class="about-list">
+            <li>Four hazards are scored independently on a common scale (Minimal, Elevated, High, Extreme).</li>
+            <li>Each hazard applies only in the expedition phases where it is relevant (approach, technical span, egress) and per activity type. A cave technical span is treated as isolated from surface weather and shows flash flood only.</li>
+            <li>The overall expedition posture is the maximum across all applicable hazards, and every hazard stays visible, so a high lightning posture on approach is never hidden behind a low flood posture.</li>
+            <li>A confidence qualifier per hazard comes from SREF ensemble agreement and cross-source consistency, including SREF and HREF agreement on same-day windows.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="card about-fold">
+        <summary class="about-fold__summary">
+          <span class="about-fold__head">
+            <span class="eyebrow">Data sourcing</span>
+            <span class="about-fold__teaser">The official and modeled weather sources behind each hazard.</span>
+          </span>
+          <span class="about-fold__chev" aria-hidden="true">&#9662;</span>
+        </summary>
+        <div class="about-fold__body">
+          <p class="about-p">
+            Providers sit behind a common interface, so the engine never depends on a
+            specific source. If a non-mandatory source is unavailable the briefing still
+            renders, marking that input as unavailable.
+          </p>
+          <div class="about-sources">
+            <div><div class="about-source__name">NWS API <span class="about-source__access">api.weather.gov</span></div><div class="about-source__desc">Forecast discussions (AFD), watches, warnings, advisories, and NWS Heat Index categories. The authoritative anchor and a mandatory source.</div></div>
+            <div><div class="about-source__name">Open-Meteo <span class="about-source__access">HRRR-derived fields</span></div><div class="about-source__desc">Derived numerical fields (QPF, precip probability, CAPE / lifted index, temperature, humidity, apparent temperature, wind) feeding all four hazard models.</div></div>
+            <div><div class="about-source__name">SREF (in-house) <span class="about-source__access">NCEP GRIB2, processed server-side</span></div><div class="about-source__desc">Short-Range Ensemble probabilities of precip and thunder, with member spread, over the upstream domain to the full planning horizon.</div></div>
+            <div><div class="about-source__name">HREF (in-house) <span class="about-source__access">~3 km, same-day ~6 to 36 h</span></div><div class="about-source__desc">High-Resolution Ensemble neighborhood probabilities (1 h / 3 h QPF, lightning, reflectivity) that sharpen the same-day window. The engine takes the higher of SREF and HREF.</div></div>
+            <div><div class="about-source__name">SPC outlook <span class="about-source__access">Storm Prediction Center</span></div><div class="about-source__desc">Categorical and probabilistic severe and thunderstorm outlook, a secondary cross-check for lightning.</div></div>
+            <div><div class="about-source__name">USGS NHD / WBD <span class="about-source__access">NLDI and Watershed Boundary Dataset</span></div><div class="about-source__desc">The stream network and watershed boundaries used to delineate the upstream contributing basin (a pour-point trace, with a HUC-12 fallback).</div></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="card about-fold">
+        <summary class="about-fold__summary">
+          <span class="about-fold__head">
+            <span class="eyebrow">The upstream watershed</span>
+            <span class="about-fold__teaser">Why a slot can flood under a clear sky — and how we account for it.</span>
+          </span>
+          <span class="about-fold__chev" aria-hidden="true">&#9662;</span>
+        </summary>
+        <div class="about-fold__body">
+          <p class="about-p">
+            Flash-flood risk is assessed over the upstream contributing basin — the land
+            that drains toward your point, not the point itself. This matters because a slot
+            can flood under a clear sky from rain falling miles upstream. Aggregating
+            probability over the drainage area is what catches that. Your coordinate is
+            snapped onto the mapped stream network, the exact upstream basin is delineated,
+            and ensemble precipitation probabilities are aggregated across it.
+          </p>
+          <p class="about-p">
+            Surface delineation is a defensible proxy for canyoneering, but in karst terrain
+            it is a rough estimate at best — underground drainage can cut across surface
+            basins. Flash-flood risk is intentionally assessed on the 16-km SREF grid, which
+            buffers the watershed edges and partly accounts for subsurface drainage. User
+            judgment is always required.
+          </p>
+        </div>
+      </details>
+
+      <!-- Reference-only disclaimer — required on every user-facing artifact (PRD Appendix C). -->
+      <div class="disclaimer">
+        Reference only. Not a forecast, not a decision. UpstreamWX surfaces hazard
+        information and links to authoritative NWS sources; it never issues a go/no-go or an
+        all-clear. The data can be incomplete, delayed, or wrong, and a cave or slot canyon
+        can flood from rain you never see. The decision to enter, continue, or turn around
+        always rests with you and your party.
+      </div>
+
+      <p class="foot">
+        &copy; Southeast Expedition Medical &middot;
+        <a href="https://app.upstreamwx.com">Open the app</a> &middot;
+        <a href="mailto:info@southeastexpeditionmed.com">Contact</a>
+      </p>
+    </main>
+  </body>
+</html>

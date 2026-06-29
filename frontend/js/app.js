@@ -2399,6 +2399,40 @@ function initSettingsControls() {
   });
 }
 
+/* ── Add to Home Screen ────────────────────────────────────────────────
+ * Capture the browser's install prompt and surface a one-tap "Install app" pill in the
+ * status bar. Chromium fires `beforeinstallprompt`; Safari/iOS never do (users install
+ * via Share → Add to Home Screen), so the pill just stays hidden there — pure
+ * progressive enhancement. The apex landing page (landing/) points here for this button.
+ */
+function initInstallPrompt() {
+  const btn = document.getElementById("install-app");
+  if (!btn) return;
+  // Already installed (running standalone) → no prompt to offer.
+  const installed =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+  let deferred = null;
+  if (!installed) {
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault(); // suppress the default mini-infobar; the pill drives install
+      deferred = e;
+      btn.hidden = false;
+    });
+  }
+  btn.addEventListener("click", async () => {
+    if (!deferred) return;
+    btn.hidden = true; // a captured prompt can only be used once
+    deferred.prompt();
+    try { await deferred.userChoice; } catch (_) {}
+    deferred = null;
+  });
+  window.addEventListener("appinstalled", () => {
+    deferred = null;
+    btn.hidden = true;
+  });
+}
+
 /* ── Bootstrap ─────────────────────────────────────────────────────── */
 function renderAll(b) {
   state.briefing = b;
@@ -2424,6 +2458,7 @@ async function main() {
   initGlossaryInteractions();
   initPlannerControls();
   initSettingsControls();
+  initInstallPrompt();
   // First run with no saved mission: present the planner so the user picks a
   // point. Defer until the ack is accepted when it's showing this load.
   const promptFirstRun = () => {
