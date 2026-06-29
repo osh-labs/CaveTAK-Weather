@@ -25,12 +25,14 @@ HAZARD_LOGIC: dict[Hazard, str] = {
         "(Appendix B §16.1)."
     ),
     Hazard.LIGHTNING: (
-        "Extreme = SREF P(tstm) ≥80% (≥85% when HREF in-window) OR "
+        "Extreme = SREF P(tstm) ≥70% (≥75% when HREF in-window) OR "
         "HREF P(lightning) ≥45% OR SPC Moderate+ during any exposed phase; "
-        "High = SREF 40–79% OR HREF 20–44%; "
-        "Elevated = SREF 15–39% OR HREF 8–19% OR AFD convective mention "
-        "(Appendix B §16.2). Assessed over the Lightning Area of Concern around the "
-        "activity, not the upstream watershed (PRD §16.1). "
+        "High = SREF 35–69% OR HREF 20–44%; "
+        "Elevated = SREF 10–34% OR HREF 8–19% OR AFD convective mention "
+        "(Appendix B §16.2). SREF P(tstm) is P(APCP>2.54 mm/3 h) — a "
+        "precipitation proxy that is zero under high-CIN suppression. "
+        "Assessed over the Lightning Area of Concern around the activity, "
+        "not the upstream watershed (PRD §16.1). "
         "Cave interior excluded for the technical span."
     ),
     Hazard.HEAT: (

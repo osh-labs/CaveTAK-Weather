@@ -239,7 +239,10 @@ display-only — never an engine input). Verified live end-to-end in-container.
 **Lightning Area of Concern (LAoC).** Lightning is a point/corridor estimate, not a
 basin-routed one (PRD §16.1, §13 principle 4), so its ensemble fields (`sref_p_tstm`,
 `href_p_lightning`) aggregate over a disk around the activity rather than the upstream
-watershed. The disk reuses `watershed/roc.py`'s `roc_disk` (the raw circle, *not* intersected
+watershed. `sref_p_tstm` is P(APCP > 2.54 mm/3h) — a precipitation-accumulation proxy
+that is zero under high-CIN suppression; the prior P(CAPE > 1000 J/kg) proxy saturated
+to ~100% on any summer afternoon regardless of whether storms fired (`lightning.yaml`
+v1.4.0, `sref_provider.py`). The disk reuses `watershed/roc.py`'s `roc_disk` (the raw circle, *not* intersected
 with the basin); the orchestrator hands SREF/HREF a separate `lightning_polygon` while flash
 flood keeps the watershed/RoC domain. The radius is an **app-wide user preference** (not
 per-mission): a modular prefs store (`uwx.prefs.v1` in `localStorage`, `loadPrefs`/`savePrefs`

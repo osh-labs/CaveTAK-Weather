@@ -64,9 +64,9 @@ def load_probability_field(
     """Fetch (via idx subset) and decode one probability field from a cycle.
 
     Parameters mirror the ``.idx`` descriptor fields. ``prob`` selects the
-    threshold (e.g. ``">12.7"`` for APCP, ``">1000"`` for CAPE). ``fcst`` may
-    narrow to one accumulation window; if ``None``, all matching windows are
-    pulled and stacked on ``step``.
+    threshold (e.g. ``">6.35"`` or ``">2.54"`` for APCP). ``fcst`` may narrow
+    to one accumulation window; if ``None``, all matching windows are pulled and
+    stacked on ``step``.
     """
     idx = fetch_idx(cycle.idx_url(product="prob", grid=grid, freq=freq))
     selected = select_messages(idx, var=var, prob=prob, fcst=fcst)
