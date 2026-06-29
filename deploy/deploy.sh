@@ -116,5 +116,6 @@ for i in $(seq 1 20); do
 done
 
 warn "service did not become healthy in time — recent logs:"
-journalctl -u "$DEPLOY_SERVICE" -n 40 --no-pager || true
+# The API logs to a private journald namespace (LogNamespace=upstreamwx); read from it.
+journalctl --namespace=upstreamwx -u "$DEPLOY_SERVICE" -n 40 --no-pager || true
 die "deploy failed health check"

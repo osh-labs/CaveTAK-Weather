@@ -110,8 +110,10 @@ there gets the landing page's "Open the app" button.
   ping alerts you. Wired in `api/scheduler.py`.
 - **External uptime check** hitting `/v1/health` (UptimeRobot / Healthchecks.io) that
   alerts you when the box or the health check goes down.
-- **Error visibility** — at minimum `journalctl -u upstreamwx-api`; ideally Sentry so a
-  500 in `engine.assess` reaches you before a user does.
+- **Error visibility** — at minimum `journalctl --namespace=upstreamwx -u upstreamwx-api`
+  (the service logs to a private journald namespace, retained ~10 days — see
+  `deploy/systemd/journald@upstreamwx.conf`); ideally Sentry so a 500 in `engine.assess`
+  reaches you before a user does.
 - The **deploy health gate** (`deploy.sh` blocking on `/v1/health`) is already in place.
 
 ## Host upkeep
