@@ -203,16 +203,18 @@ async def briefing_pdf(briefing: BriefingResponse) -> Response:
     Requires ``playwright`` and the pre-installed Chromium (``/opt/pw-browsers/...``).
     Returns 503 when Playwright is unavailable so the client can fall back gracefully.
     """
+    from ..sitrep.pdf import render_pdf  # pdf.py imports playwright lazily; always succeeds
+
     try:
-        from ..sitrep.pdf import render_pdf
+        pdf_bytes = await render_pdf(briefing.model_dump(mode="json"))
     except ImportError as exc:
+        # render_pdf() does `from playwright.async_api import async_playwright` at call time,
+        # so a missing playwright package raises here — map to 503 so the PWA falls back to
+        # the localStorage → ?print=1 path (NFR-6).
         raise HTTPException(
             status_code=503,
             detail="Server-side PDF rendering unavailable (playwright not installed).",
         ) from exc
-
-    try:
-        pdf_bytes = await render_pdf(briefing.model_dump(mode="json"))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

@@ -47,14 +47,27 @@ def _chromium_path() -> str | None:
 
     Search order:
     1. Explicit hardcoded paths (dev container, common install locations)
-    2. PATH via shutil.which (covers apt/dnf system packages, snap wrappers,
-       and Playwright-managed installs when PLAYWRIGHT_BROWSERS_PATH is set)
-    3. None → Playwright searches its own registry (works if `playwright install`
-       succeeded for this distro)
+    2. PLAYWRIGHT_BROWSERS_PATH env var — the production systemd service sets this to
+       ``__APP_DIR__/.playwright-browsers``; ``playwright install chromium`` drops the
+       binary at ``chromium-<rev>/chrome-linux/chrome`` inside that directory.
+       We glob for the highest revision so a ``playwright install`` upgrade picks up the
+       new binary without touching this code.
+    3. PATH via shutil.which (covers apt/dnf system packages; snap wrappers excluded)
+    4. None → Playwright searches its own registry (works if ``playwright install``
+       succeeded and PLAYWRIGHT_BROWSERS_PATH is set in the process environment)
     """
     for p in _CHROMIUM_CANDIDATES:
         if Path(p).exists():
             return p
+    pw_browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if pw_browsers:
+        # Sort descending: highest chromium-NNNN revision wins (most recently installed).
+        candidates = sorted(
+            Path(pw_browsers).glob("chromium*/chrome-linux/chrome"), reverse=True
+        )
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
     for name in _CHROMIUM_WHICH:
         found = shutil.which(name)
         # Skip snap wrappers — they need a user login session (XDG_RUNTIME_DIR,
