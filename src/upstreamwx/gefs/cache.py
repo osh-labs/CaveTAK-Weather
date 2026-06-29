@@ -65,8 +65,15 @@ def _subset_name(member: str, fhour: int, var: str, level: str) -> str:
 
 
 def _decode(path: Path) -> xr.DataArray:
-    """Decode a cached member subset to its primary DataArray, eagerly loaded into memory."""
-    return _primary_dataarray(open_subset(path)).load()
+    """Decode a cached member subset to its primary DataArray, eagerly loaded into memory.
+
+    The cfgrib ``Dataset`` is closed explicitly (not left to GC) so the eccodes file handle is
+    released while the caller still holds ``grib.cache._decode_compute_lock`` — see the matching
+    note in :func:`upstreamwx.refs.cache._decode`. A deferred, cross-thread handle teardown vs a
+    concurrent decode segfaults the worker (eccodes is not thread-safe).
+    """
+    with open_subset(path) as ds:
+        return _primary_dataarray(ds).load()
 
 
 def load_member_field_cached(

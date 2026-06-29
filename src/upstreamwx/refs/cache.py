@@ -87,10 +87,16 @@ def _subset_name(fhour: int, var: str, prob: str) -> str:
 def _decode(path: Path) -> xr.DataArray:
     """Decode a cached per-hour subset to its primary DataArray, eagerly loaded into memory.
 
-    ``.load()`` materialises the grid so the cached array is decoupled from the file handle —
-    safe to share across the concurrent aggregations the request path runs.
+    ``.load()`` materialises the grid into numpy, then the cfgrib ``Dataset`` is **closed
+    explicitly** so the eccodes file handle is released here — while the caller still holds
+    ``grib.cache._decode_compute_lock`` around this decode. Letting the ``Dataset`` fall out of
+    scope unclosed instead defers the handle teardown to a later garbage-collection on an
+    arbitrary thread, which can run concurrently with another in-lock decode; eccodes is not
+    thread-safe, and that cross-thread teardown segfaults the worker once REFS decodes alongside
+    GEFS's thread pool. Closing in-lock keeps all eccodes activity serialised (NFR-6).
     """
-    return _primary_dataarray(open_subset(path)).load()
+    with open_subset(path) as ds:
+        return _primary_dataarray(ds).load()
 
 
 def load_probability_field_cached(
