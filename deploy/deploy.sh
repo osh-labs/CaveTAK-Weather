@@ -125,6 +125,31 @@ if ! printf '%s\n' "${_uwx_env[@]+"${_uwx_env[@]}"}" | grep -q '^UPSTREAMWX_DATA
     _uwx_env+=("UPSTREAMWX_DATA_DIR=$DEPLOY_DATA_DIR")
 fi
 
+# --- REFS production-feed cutover gate ------------------------------------------------
+# REFS production (NOMADS com/refs/prod, ensprod NEP) goes live 2026-08-31 12Z and the AWS
+# *prototype* bucket UpstreamWX defaults to is non-operational past the SCN 26-47 EOL. There
+# is no automatic switch: warn loudly here if the deploy is at/after the cutover but the env
+# file still selects the prototype feed, so the operator flips UPSTREAMWX_REFS_SOURCE in the
+# env file rather than silently running the public beta on a prototype bucket. Non-fatal
+# (a warning, not a block) so an early/dev deploy is unaffected.
+_refs_gate="$($RUN_USER env "${_uwx_env[@]}" "$DEPLOY_APP_DIR/.venv/bin/python" - <<'PYEOF' || true
+import sys
+from datetime import UTC, date, datetime
+try:
+    from upstreamwx.config import get_settings
+except ImportError:
+    sys.exit(0)
+CUTOVER = date(2026, 8, 31)  # SCN 26-48 REFS production go-live (SREF/HREF EOL)
+src = get_settings().refs_source
+if datetime.now(UTC).date() >= CUTOVER and src == "aws":
+    print("PROTOTYPE_AFTER_CUTOVER")
+PYEOF
+)"
+if [[ "$_refs_gate" == *PROTOTYPE_AFTER_CUTOVER* ]]; then
+    warn "REFS still on the AWS *prototype* feed (refs_source=aws) past the 2026-08-31 production cutover."
+    warn "Set UPSTREAMWX_REFS_SOURCE=nomads_prod in $DEPLOY_ENV_FILE (SCN 26-48) — see deploy/README.md."
+fi
+
 # Run the warm script as the service user so all cache files are owned correctly.
 # Python reads the script from stdin (python -) to avoid writing a temp file.
 # Non-fatal: a warm failure degrades REFS (scheduler recovers on next tick) but must not

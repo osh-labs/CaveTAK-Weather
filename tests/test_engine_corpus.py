@@ -77,3 +77,15 @@ def test_confidence_corpus(fname, case):
     inputs = HazardInputs(**case["inputs"])
     conf = confidence_for(Hazard(case["for_hazard"]), inputs, CONFIG.confidence)
     assert conf is Confidence[case["expect"].upper()], case["id"]
+
+
+@pytest.mark.parametrize("mode", ["widespread", "Isolated", "", "garbage"])
+def test_lightning_afd_storm_mode_degrades_gracefully(mode):
+    """An out-of-vocabulary (or oddly-cased) AFD storm mode must not crash assess (NFR-6).
+
+    The lookup is a normalized ``.get()``, so an unknown mode contributes no AFD signal
+    rather than raising ``KeyError`` — known modes ("Isolated") still map after casefolding.
+    """
+    inputs = HazardInputs(afd_storm_mode=mode, gefs_p_tstm=10.0)
+    tier, _drivers, _notes = lightning.evaluate(inputs, CONFIG.lightning)
+    assert tier in set(Tier)

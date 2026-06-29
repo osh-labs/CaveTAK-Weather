@@ -24,7 +24,7 @@ from ..sitrep.generate import GeneratedBriefing, generate_briefing
 from ..sitrep.structured import to_structured
 from ..watershed.cache import _key as watershed_key
 from ..watershed.cache import delineate_cached
-from .cache import STATIC_TOKEN, BriefingCache, mission_cache_key
+from .cache import STATIC_TOKEN, BoundedLRU, BriefingCache, mission_cache_key
 from .cycles import cycle_key
 from .models import BriefingResponse, MissionSpec
 
@@ -44,11 +44,14 @@ class BriefingService:
     """Orchestrates caching, generation, and refresh registration for briefings."""
 
     def __init__(self, cache: BriefingCache | None = None) -> None:
-        self.cache = cache or BriefingCache()
+        maxsize = get_settings().api_cache_max_entries
+        self.cache = cache or BriefingCache(maxsize=maxsize)
         self._active: dict[str, _Registered] = {}
         # Stores the engine BriefingResult alongside its cache key so the streaming
-        # framing endpoint can call Haiku without re-running ingest.
-        self._result_store: dict[str, BriefingResult] = {}
+        # framing endpoint can call Haiku without re-running ingest. LRU-bounded like the
+        # briefing cache so it cannot grow unbounded on an always-on host; an evicted result
+        # makes the frame endpoint a graceful miss (it re-generates on the next briefing).
+        self._result_store: BoundedLRU[BriefingResult] = BoundedLRU(maxsize)
         # Watershed warming: a bounded pool fills the pour-point cache in the background
         # the moment the planner reports a new point, de-duped by cache key so a dragged
         # marker can't flood it. Created in start_warming() (app lifespan), not at import.
@@ -77,7 +80,7 @@ class BriefingService:
         # so the structured posture data is returned immediately without waiting for the
         # LLM call.  The engine result is stored in _result_store for the frame endpoint.
         briefing = generate_briefing(mission, inputs=inputs, frame=False, generated_at=now)
-        self._result_store[key] = briefing.result
+        self._result_store.put(key, briefing.result)
         self.cache.put(key, briefing, token)
         # Track live, still-in-range missions for the scheduler (FR-12). Deterministic
         # offline briefings need no refresh, so they are not registered.
@@ -136,7 +139,7 @@ class BriefingService:
                 del self._active[key]  # mission is over; stop refreshing it
                 continue
             briefing = generate_briefing(reg.mission, frame=False, generated_at=now)
-            self._result_store[key] = briefing.result
+            self._result_store.put(key, briefing.result)
             self.cache.put(key, briefing, token)
             regenerated += 1
         return regenerated

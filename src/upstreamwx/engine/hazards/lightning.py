@@ -23,6 +23,10 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
 
     candidates: list[tuple[Tier, str]] = []
 
+    # Normalize the AFD storm-mode key once; an out-of-vocabulary mode degrades to
+    # "no AFD signal" rather than crashing assess() (NFR-6), mirroring spc_category.
+    afd_mode = inputs.afd_storm_mode.strip().lower() if inputs.afd_storm_mode else None
+
     bands = cfg["gefs_ptstm"]
     p = inputs.gefs_p_tstm
     # When REFS is available in-window, use a higher GEFS Extreme threshold so the
@@ -47,9 +51,11 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
                 (Tier.from_name(mapped), f"SPC {inputs.spc_category} risk over window")
             )
 
-    if inputs.afd_storm_mode is not None:
-        mode_tier = Tier.from_name(cfg["afd_storm_mode"][inputs.afd_storm_mode])
-        candidates.append((mode_tier, f"AFD: {inputs.afd_storm_mode} convection"))
+    if afd_mode is not None:
+        mapped_mode = cfg["afd_storm_mode"].get(afd_mode)
+        if mapped_mode:
+            mode_tier = Tier.from_name(mapped_mode)
+            candidates.append((mode_tier, f"AFD: {inputs.afd_storm_mode} convection"))
 
     # REFS same-day overlay (FR-7a, §16.2): REFS neighborhood P(lightning)/P(reflectivity)
     # on its own cut points, added as another candidate; the max across all wins.
@@ -77,7 +83,7 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     # cap the final tier unless REFS P(lightning) exceeds the override threshold — the
     # same-day high-res ensemble can see more than an AFD written hours earlier (§16.2).
     ceiling_cfg = cfg.get("afd_ceiling", {})
-    ceiling_key = ceiling_cfg.get(inputs.afd_storm_mode) if inputs.afd_storm_mode else None
+    ceiling_key = ceiling_cfg.get(afd_mode) if afd_mode else None
     if ceiling_key:
         ceiling = Tier.from_name(ceiling_key)
         href_min: float = ceiling_cfg["refs_override_min"]

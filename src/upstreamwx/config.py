@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     # this is the main-process cap — 256 MiB is safe on a ≤2 GB host (raise it where RAM allows).
     decode_cache_max_bytes: int = 256 * 1024 * 1024
 
+    # Hard entry cap for the in-process briefing cache and the engine-result store (M0.3).
+    # Both are keyed by mission and were previously unbounded dicts — on an always-on host
+    # they grew with every distinct mission for the process lifetime (a slow leak). Bounding
+    # them as LRUs caps memory; an evicted entry simply regenerates on the next request, and
+    # an evicted engine result makes the streaming frame endpoint a graceful miss (NFR-6).
+    # 512 distinct missions is generous for a single-host beta; raise where RAM allows.
+    api_cache_max_entries: int = 512
+
     # Dead-man's-switch monitoring (Healthchecks.io or any ping-on-success service). When
     # set, the GEFS/REFS + AFD refresh scheduler pings this URL each cycle (".../start" before the
     # pass, the base URL on success, ".../fail" on error). A stalled scheduler — stale

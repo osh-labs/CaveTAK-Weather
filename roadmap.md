@@ -204,19 +204,19 @@ in conversation and commits.
 
 **Exit criteria for the public beta.** All §6.8 requirements met; offline review works; PDF export carries the disclaimer; suite green and `ruff` clean; version stamped; the known gaps below are either closed or explicitly accepted and disclosed to beta users.
 
-**Build status.** Test suite green (268 passed, 16 network-deselected), `ruff` clean, version bumped to `0.5.0`. The PWA, landing page, and deploy tooling are release-ready. Remaining items are the known gaps below.
+**Build status.** Test suite green (278 passed, 17 network-deselected), `ruff` clean, version bumped to `0.5.0`. The PWA, landing page, and deploy tooling are release-ready. Of the known gaps below, the code/operational/test items (2, 3, 4, 5, 7) are now closed; the remaining ones are the provisional-threshold calibration/UI framing (1), the persistent rendered-briefing cache (6), cache observability (8), the FR-40 disclaimer-persistence judgment (9), and cosmetic SREF/HREF wording (10).
 
 ### Known gaps to close or accept before/at the v0.5.0 beta
 
 Surfaced by the v0.5.0 codebase review (see "Critical functions still missing" in the review notes):
 
 1. **Threshold calibration is provisional (product risk, not a code defect).** GEFS/REFS cut points are seeded from the SREF/HREF baseline and uncalibrated against the new ensembles; `gefs_p_tstm` is a CAPE×precip proxy. Acceptable for a *reference-only* beta only if the uncertainty is loud in the UI. Flag explicitly to beta users (FR-20a — tuned via config, no code change).
-2. **REFS prod-feed cutover (operational).** Default is the prototype AWS bucket; no auto-cutover to NOMADS prod at the 2026-08-31 EOL. Gate it in the deploy runbook (M0.1.1).
-3. **NFR-6 hole in lightning AFD lookup.** `engine/hazards/lightning.py` indexes `cfg["afd_storm_mode"][mode]` directly — an out-of-vocab mode raises `KeyError` and crashes `assess`. Switch to `.get()` with a safe default.
-4. **`refs/extract.load_probability_field` (non-cached) ignores feed selection** — silently uses the default AWS feed. Latent trap (live path uses the cached loader); pass the resolved feed through before anyone reuses it live.
-5. **Unbounded in-memory growth** in `api/service.py` (`_result_store`, `_active`) and `api/cache.py` — no eviction/TTL. A slow leak on an always-on beta host. Add an LRU/TTL bound.
+2. ✅ **REFS prod-feed cutover (operational).** Default is the prototype AWS bucket; no auto-cutover to NOMADS prod at the 2026-08-31 EOL. **Gated:** `deploy.sh` now warns loudly at/after the cutover if still on `aws`, and `deploy/README.md` documents the one-time `UPSTREAMWX_REFS_SOURCE=nomads_prod` flip. (The flip itself remains a deliberate operator action.)
+3. ✅ **NFR-6 hole in lightning AFD lookup.** Was a direct `cfg["afd_storm_mode"][mode]` index (KeyError on an out-of-vocab mode). Now a normalized `.get()`; regression-tested (`test_lightning_afd_storm_mode_degrades_gracefully`).
+4. ✅ **`refs/extract.load_probability_field` (non-cached) feed selection.** Now resolves the active feed via `refs_feed(settings)` and threads `base`/`subdir` through the URLs, matching the cached loader (and honoring a caller-passed `settings`).
+5. ✅ **Unbounded in-memory growth** in `api/service.py` / `api/cache.py`. Both the briefing cache and the engine-result store are now LRU-bounded (`BoundedLRU`, capped by `api_cache_max_entries`, default 512). (`_active` self-prunes when windows end.)
 6. **Persistent rendered-briefing cache + active-mission registry** — still ephemeral; a restart drops scheduled refresh until each mission is re-requested (M0.1.1).
-7. **Test coverage gaps:** PDF export (FR-27) has zero automated coverage; there is no live REFS provider network test (REFS is the in-window authoritative source). Add a hermetic PDF smoke + a network-gated REFS smoke.
+7. ✅ **Test coverage gaps.** Added `tests/test_pdf_export.py` (template/asset presence, endpoint wiring + 503 fallback, and a real headless-Chromium render skipped where Chromium is absent) and a network-gated live REFS warm/decode smoke (`test_refs_warm_live`).
 8. **Cache observability** — extend `/v1/health` to surface ensemble grid-cache state (M0.1.1).
 9. **FR-40 disclaimer persistence (PRD judgment).** The reference-only disclaimer is repeated per-view (present on every screen) but is not a single always-on chrome element; it scrolls with content. Confirm this meets the PRD's "persistent/non-dismissible" bar or add fixed chrome.
 10. **Stale SREF/HREF wording in live code/docs.** Cosmetic only: `sref_`/`href_` local-variable names in `flash_flood.py`/`lightning.py`, the `frame.py` system-prompt signal guide, `cycles.py`/`cli.py` docstrings, several `grib/`/`watershed/` docstrings, the nginx config comment, and the `docs/m0.1`–`m0.4` milestone READMEs (which still describe SREF/HREF as the live spine). Sweep during the post-cutover cleanup that deletes `sref/`/`href/`.
@@ -241,12 +241,12 @@ Surfaced by the v0.5.0 codebase review (see "Critical functions still missing" i
 The MVP backend is live; the suite is green and version-stamped. Remaining work, in priority order:
 
 **Pre-beta (close or explicitly accept — see M0.5 "Known gaps"):**
-1. NFR-6 fix in `lightning.py` AFD lookup (cheap, code).
-2. REFS prod-feed cutover gating in the deploy runbook (operational).
-3. Bound the in-memory caches in `api/service.py` / `api/cache.py` (cheap, code).
-4. PDF-export smoke test + network-gated REFS provider smoke (test coverage).
-5. Loud uncertainty framing in the UI for the provisional thresholds (product).
-6. Decide FR-40 disclaimer persistence (PRD judgment).
+1. ✅ NFR-6 fix in `lightning.py` AFD lookup — normalized `.get()`, regression-tested.
+2. ✅ REFS prod-feed cutover gating — deploy-time gate in `deploy.sh` + runbook step (operator still flips the env at cutover).
+3. ✅ Bound the in-memory caches in `api/service.py` / `api/cache.py` — LRU-bounded (`api_cache_max_entries`).
+4. ✅ PDF-export tests (hermetic wiring + real-Chromium render) + network-gated REFS provider smoke.
+5. Loud uncertainty framing in the UI for the provisional thresholds (product — still open).
+6. Decide FR-40 disclaimer persistence (PRD judgment — still open).
 
 **Post-beta (M0.1.1 finish + calibration):**
 - Persistent rendered-briefing cache + active-mission registry.

@@ -251,6 +251,22 @@ sudo systemctl stop upstreamwx-api         # take it down
 - **TLS renewal** is automatic — certbot's timer for prod (`sudo certbot renew --dry-run`
   to verify); Tailscale auto-renews staging when served via `tailscale serve`.
 
+### REFS production-feed cutover (one-time, ~2026-08-31)
+
+REFS (the same-day, in-window authoritative ensemble) defaults to the AWS **prototype**
+bucket (`UPSTREAMWX_REFS_SOURCE=aws`) — the only feed reachable for end-to-end validation
+before cutover. NWS **SCN 26-48** brings REFS production up on NOMADS (`com/refs/prod`,
+`ensprod` NEP) at **2026-08-31 12Z**, when the prototype/SREF/HREF feeds retire. **There is
+no automatic switch.** At/after that date:
+
+1. Set `UPSTREAMWX_REFS_SOURCE=nomads_prod` in `/etc/upstreamwx/upstreamwx.env`.
+2. `sudo systemctl restart upstreamwx-api`.
+3. Confirm the next deploy/warm logs `Feed: nomads_prod …` and finds a live cycle.
+
+`deploy.sh` guards this: a deploy at/after the cutover that still selects `aws` prints a
+loud `!` warning (the REFS feed cutover gate) so it can't slip by unnoticed. Use
+`nomads_para` only as a stop-gap if prod is briefly unreachable.
+
 ---
 
 ## Amazon Linux / RHEL notes

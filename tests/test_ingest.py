@@ -266,6 +266,31 @@ def test_gefs_provider_live(fixtures_dir):
 
 
 @pytest.mark.network
+def test_refs_warm_live(tmp_path):
+    """Live REFS feed reachability + warm/decode (the in-window authoritative source).
+
+    REFS is cache-driven, so the briefing path only sees what the scheduler warmed. This
+    exercises the network half that no hermetic test can: resolve the configured feed
+    (``refs_source`` — the AWS prototype pre-cutover, NOMADS prod after), find a live cycle,
+    byte-range fetch + atomically cache + cfgrib-decode a few early forecast hours. Skips
+    cleanly when the feed has no published cycle yet (production lag), so it never flaps.
+    """
+    from upstreamwx import refs
+    from upstreamwx.config import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    cycle = refs.latest_available_cycle(settings=settings)
+    if cycle is None:
+        pytest.skip("no live REFS cycle on the configured feed")
+    paths = refs.warm_cycle(cycle, settings=settings, fmin=3, fmax=6)
+    if not paths:
+        pytest.skip("REFS cycle live but no fields published yet at f03-f06")
+    assert any(p.exists() for p in paths)
+    cache_dir = tmp_path / "refs" / f"{cycle.date}_{cycle.hh}"
+    assert cache_dir.is_dir() and any(cache_dir.iterdir())
+
+
+@pytest.mark.network
 def test_watershed_cache_live(tmp_path):
     from upstreamwx.config import Settings
     from upstreamwx.watershed import resolve_and_trace_cached

@@ -19,8 +19,9 @@ from pathlib import Path
 
 import xarray as xr
 
+from ..config import Settings
 from ..grib.idx import download_subset, fetch_idx, select_messages
-from .sources import DEFAULT_DOMAIN, DEFAULT_PRODUCT, RefsCycle
+from .sources import DEFAULT_DOMAIN, DEFAULT_PRODUCT, RefsCycle, refs_feed
 
 
 @dataclass
@@ -73,6 +74,8 @@ def load_probability_field(
     domain: str = DEFAULT_DOMAIN,
     product: str = DEFAULT_PRODUCT,
     cache_dir: str | Path | None = None,
+    *,
+    settings: Settings | None = None,
 ) -> RefsField:
     """Fetch (via idx subset) and decode one neighborhood-probability field.
 
@@ -80,8 +83,14 @@ def load_probability_field(
     ``">12.7"`` for APCP mm, ``">40"`` for REFC dBZ, ``">0.08"`` for LTNG). ``fcst`` narrows to
     one accumulation window (see :func:`accum_window`); for instantaneous fields (REFC, LTNG,
     CAPE) it can be left ``None`` since an ``fHH`` file holds a single valid time.
+
+    The active REFS feed (AWS / NOMADS) is resolved via :func:`refs_feed` and threaded into the
+    URLs explicitly, so a caller-passed ``settings`` is honored — matching
+    :func:`upstreamwx.refs.cache.load_probability_field_cached` rather than silently falling
+    back to the default feed.
     """
-    idx = fetch_idx(cycle.idx_url(fhour, product=product, domain=domain))
+    base, subdir = refs_feed(settings)
+    idx = fetch_idx(cycle.idx_url(fhour, product=product, domain=domain, base=base, subdir=subdir))
     selected = select_messages(idx, var=var, prob=prob, fcst=fcst)
     if not selected:
         raise LookupError(
@@ -95,7 +104,9 @@ def load_probability_field(
         .replace("<", "lt")
     )
     download_subset(
-        cycle.product_url(fhour, product=product, domain=domain), selected, out_path
+        cycle.product_url(fhour, product=product, domain=domain, base=base, subdir=subdir),
+        selected,
+        out_path,
     )
 
     ds = open_subset(out_path)

@@ -10,19 +10,66 @@ never expire — same inputs reproduce the same briefing record (FR-25, NFR-4).
 This is an in-process store. Cross-restart persistence is deliberately deferred to
 M0.1.1 (EC2): an ephemeral dev container cannot validate it, and the interface here
 (``get``/``put`` keyed by a stable string) is what a persistent backend would implement.
+It is **capacity-bounded** as an LRU (``maxsize``) so an always-on host cannot grow it
+without limit — an evicted briefing simply regenerates on the next request (NFR-6).
 """
 
 from __future__ import annotations
 
 import hashlib
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from ..engine.models import HazardInputs, Mission
 from ..sitrep.generate import GeneratedBriefing
 
 # Validity token for deterministic (explicit-inputs) briefings: never expires.
 STATIC_TOKEN = "static"
+
+# Default LRU capacity when a caller does not pass one (kept in step with the
+# ``api_cache_max_entries`` setting so a bare ``BriefingCache()`` is still bounded).
+DEFAULT_MAX_ENTRIES = 512
+
+_V = TypeVar("_V")
+
+
+class BoundedLRU(Generic[_V]):
+    """Thread-safe string-keyed LRU with a hard entry cap.
+
+    A minimal building block for the in-process caches: ``get`` refreshes recency,
+    ``put`` evicts the least-recently-used entries past ``maxsize``. Bounding these
+    maps stops the unbounded per-mission growth that would otherwise leak on an
+    always-on host (M0.1.1).
+    """
+
+    def __init__(self, maxsize: int = DEFAULT_MAX_ENTRIES) -> None:
+        self._maxsize = max(1, maxsize)
+        self._store: OrderedDict[str, _V] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> _V | None:
+        with self._lock:
+            if key not in self._store:
+                return None
+            self._store.move_to_end(key)
+            return self._store[key]
+
+    def put(self, key: str, value: _V) -> None:
+        with self._lock:
+            self._store[key] = value
+            self._store.move_to_end(key)
+            while len(self._store) > self._maxsize:
+                self._store.popitem(last=False)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._store)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
 
 
 def mission_cache_key(mission: Mission, inputs: HazardInputs | None = None) -> str:
@@ -58,30 +105,25 @@ class _Entry:
 
 
 class BriefingCache:
-    """Thread-safe in-process briefing cache with cycle-scoped validity."""
+    """Thread-safe in-process briefing cache with cycle-scoped validity, LRU-bounded."""
 
-    def __init__(self) -> None:
-        self._store: dict[str, _Entry] = {}
-        self._lock = threading.Lock()
+    def __init__(self, maxsize: int = DEFAULT_MAX_ENTRIES) -> None:
+        self._store: BoundedLRU[_Entry] = BoundedLRU(maxsize)
 
     def get(self, key: str, token: str) -> GeneratedBriefing | None:
         """Return the cached briefing iff present and valid for ``token`` (else None)."""
-        with self._lock:
-            entry = self._store.get(key)
-            if entry is None:
-                return None
-            if entry.token == STATIC_TOKEN or entry.token == token:
-                return entry.briefing
+        entry = self._store.get(key)
+        if entry is None:
             return None
+        if entry.token == STATIC_TOKEN or entry.token == token:
+            return entry.briefing
+        return None
 
     def put(self, key: str, briefing: GeneratedBriefing, token: str) -> None:
-        with self._lock:
-            self._store[key] = _Entry(briefing=briefing, token=token)
+        self._store.put(key, _Entry(briefing=briefing, token=token))
 
     def __len__(self) -> int:
-        with self._lock:
-            return len(self._store)
+        return len(self._store)
 
     def clear(self) -> None:
-        with self._lock:
-            self._store.clear()
+        self._store.clear()
