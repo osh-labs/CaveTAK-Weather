@@ -2,9 +2,9 @@
 # Applies to exposed phases only (approach, egress); excluded from the technical
 # span by FR-14c. Externalized, versioned config (FR-20a).
 hazard: lightning
-version: "1.3.0"
+version: "1.4.0"
 provenance:
-  effective_date: "2026-06-27"
+  effective_date: "2026-06-29"
   rationale: >-
     Primary basis is SREF probability of thunderstorms over the exposure window,
     cross-checked against the SPC convective outlook and AFD. CAPE/Lifted Index
@@ -19,22 +19,32 @@ provenance:
     contextual ceiling: when the AFD describes routine coverage (isolated -> Elevated
     ceiling; scattered -> High ceiling) and HREF P(lightning) is below 60%, Extreme
     is suppressed. HREF >= 60% bypasses the ceiling so same-day high-res evidence can
-    still trigger Extreme on days the AFD discussion predates. To be tuned via field
-    testing (FR-20a).
+    still trigger Extreme on days the AFD discussion predates. v1.4 replaces the SREF
+    thunderstorm proxy from P(CAPE>1000 J/kg) to P(APCP>2.54 mm/3h). CAPE>1000 J/kg
+    is an instability indicator that saturates to ~100% on any summer afternoon in the
+    Southeast regardless of CIN, returning Extreme on heat-dome/suppressed-convection
+    days where the AFD describes no meaningful storm threat. P(APCP>2.54 mm/3h) is a
+    precipitation-accumulation field that is zero when CIN prevents convective
+    initiation and only fires when ensemble members actually produce rainfall — the
+    correct signal for thunderstorm probability. Cut points recalibrated for the new
+    variable's probability range (spatial max over the LAoC disk, temporal max over
+    the mission window): Extreme 70%/75% (no/with HREF), High 35%, Elevated 10%.
+    To be tuned via field testing (FR-20a).
   source: "UpstreamWX PRD v0.8 §16.2"
 
 products:
   thunderstorm_warning_tier: extreme   # active (severe) thunderstorm warning -> Extreme
 
-# SREF P(thunderstorm) over the exposure window, percent [0, 100]. Highest band wins.
+# SREF P(APCP>2.54 mm/3h) thunderstorm proxy over the exposure window, percent [0, 100].
+# Highest band wins. Spatial max over the LAoC disk, temporal max over the mission window.
 # When HREF is available in-window, extreme_min_with_href applies instead of extreme_min
 # so the higher-resolution same-day ensemble is the dominant Extreme trigger (§16.2).
 sref_ptstm:
-  extreme_min: 80           # >=80% -> Extreme (no HREF)
-  extreme_min_with_href: 85 # >=85% -> Extreme (HREF in-window; HREF drives Extreme at lower prob)
-  high_min: 40              # 40-79% -> High
-  elevated_min: 15          # 15-39% -> Elevated
-                            # <15%   -> Minimal
+  extreme_min: 70           # >=70% -> Extreme (no HREF): majority of members see convective precip
+  extreme_min_with_href: 75 # >=75% -> Extreme (HREF in-window; HREF drives Extreme at lower prob)
+  high_min: 35              # 35-69% -> High
+  elevated_min: 10          # 10-34% -> Elevated
+                            # <10%   -> Minimal
 
 # HREF same-day overlay (FR-7a, §16.2), percent [0, 100]. HREF neighborhood
 # P(lightning) (explicit) or P(composite reflectivity >= 40 dBZ) over the exposure

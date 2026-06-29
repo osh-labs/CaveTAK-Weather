@@ -1,6 +1,6 @@
 # Lightning boundary cases — PRD Appendix B §16.2.
-# SREF cut points (no HREF): extreme_min=80%, high_min=40%, elevated_min=15%.
-# SREF cut points (HREF in-window): extreme_min_with_href=85%, same High/Elevated.
+# SREF cut points (no HREF): extreme_min=70%, high_min=35%, elevated_min=10%.
+# SREF cut points (HREF in-window): extreme_min_with_href=75%, same High/Elevated.
 # HREF cut points: extreme_min=45%, high_min=20%, elevated_min=8%.
 # AFD ceiling: isolated->Elevated, scattered->High; HREF>=60% overrides ceiling.
 # Any one condition triggers; assigned tier is the max across SREF / HREF / SPC / AFD / warning.
@@ -10,29 +10,29 @@ cases:
     inputs: {thunderstorm_warning: true, sref_p_tstm: 0}
     expect: extreme
   - id: ptstm_extreme_lower_edge
-    inputs: {sref_p_tstm: 80}
+    inputs: {sref_p_tstm: 70}
     expect: extreme
   - id: ptstm_just_below_extreme
-    inputs: {sref_p_tstm: 79}
+    inputs: {sref_p_tstm: 69}
     expect: high
   - id: ptstm_high_lower_edge
-    inputs: {sref_p_tstm: 40}
+    inputs: {sref_p_tstm: 35}
     expect: high
   - id: ptstm_just_below_high
-    inputs: {sref_p_tstm: 39}
+    inputs: {sref_p_tstm: 34}
     expect: elevated
   - id: ptstm_elevated_lower_edge
-    inputs: {sref_p_tstm: 15}
+    inputs: {sref_p_tstm: 10}
     expect: elevated
   - id: ptstm_just_below_elevated
-    inputs: {sref_p_tstm: 14}
+    inputs: {sref_p_tstm: 9}
     expect: minimal
-  # When HREF is in-window, SREF needs 85% to reach Extreme on its own.
+  # When HREF is in-window, SREF needs 75% to reach Extreme on its own.
   - id: ptstm_extreme_suppressed_by_href_window
-    inputs: {sref_p_tstm: 80, href_p_lightning: 25}
+    inputs: {sref_p_tstm: 70, href_p_lightning: 25}
     expect: high
   - id: ptstm_extreme_with_href_window
-    inputs: {sref_p_tstm: 85, href_p_lightning: 25}
+    inputs: {sref_p_tstm: 75, href_p_lightning: 25}
     expect: extreme
   # HREF boundary cases (HREF in-window, SREF below High).
   - id: href_extreme_lower_edge
@@ -74,19 +74,19 @@ cases:
     expect: elevated
   # AFD ceiling: scattered caps SREF-driven Extreme at High (no HREF override).
   - id: afd_scattered_caps_extreme
-    inputs: {sref_p_tstm: 82, afd_storm_mode: scattered}
+    inputs: {sref_p_tstm: 72, afd_storm_mode: scattered}
     expect: high
   # AFD ceiling: isolated caps SREF-driven High at Elevated.
   - id: afd_isolated_caps_high
-    inputs: {sref_p_tstm: 50, afd_storm_mode: isolated}
+    inputs: {sref_p_tstm: 36, afd_storm_mode: isolated}
     expect: elevated
   # HREF > 60% overrides the scattered ceiling -> Extreme allowed.
   - id: afd_scattered_href_overrides_ceiling
-    inputs: {sref_p_tstm: 82, href_p_lightning: 65, afd_storm_mode: scattered}
+    inputs: {sref_p_tstm: 72, href_p_lightning: 65, afd_storm_mode: scattered}
     expect: extreme
   # AFD numerous has no ceiling -> Extreme allowed from SREF.
   - id: afd_numerous_no_ceiling
-    inputs: {sref_p_tstm: 82, afd_storm_mode: numerous}
+    inputs: {sref_p_tstm: 72, afd_storm_mode: numerous}
     expect: extreme
   - id: max_across_triggers
     inputs: {sref_p_tstm: 20, spc_category: enhanced}

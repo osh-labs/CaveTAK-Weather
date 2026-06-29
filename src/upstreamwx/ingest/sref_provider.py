@@ -33,8 +33,13 @@ NAME = "sref"
 
 # Precip-probability proxy: P(3-h accumulation > 6.35 mm ≈ 0.25 in) over the domain.
 PRECIP_VAR, PRECIP_PROB, PRECIP_FREQ = "APCP", ">6.35", "3hrly"
-# Thunderstorm proxy: P(CAPE > 1000 J/kg) — convective instability over the domain.
-TSTM_VAR, TSTM_PROB = "CAPE", ">1000"
+# Thunderstorm proxy: P(3-h accumulation > 2.54 mm ≈ 0.1 in) — convective precipitation
+# over the domain. Using a precipitation-accumulation field rather than CAPE means this
+# is zero on high-CAPE/high-CIN suppressed days (common in the SE summer heat dome) and
+# only fires when ensemble members actually produce rainfall. CAPE > 1000 J/kg was the
+# prior proxy but saturates to ~100% any summer afternoon in the Southeast regardless of
+# CIN, making it useless as a discriminator (FR-7, §16.2).
+TSTM_VAR, TSTM_PROB, TSTM_FREQ = "APCP", ">2.54", "3hrly"
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -162,9 +167,10 @@ def fetch(
         )
         p_tstm = _domain_max(
             cycle, TSTM_VAR, TSTM_PROB, tstm_polygon,
+            freq=TSTM_FREQ,
             window_start=mission.window_start,
             window_end=mission.window_end,
-            freq_h=0,  # CAPE is an instantaneous snapshot, not an accumulation
+            freq_h=3,  # 3-hour accumulation field, same as the precip proxy
         )
     except ValueError as exc:
         bundle.sources_ok[NAME] = False
@@ -179,8 +185,8 @@ def fetch(
     if p_tstm is not None:
         bundle.member_support["lightning"] = p_tstm / 100.0
     bundle.notes.append(
-        f"SREF cycle {cycle.date}/{cycle.hh}Z; P(precip>6.35mm/3h) and P(CAPE>1000) "
-        "used as precip/thunderstorm proxies over the upstream domain "
+        f"SREF cycle {cycle.date}/{cycle.hh}Z; P(APCP>6.35mm/3h) flash-flood proxy and "
+        f"P(APCP>2.54mm/3h) thunderstorm proxy over the upstream domain "
         f"(window {mission.window_start}–{mission.window_end})."
     )
     bundle.sources_ok[NAME] = True

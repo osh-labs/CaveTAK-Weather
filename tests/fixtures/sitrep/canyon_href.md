@@ -38,7 +38,7 @@
 - HREF neighborhood P(QPF) 45% concurs at High
 
 ### Lightning
-- SREF P(tstm) 50% ≥ 40%
+- SREF P(tstm) 50% ≥ 35%
 - SPC slight risk over window
 - AFD: scattered convection
 - HREF neighborhood P(convection) 35% ≥ 20% (~3 km same-day)
@@ -58,7 +58,7 @@ Flash-flood assessment aggregates over the upstream contributing watershed of HU
 
 ## SOURCE DATA
 
-Threshold config: flash_flood=1.2.0;lightning=1.3.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.2.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Active NWS products:
 - Flash Flood Warning: no
