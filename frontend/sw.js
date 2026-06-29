@@ -39,14 +39,29 @@ const SHELL_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_ASSETS)).then(() => self.skipWaiting()));
+  // skipWaiting unconditionally — activation must not be gated on precache completing.
+  // The fetch handler is network-first, so a partial precache still serves correct assets
+  // online; the offline fallback fills in as each asset is fetched and cached normally.
+  // Previously skipWaiting() was chained after addAll(), so a slow or failed asset fetch
+  // (addAll is all-or-nothing) left the new SW stuck in "installing" indefinitely, forcing
+  // multiple close/reopen cycles before the update applied.
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(SHELL).then((cache) =>
+      // Best-effort: one slow or missing asset must not stall the install or abort
+      // the entire precache (FR-26 offline support for the other assets still applies).
+      Promise.all(SHELL_ASSETS.map((url) => cache.add(url).catch(() => {})))
+    )
+  );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      .then((keys) =>
+        Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k).catch(() => {})))
+      )
       .then(() => self.clients.claim())
   );
 });
