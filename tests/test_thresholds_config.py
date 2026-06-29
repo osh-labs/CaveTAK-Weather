@@ -49,7 +49,7 @@ def test_override_config_dir(tmp_path):
     from upstreamwx.engine.models import HazardInputs, Tier
 
     cfg = load_thresholds(dst)
-    inputs = HazardInputs(sref_p_precip=55, measurable_precip=True)
+    inputs = HazardInputs(gefs_p_precip=55, measurable_precip=True)
     tier, _d, _n = flash_flood.evaluate(inputs, cfg.flash_flood)
     assert tier is Tier.HIGH  # 55% now clears the lowered 50% High threshold
 

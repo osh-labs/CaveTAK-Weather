@@ -17,12 +17,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from .. import href
+from .. import gefs, refs
 from ..config import get_settings
 from ..engine.models import BriefingResult, Mission
 from ..sitrep.generate import GeneratedBriefing, generate_briefing
 from ..sitrep.structured import to_structured
-from ..sref import latest_available_cycle, prune_old_cycles, warm_cycle
 from ..watershed.cache import _key as watershed_key
 from ..watershed.cache import delineate_cached
 from .cache import STATIC_TOKEN, BriefingCache, mission_cache_key
@@ -96,28 +95,30 @@ class BriefingService:
 
     # -- scheduled refresh ----------------------------------------------------------
     def warm_and_prune(self, *, now: datetime | None = None) -> int:
-        """Pre-pull the live SREF + HREF cycles into the persistent cache and prune old ones.
+        """Pre-pull the live GEFS + REFS cycles into the persistent cache and prune old ones.
 
-        Run by the scheduler each cycle boundary before :meth:`refresh_active`. SREF's CONUS
-        subset is downloaded once so every domain aggregates from the cached grid; HREF's
-        f06-f48 are warmed so a mission's spin-up hours are served from a prior run's mature
-        forecast (roadmap §M0.1.1, FR-7, FR-12). Each ensemble is warmed independently — a
-        missing/unpublished cycle for one does not block the other. Returns the total number
-        of fields warmed; 0 when neither is live yet (production lag), which is non-fatal —
-        refresh still runs from whatever is cached (NFR-6).
+        Run by the scheduler each cycle boundary before :meth:`refresh_active`. REFS's published
+        forecast hours are warmed so a mission's spin-up hours are served from a prior run's
+        mature forecast. GEFS is per-member and heavy, so it is warmed only for the bounded
+        ``gefs_warm_fhours`` lead band (empty by default → GEFS serves on demand via its parallel
+        cache-through fetch). Each ensemble is warmed independently — a missing/unpublished cycle
+        for one does not block the other. Returns the total fields warmed; 0 when neither is live
+        yet (production lag), which is non-fatal — refresh still runs from cache (NFR-6).
         """
         settings = get_settings()
         warmed = 0
 
-        scycle = latest_available_cycle(now=now)
-        if scycle is not None:
-            warmed += len(warm_cycle(scycle, settings=settings))
-            prune_old_cycles(settings=settings, keep=settings.sref_cache_keep_cycles)
+        gcycle = gefs.latest_available_cycle(now=now)
+        if gcycle is not None and settings.gefs_warm_fhours:
+            warmed += len(
+                gefs.warm_cycle(gcycle, tuple(settings.gefs_warm_fhours), settings=settings)
+            )
+            gefs.prune_old_cycles(settings=settings, keep=settings.gefs_cache_keep_cycles)
 
-        hcycle = href.latest_available_cycle(now=now)
-        if hcycle is not None:
-            warmed += len(href.warm_cycle(hcycle, settings=settings))
-            href.prune_old_cycles(settings=settings, keep=settings.href_cache_keep_cycles)
+        rcycle = refs.latest_available_cycle(now=now)
+        if rcycle is not None:
+            warmed += len(refs.warm_cycle(rcycle, settings=settings))
+            refs.prune_old_cycles(settings=settings, keep=settings.refs_cache_keep_cycles)
 
         return warmed
 

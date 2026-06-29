@@ -117,19 +117,19 @@ class HazardInputs:
     flood_watch: bool = False
     thunderstorm_warning: bool = False
 
-    # SREF ensemble aggregates over the upstream domain.
-    sref_p_precip: float | None = None            # P(precip/thunderstorm), flood
-    sref_p_tstm: float | None = None              # P(thunderstorm), lightning
+    # GEFS ensemble aggregates over the upstream domain.
+    gefs_p_precip: float | None = None            # P(precip/thunderstorm), flood
+    gefs_p_tstm: float | None = None              # P(thunderstorm), lightning
     measurable_precip: bool = False               # measurable forecast precip present
     convective_rate_in_per_hr: float | None = None  # forecast convective rate (slot)
     cape_jkg: float | None = None                 # instability (modulates, not tier)
 
-    # HREF same-day high-resolution overlay over the upstream domain (FR-7a, §16.1/§16.2).
-    # Neighborhood ensemble probabilities, percent [0, 100]; None when out of HREF
+    # REFS same-day high-resolution overlay over the upstream domain (FR-7a, §16.1/§16.2).
+    # Neighborhood ensemble probabilities, percent [0, 100]; None when out of REFS
     # range (~6-36 h). Evaluated on their own cut points; the engine takes the higher
-    # of the SREF- and HREF-derived tiers (FR-19).
-    href_p_precip: float | None = None            # NEP P(>=0.5"/1h or >=1"/3h), flood
-    href_p_lightning: float | None = None         # NEP P(lightning)/P(reflectivity)
+    # of the GEFS- and REFS-derived tiers (FR-19).
+    refs_p_precip: float | None = None            # NEP P(>=0.5"/1h or >=1"/3h), flood
+    refs_p_lightning: float | None = None         # NEP P(lightning)/P(reflectivity)
 
     # Confidence inputs (FR-17, §16.5). member_support keyed by Hazard.value, [0, 1].
     member_support: dict[str, float] = field(default_factory=dict)

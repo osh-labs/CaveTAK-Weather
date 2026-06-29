@@ -5,65 +5,65 @@
 hazard: flash_flood
 cases:
   - id: warning_overrides_to_extreme
-    inputs: {flash_flood_warning: true, sref_p_precip: 0}
+    inputs: {flash_flood_warning: true, gefs_p_precip: 0}
     expect: extreme
   - id: watch_to_high
-    inputs: {flash_flood_watch: true, sref_p_precip: 0}
+    inputs: {flash_flood_watch: true, gefs_p_precip: 0}
     expect: high
   - id: flood_warning_to_high
-    inputs: {flood_warning: true, sref_p_precip: 0}
+    inputs: {flood_warning: true, gefs_p_precip: 0}
     expect: high
   - id: flood_advisory_to_elevated
-    inputs: {flood_advisory: true, sref_p_precip: 0}
+    inputs: {flood_advisory: true, gefs_p_precip: 0}
     expect: elevated
   - id: flood_watch_to_elevated
-    inputs: {flood_watch: true, sref_p_precip: 0}
+    inputs: {flood_watch: true, gefs_p_precip: 0}
     expect: elevated
   - id: lesser_product_does_not_suppress_high_sref
-    inputs: {flood_advisory: true, sref_p_precip: 65, measurable_precip: true}
+    inputs: {flood_advisory: true, gefs_p_precip: 65, measurable_precip: true}
     expect: high
   - id: afd_flood_mention_raises_to_elevated
-    inputs: {sref_p_precip: 5, measurable_precip: false, afd_flood_mention: true}
+    inputs: {gefs_p_precip: 5, measurable_precip: false, afd_flood_mention: true}
     expect: elevated
   - id: afd_flood_mention_does_not_lower_high
-    inputs: {flood_warning: true, afd_flood_mention: true, sref_p_precip: 0}
+    inputs: {flood_warning: true, afd_flood_mention: true, gefs_p_precip: 0}
     expect: high
   - id: flood_warning_plus_afd_excessive_rain
-    inputs: {flood_warning: true, afd_flood_mention: true, sref_p_precip: 30, measurable_precip: true}
+    inputs: {flood_warning: true, afd_flood_mention: true, gefs_p_precip: 30, measurable_precip: true}
     expect: high
   - id: prob_high_lower_edge
-    inputs: {sref_p_precip: 60, measurable_precip: true}
+    inputs: {gefs_p_precip: 60, measurable_precip: true}
     expect: high
   - id: prob_just_below_high
-    inputs: {sref_p_precip: 59, measurable_precip: true}
+    inputs: {gefs_p_precip: 59, measurable_precip: true}
     expect: elevated
   - id: prob_elevated_lower_edge
-    inputs: {sref_p_precip: 20, measurable_precip: true}
+    inputs: {gefs_p_precip: 20, measurable_precip: true}
     expect: elevated
   - id: prob_just_below_elevated
-    inputs: {sref_p_precip: 19, measurable_precip: true}
+    inputs: {gefs_p_precip: 19, measurable_precip: true}
     expect: minimal
   - id: elevated_band_requires_measurable_precip
-    inputs: {sref_p_precip: 35, measurable_precip: false}
+    inputs: {gefs_p_precip: 35, measurable_precip: false}
     expect: minimal
   - id: dry_no_products
-    inputs: {sref_p_precip: 5, measurable_precip: false}
+    inputs: {gefs_p_precip: 5, measurable_precip: false}
     expect: minimal
   - id: antecedent_bumps_elevated_to_high
-    inputs: {sref_p_precip: 30, measurable_precip: true, antecedent_precip_24_72h: true}
+    inputs: {gefs_p_precip: 30, measurable_precip: true, antecedent_precip_24_72h: true}
     expect: high
   - id: antecedent_does_not_bump_minimal
-    inputs: {sref_p_precip: 5, measurable_precip: false, antecedent_precip_24_72h: true}
+    inputs: {gefs_p_precip: 5, measurable_precip: false, antecedent_precip_24_72h: true}
     expect: minimal
   - id: slot_fallback_raises_low_prob_to_high
     is_slot: true
-    inputs: {sref_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.6}
+    inputs: {gefs_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.6}
     expect: high
   - id: slot_fallback_not_triggered_below_rate
     is_slot: true
-    inputs: {sref_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.4}
+    inputs: {gefs_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.4}
     expect: minimal
   - id: slot_fallback_only_for_slots
     is_slot: false
-    inputs: {sref_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.9}
+    inputs: {gefs_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.9}
     expect: minimal

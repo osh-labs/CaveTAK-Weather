@@ -30,8 +30,8 @@ def _mission(activity=ActivityType.CANYON, **kw) -> Mission:
 def test_overall_posture_is_max_across_applicable_hazards():
     # Flash flood High in the technical span; everything else benign.
     inputs = HazardInputs(
-        sref_p_precip=65, measurable_precip=True,
-        sref_p_tstm=5, heat_index_f=70, apparent_temp_f=70,
+        gefs_p_precip=65, measurable_precip=True,
+        gefs_p_tstm=5, heat_index_f=70, apparent_temp_f=70,
     )
     result = assess(_mission(), inputs)
     assert result.overall_tier is Tier.HIGH
@@ -41,7 +41,7 @@ def test_overall_posture_is_max_across_applicable_hazards():
 def test_high_lightning_not_hidden_behind_minimal_flood():
     # FR-19: a High lightning posture on approach must surface separately.
     inputs = HazardInputs(
-        sref_p_precip=2, sref_p_tstm=80, heat_index_f=70, apparent_temp_f=70,
+        gefs_p_precip=2, gefs_p_tstm=80, heat_index_f=70, apparent_temp_f=70,
     )
     result = assess(_mission(), inputs)
     assert result.overall_tier is Tier.EXTREME  # P(tstm) 80% -> Extreme lightning
@@ -50,7 +50,7 @@ def test_high_lightning_not_hidden_behind_minimal_flood():
 
 
 def test_cave_technical_only_evaluates_flash_flood():
-    inputs = HazardInputs(sref_p_precip=65, measurable_precip=True, sref_p_tstm=80)
+    inputs = HazardInputs(gefs_p_precip=65, measurable_precip=True, gefs_p_tstm=80)
     result = assess(_mission(ActivityType.CAVE), inputs)
     technical = next(p for p in result.phases if p.phase is Phase.TECHNICAL)
     assert list(technical.postures.keys()) == [Hazard.FLASH_FLOOD]
@@ -60,7 +60,7 @@ def test_cave_technical_only_evaluates_flash_flood():
 
 
 def test_heat_extreme_danger_drives_overall_extreme_via_equivalence():
-    inputs = HazardInputs(heat_index_f=130, apparent_temp_f=80, sref_p_precip=0)
+    inputs = HazardInputs(heat_index_f=130, apparent_temp_f=80, gefs_p_precip=0)
     result = assess(_mission(), inputs)
     assert result.bluf[Hazard.HEAT].heat_category.label == "Extreme Danger"
     assert result.overall_tier is Tier.EXTREME
@@ -68,7 +68,7 @@ def test_heat_extreme_danger_drives_overall_extreme_via_equivalence():
 
 def test_all_benign_is_minimal():
     inputs = HazardInputs(
-        sref_p_precip=0, sref_p_tstm=0, heat_index_f=65, apparent_temp_f=72,
+        gefs_p_precip=0, gefs_p_tstm=0, heat_index_f=65, apparent_temp_f=72,
     )
     result = assess(_mission(), inputs)
     assert result.overall_tier is Tier.MINIMAL
@@ -76,9 +76,9 @@ def test_all_benign_is_minimal():
 
 def test_overall_confidence_is_min_across_hazards():
     inputs = HazardInputs(
-        sref_p_precip=65, measurable_precip=True,
+        gefs_p_precip=65, measurable_precip=True,
         member_support={"flash_flood": 0.9, "lightning": 0.2},
-        sref_p_tstm=50,
+        gefs_p_tstm=50,
     )
     result = assess(_mission(), inputs)
     # Lightning member support 0.2 -> Low drags the overall confidence down.
@@ -86,7 +86,7 @@ def test_overall_confidence_is_min_across_hazards():
 
 
 def test_determinism_identical_inputs_identical_result():
-    inputs = HazardInputs(sref_p_precip=65, measurable_precip=True, sref_p_tstm=50)
+    inputs = HazardInputs(gefs_p_precip=65, measurable_precip=True, gefs_p_tstm=50)
     a = assess(_mission(), inputs)
     b = assess(_mission(), inputs)
     assert a.overall_tier is b.overall_tier

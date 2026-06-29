@@ -3,26 +3,27 @@
 # references them by key; no threshold is hard-coded in engine logic. Tune through
 # field testing by editing this file — never a code change.
 hazard: flash_flood
-version: "1.2.0"
+version: "1.3.0"
 provenance:
-  effective_date: "2026-06-18"
+  effective_date: "2026-06-29"
   rationale: >-
-    Accepted initial configuration. v1 flood logic is driven by active NWS flood
-    products (authoritative near-term anchor) plus SREF ensemble probability over
-    the upstream domain (planning horizon). Probability cut points and the slot
-    fallback are UpstreamWX proposals; warning/watch overrides are standard NWS
-    practice. v1.1 adds the HREF same-day high-resolution overlay (FR-7a, §16.1):
-    HREF neighborhood P(QPF) on its own cut points, engine takes the higher tier.
-    v1.2 broadens product coverage beyond the flash-flood family to the areal/river
-    Flood Warning/Advisory/Watch, and adds an AFD excessive-rainfall signal so a
-    forecaster discussion of flooding raises the posture even before a probability
-    threshold trips. Products and AFD now raise (never lower) the SREF/HREF tier.
-    To be tuned via field testing (FR-20a).
-  source: "UpstreamWX PRD v0.8 §16.1"
+    v1 flood logic is driven by active NWS flood products (authoritative near-term
+    anchor) plus the global ensemble probability over the upstream domain (planning
+    horizon). v1.1 added the same-day high-resolution overlay (FR-7a). v1.2 broadened
+    product coverage to the areal/river Flood Warning/Advisory/Watch and added an AFD
+    excessive-rainfall signal. v1.3 transitions the ensembles for the SREF+HREF EOL
+    (NWS SCN 26-47, 2026-08-31): the global ensemble is now **GEFS** (was SREF) and the
+    same-day high-resolution overlay is now **REFS** (was HREF). The cut points are
+    carried over unchanged as the starting baseline — `gefs_probability` is seeded from
+    SREF's and `refs_probability` from HREF's (REFS, like HREF, ships 3 km neighborhood
+    probabilities) — and remain pending field calibration against the new ensembles'
+    member statistics (GEFS is coarser/global; APCP in 6 h buckets). Tune via field
+    testing (FR-20a).
+  source: "UpstreamWX PRD v0.8 §16.1; NWS SCN 26-47"
 
 # Active NWS products anchor the near term (they already encode QPF-vs-FFG). Each
 # active product contributes a candidate tier; the engine takes the max across
-# products and the SREF/HREF signal (products raise, never lower). Flash-flood
+# products and the GEFS/REFS signal (products raise, never lower). Flash-flood
 # products are the acute family; the areal/river Flood products cover slower-onset
 # flooding (Flood Warning = flooding occurring/imminent; Advisory = nuisance/minor;
 # Watch = conditions favorable). Areal tiers are UpstreamWX proposals.
@@ -37,19 +38,20 @@ products:
 # posture to at least this tier (coarse positive signal, §16.1). UpstreamWX proposal.
 afd_flood_mention_tier: elevated
 
-# SREF P(precip/thunderstorm) over the upstream domain, percent [0, 100].
-# Highest matching band wins; below elevated_min -> minimal.
-sref_probability:
+# GEFS member-exceedance P(precip) over the upstream domain, percent [0, 100].
+# Highest matching band wins; below elevated_min -> minimal. (Seeded from SREF's
+# cut points; pending calibration to GEFS's coarse 6 h-bucket member statistics.)
+gefs_probability:
   high_min: 60        # >=60% (with a meaningful convective-rate proxy) -> High
   elevated_min: 20    # 20-60% with measurable forecast precip          -> Elevated
                       # <20% / dry / no products                         -> Minimal
 
-# HREF same-day high-resolution overlay (FR-7a, §16.1), percent [0, 100]. HREF
+# REFS same-day high-resolution overlay (FR-7a, §16.1), percent [0, 100]. REFS
 # neighborhood P(>=0.5"/1h or >=1"/3h QPF) over the upstream domain. NOT comparable
-# to the SREF bands above (neighborhood / 3 km / 11-member basis), so its own cut
+# to the GEFS bands above (neighborhood / 3 km / 15-member basis), so its own cut
 # points. The engine evaluates this only when in-range (~6-36 h) and takes the
-# higher of the SREF- and HREF-derived tiers (FR-19). UpstreamWX proposals.
-href_probability:
+# higher of the GEFS- and REFS-derived tiers (FR-19). Seeded from HREF's cut points.
+refs_probability:
   high_min: 40        # >=40% neighborhood probability -> High
   elevated_min: 10    # 10-40% -> Elevated
                       # <10% -> Minimal (no HREF contribution)

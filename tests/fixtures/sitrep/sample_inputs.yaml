@@ -1,11 +1,11 @@
 # Saved HazardInputs feature vector for the offline CLI path (upstreamwx --inputs).
 # Mirrors the corpus YAML style: keys map directly onto engine HazardInputs fields.
 inputs:
-  sref_p_precip: 65
-  sref_p_tstm: 50
+  gefs_p_precip: 65
+  gefs_p_tstm: 50
   measurable_precip: true
-  href_p_precip: 45
-  href_p_lightning: 35
+  refs_p_precip: 45
+  refs_p_lightning: 35
   cape_jkg: 1200
   heat_index_f: 95
   apparent_temp_f: 92

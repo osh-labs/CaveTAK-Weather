@@ -20,7 +20,7 @@ from shapely.geometry.base import BaseGeometry
 
 from ..engine.models import HazardInputs, Mission
 from ..watershed import clip_watershed, delineate_cached, roc_disk
-from . import href_provider, nws, openmeteo, spc, sref_provider
+from . import gefs_provider, nws, openmeteo, refs_provider, spc
 from .base import IngestBundle, to_hazard_inputs
 
 # Providers that don't need the watershed polygon; (name, module).
@@ -29,9 +29,11 @@ MANDATORY = {"nws"}
 
 # Bundle fields that accumulate from more than one source and must be *combined* on merge
 # rather than copied. ``sources_ok`` keys are disjoint per source, so a plain update is exact.
-# ``member_support`` keys (flash_flood/lightning) are written by *both* SREF and HREF, where
-# the stronger ensemble wins (the original in-place ``max``), so it merges per-key by max —
-# commutative, hence order- and timing-independent (NFR-4). ``notes`` accumulate as a list.
+# ``member_support`` keys (flash_flood/lightning) are written by *both* GEFS and REFS; they
+# merge per-key by max (commutative, hence order- and timing-independent, NFR-4). When REFS is
+# in range it is then made authoritative in-window by the ensemble branch (see below), since
+# the 3 km convection-allowing ensemble should drive same-day confidence over coarse GEFS.
+# ``notes`` accumulate as a list.
 _MERGE_UPDATE_DICT_FIELDS = frozenset({"sources_ok"})
 _MERGE_MAX_DICT_FIELDS = frozenset({"member_support"})
 _MERGE_LIST_FIELDS = frozenset({"notes"})
@@ -52,58 +54,57 @@ def _run_point_provider(provider, mission: Mission) -> IngestBundle:
     return bundle
 
 
-def _run_sref(
+def _run_gefs(
     mission: Mission, polygon: BaseGeometry, lightning_polygon: BaseGeometry, cycle
 ) -> IngestBundle:
-    """Aggregate SREF over the domain into a private bundle, degrading on failure (NFR-6).
+    """Aggregate GEFS over the domain into a private bundle, degrading on failure (NFR-6).
 
-    Flash-flood fields aggregate over ``polygon`` (the upstream watershed/RoC); the
-    lightning thunderstorm proxy aggregates over ``lightning_polygon`` (the LAoC disk when
-    set, else the same polygon).
+    Flash-flood fields aggregate over ``polygon`` (the upstream watershed/RoC); the lightning
+    proxy aggregates over ``lightning_polygon`` (the LAoC disk when set, else the same polygon).
     """
     bundle = IngestBundle()
     try:
-        sref_provider.fetch(
+        gefs_provider.fetch(
             mission, bundle, polygon, lightning_polygon=lightning_polygon, cycle=cycle
         )
     except Exception as exc:  # noqa: BLE001
-        bundle.sources_ok[sref_provider.NAME] = False
-        bundle.notes.append(f"sref: unavailable ({type(exc).__name__}).")
+        bundle.sources_ok[gefs_provider.NAME] = False
+        bundle.notes.append(f"gefs: unavailable ({type(exc).__name__}).")
     return bundle
 
 
-def _run_href(
+def _run_refs(
     mission: Mission, polygon: BaseGeometry, lightning_polygon: BaseGeometry
 ) -> IngestBundle:
-    """Aggregate HREF over the domain into a private bundle, degrading on failure (NFR-6).
+    """Aggregate REFS over the domain into a private bundle, degrading on failure (NFR-6).
 
-    As with SREF, the lightning neighborhood fields aggregate over ``lightning_polygon``
-    (the LAoC disk when set) while QPF aggregates over the flash-flood ``polygon``.
+    As with GEFS, the lightning neighborhood fields aggregate over ``lightning_polygon`` (the
+    LAoC disk when set) while QPF aggregates over the flash-flood ``polygon``.
     """
     bundle = IngestBundle()
     try:
-        href_provider.fetch(mission, bundle, polygon, lightning_polygon=lightning_polygon)
+        refs_provider.fetch(mission, bundle, polygon, lightning_polygon=lightning_polygon)
     except Exception as exc:  # noqa: BLE001
-        bundle.sources_ok[href_provider.NAME] = False
-        bundle.notes.append(f"href: unavailable ({type(exc).__name__}).")
+        bundle.sources_ok[refs_provider.NAME] = False
+        bundle.notes.append(f"refs: unavailable ({type(exc).__name__}).")
     return bundle
 
 
 def _run_watershed_and_ensembles(
     mission: Mission, polygon: BaseGeometry | None, cycle
 ) -> IngestBundle:
-    """Delineate (+ RoC clip) the domain, then aggregate SREF and HREF over it (FR-3, FR-7/7a).
+    """Delineate (+ RoC clip) the domain, then aggregate GEFS and REFS over it (FR-3, FR-7/7a).
 
-    Runs as one task into its own bundle, concurrently with the point providers. SREF and HREF
+    Runs as one task into its own bundle, concurrently with the point providers. GEFS and REFS
     are themselves independent ensemble pulls, so they run concurrently here too; the
-    SREF<->HREF cross-ensemble agreement (FR-17, §16.5) is computed once both have completed,
-    no longer requiring HREF to run after SREF. The cfgrib decode is serialised inside
+    GEFS<->REFS cross-ensemble agreement (FR-17, §16.5) is computed once both have completed.
+    The cfgrib decode is serialised inside
     :func:`upstreamwx.grib.cache.decode_cached`, so the concurrent ensembles overlap only their
     network fetch and aggregation, which is where the latency lives.
     """
     bundle = IngestBundle()
 
-    # SREF over the upstream domain (needs the watershed polygon). Delineate
+    # GEFS/REFS aggregate over the upstream domain (needs the watershed polygon). Delineate
     # pour-point-exact (NLDI raindrop two-step) with the WBD HUC-12 trace as the
     # snap-free fallback; cache on disk so repeat missions reuse it.
     if polygon is None:
@@ -168,25 +169,32 @@ def _run_watershed_and_ensembles(
             )
 
     if polygon is not None:
-        # SREF and HREF are independent aggregations over the same domain; run them
-        # concurrently into private bundles, then merge (SREF first, then HREF) in a fixed
+        # GEFS and REFS are independent aggregations over the same domain; run them
+        # concurrently into private bundles, then merge (GEFS first, then REFS) in a fixed
         # order. Both fetches contain their own failures (NFR-6), so neither task raises.
         with ThreadPoolExecutor(max_workers=2) as executor:
-            sref_future = executor.submit(_run_sref, mission, polygon, lightning_polygon, cycle)
-            href_future = executor.submit(_run_href, mission, polygon, lightning_polygon)
-            sref_bundle = sref_future.result()
-            href_bundle = href_future.result()
-        _merge_into(bundle, sref_bundle)
-        _merge_into(bundle, href_bundle)
+            gefs_future = executor.submit(_run_gefs, mission, polygon, lightning_polygon, cycle)
+            refs_future = executor.submit(_run_refs, mission, polygon, lightning_polygon)
+            gefs_bundle = gefs_future.result()
+            refs_bundle = refs_future.result()
+        _merge_into(bundle, gefs_bundle)
+        _merge_into(bundle, refs_bundle)
+
+        # REFS is authoritative inside its same-day window: where it is in range its 3 km member
+        # support drives the confidence qualifier, overriding the per-key max merge with coarse
+        # GEFS (the transition's "greater reliance on REFS for the first ~36 h"). Beyond REFS
+        # range the merged GEFS support stands. Deterministic — depends only on values (NFR-4).
+        if refs_bundle.refs_in_range:
+            for key, value in refs_bundle.member_support.items():
+                bundle.member_support[key] = value
 
         # Cross-ensemble agreement now that both signals are present (FR-17, §16.5). With None
-        # on either side (a source out of range/unavailable) this resolves to "consistent",
-        # matching the prior in-provider behaviour.
-        bundle.source_agreement = href_provider.cross_ensemble_agreement(
-            bundle.sref_p_precip,
-            bundle.sref_p_tstm,
-            bundle.href_p_precip,
-            bundle.href_p_lightning,
+        # on either side (a source out of range/unavailable) this resolves to "consistent".
+        bundle.source_agreement = refs_provider.cross_ensemble_agreement(
+            bundle.gefs_p_precip,
+            bundle.gefs_p_tstm,
+            bundle.refs_p_precip,
+            bundle.refs_p_lightning,
         )
 
     return bundle

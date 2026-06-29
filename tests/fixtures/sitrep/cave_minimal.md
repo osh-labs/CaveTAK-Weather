@@ -33,10 +33,10 @@
 ## KEY DRIVERS (per active hazard)
 
 ### Flash flood
-- SREF P(precip/thunder) 5% below 20%; dry upstream
+- GEFS P(precip/thunder) 5% below 20%; dry upstream
 
 ### Lightning
-- SREF P(tstm) below 10%; no convective mention
+- GEFS P(tstm) below 15%; no convective mention
 
 ### Heat
 - Heat index 70 °F → None
@@ -51,7 +51,7 @@ Upstream watershed not resolved for this briefing.
 
 ## SOURCE DATA
 
-Threshold config: flash_flood=1.2.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Source field detail unavailable (rendered from engine result only).
 
@@ -63,7 +63,7 @@ Source field detail unavailable (rendered from engine result only).
 
 - NWS active alerts: https://api.weather.gov/alerts/active?point=37.0000,-112.0000
 - NWS point forecast / AFD: https://forecast.weather.gov/MapClick.php?lat=37.0000&lon=-112.0000
-- Model source (SREF): https://nomads.ncep.noaa.gov/pub/data/nccf/com/sref/prod
+- Model source (GEFS): https://www.nco.ncep.noaa.gov/pmb/products/gens
 
 ## DISCLAIMER
 

@@ -20,17 +20,17 @@ from ..engine.models import Hazard
 HAZARD_LOGIC: dict[Hazard, str] = {
     Hazard.FLASH_FLOOD: (
         "Extreme = active Flash Flood Warning; "
-        "High = Watch OR SREF ≥60% w/ convective rate; "
-        "Elevated = SREF 20–59% OR HREF NEP(≥0.5 in/1 h) 20–39% "
+        "High = Watch OR GEFS ≥60% w/ convective rate; "
+        "Elevated = GEFS 20–59% OR REFS NEP(≥0.5 in/1 h) 20–39% "
         "(Appendix B §16.1)."
     ),
     Hazard.LIGHTNING: (
-        "Extreme = SREF P(tstm) ≥70% (≥75% when HREF in-window) OR "
-        "HREF P(lightning) ≥45% OR SPC Moderate+ during any exposed phase; "
-        "High = SREF 35–69% OR HREF 20–44%; "
-        "Elevated = SREF 10–34% OR HREF 8–19% OR AFD convective mention "
-        "(Appendix B §16.2). SREF P(tstm) is P(APCP>2.54 mm/3 h) — a "
-        "precipitation proxy that is zero under high-CIN suppression. "
+        "Extreme = GEFS P(tstm) ≥80% (≥85% when REFS in-window) OR "
+        "REFS P(lightning) ≥45% OR SPC Moderate+ during any exposed phase; "
+        "High = GEFS 40–79% OR REFS 20–44%; "
+        "Elevated = GEFS 15–39% OR REFS 8–19% OR AFD convective mention "
+        "(Appendix B §16.2). GEFS P(tstm) is a CAPE×precip member-exceedance "
+        "proxy — coarser than SREF; read conservatively. "
         "Assessed over the Lightning Area of Concern around the activity, "
         "not the upstream watershed (PRD §16.1). "
         "Cave interior excluded for the technical span."

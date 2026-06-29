@@ -34,14 +34,14 @@
 ## KEY DRIVERS (per active hazard)
 
 ### Flash flood
-- SREF P(precip/thunder) 65% ≥ 60% over upstream domain
-- HREF neighborhood P(QPF) 45% concurs at High
+- GEFS P(precip/thunder) 65% ≥ 60% over upstream domain
+- REFS neighborhood P(QPF) 45% concurs at High
 
 ### Lightning
-- SREF P(tstm) 50% ≥ 35%
+- GEFS P(tstm) 50% ≥ 40%
 - SPC slight risk over window
 - AFD: scattered convection
-- HREF neighborhood P(convection) 35% ≥ 20% (~3 km same-day)
+- REFS neighborhood P(convection) 35% ≥ 20% (~3 km same-day)
 - CAPE 1200 J/kg (moderate instability) — context only.
 
 ### Heat
@@ -58,7 +58,7 @@ Flash-flood assessment aggregates over the upstream contributing watershed of HU
 
 ## SOURCE DATA
 
-Threshold config: flash_flood=1.2.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Active NWS products:
 - Flash Flood Warning: no
@@ -71,13 +71,13 @@ Active NWS products:
 - AFD excessive-rain / flood mention: no
 - SPC outlook: slight
 
-SREF ensemble (upstream domain):
+GEFS ensemble (upstream domain):
 - P(precip/thunder): 65%
 - P(thunderstorm): 50%
 - Convective rate: n/a
 - CAPE: 1200 J/kg
 
-HREF same-day supplement (cycle 20260620/12Z f09-f16):
+REFS same-day supplement (cycle 20260620/12Z f09-f16):
 - Neighborhood P(QPF): 45%
 - Neighborhood P(lightning): 35%
 
@@ -99,8 +99,8 @@ Source availability:
 
 - NWS active alerts: https://api.weather.gov/alerts/active?point=37.0192,-111.9889
 - NWS point forecast / AFD: https://forecast.weather.gov/MapClick.php?lat=37.0192&lon=-111.9889
-- Model source (SREF): https://nomads.ncep.noaa.gov/pub/data/nccf/com/sref/prod
-- Model source (HREF, same-day): https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod
+- Model source (GEFS): https://www.nco.ncep.noaa.gov/pmb/products/gens
+- Model source (REFS, same-day): https://www.nco.ncep.noaa.gov/pmb/products/refs
 
 ## DISCLAIMER
 

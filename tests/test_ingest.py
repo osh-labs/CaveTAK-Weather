@@ -26,8 +26,8 @@ def _mission(activity=ActivityType.CANYON) -> Mission:
 def test_to_hazard_inputs_maps_fields():
     bundle = IngestBundle(
         flash_flood_warning=True,
-        sref_p_precip=55.0,
-        sref_p_tstm=30.0,
+        gefs_p_precip=55.0,
+        gefs_p_tstm=30.0,
         heat_index_f=98.0,
         apparent_temp_f=44.0,
         spc_category="slight",
@@ -36,7 +36,7 @@ def test_to_hazard_inputs_maps_fields():
     )
     inputs = to_hazard_inputs(bundle, dry_party=True)
     assert inputs.flash_flood_warning is True
-    assert inputs.sref_p_precip == 55.0
+    assert inputs.gefs_p_precip == 55.0
     assert inputs.heat_index_f == 98.0
     assert inputs.spc_category == "slight"
     assert inputs.afd_storm_mode == "scattered"
@@ -84,7 +84,7 @@ def test_gather_merges_all_sources_deterministically(monkeypatch):
     # The point providers and the ensemble branch run concurrently on private bundles;
     # gather must merge every branch's disjoint contributions in a fixed, timing-independent
     # order (NFR-4). Stub each source to write distinct fields/notes.
-    from upstreamwx.ingest import href_provider, nws, openmeteo, spc, sref_provider
+    from upstreamwx.ingest import gefs_provider, nws, openmeteo, refs_provider, spc
 
     def nws_fetch(m, b):
         b.flash_flood_warning = True
@@ -101,22 +101,22 @@ def test_gather_merges_all_sources_deterministically(monkeypatch):
         b.sources_ok["spc"] = True
         b.notes.append("spc ok")
 
-    def sref_fetch(m, b, poly, *, lightning_polygon=None, cycle=None):
-        b.sref_p_precip = 40.0
+    def gefs_fetch(m, b, poly, *, lightning_polygon=None, cycle=None):
+        b.gefs_p_precip = 40.0
         b.member_support["flash_flood"] = 0.4
-        b.sources_ok["sref"] = True
-        b.notes.append("sref ok")
+        b.sources_ok["gefs"] = True
+        b.notes.append("gefs ok")
 
-    def href_fetch(m, b, poly, **k):
-        b.href_p_precip = 60.0
-        b.sources_ok["href"] = True
-        b.notes.append("href ok")
+    def refs_fetch(m, b, poly, **k):
+        b.refs_p_precip = 60.0
+        b.sources_ok["refs"] = True
+        b.notes.append("refs ok")
 
     monkeypatch.setattr(nws, "fetch", nws_fetch)
     monkeypatch.setattr(openmeteo, "fetch", om_fetch)
     monkeypatch.setattr(spc, "fetch", spc_fetch)
-    monkeypatch.setattr(sref_provider, "fetch", sref_fetch)
-    monkeypatch.setattr(href_provider, "fetch", href_fetch)
+    monkeypatch.setattr(gefs_provider, "fetch", gefs_fetch)
+    monkeypatch.setattr(refs_provider, "fetch", refs_fetch)
 
     bundle = gather(_mission(), polygon=box(-112.0, 37.0, -111.9, 37.1))
 
@@ -124,13 +124,13 @@ def test_gather_merges_all_sources_deterministically(monkeypatch):
     assert bundle.flash_flood_warning is True
     assert bundle.heat_index_f == 95.0
     assert bundle.spc_category == "slight"
-    assert bundle.sref_p_precip == 40.0
-    assert bundle.href_p_precip == 60.0
+    assert bundle.gefs_p_precip == 40.0
+    assert bundle.refs_p_precip == 60.0
     assert bundle.member_support == {"flash_flood": 0.4}
-    assert all(bundle.sources_ok[s] for s in ("nws", "open_meteo", "spc", "sref", "href"))
+    assert all(bundle.sources_ok[s] for s in ("nws", "open_meteo", "spc", "gefs", "refs"))
     # Notes from every source are present, point providers ahead of the ensemble branch.
-    assert {"nws ok", "om ok", "spc ok", "sref ok", "href ok"} <= set(bundle.notes)
-    assert bundle.notes.index("nws ok") < bundle.notes.index("sref ok")
+    assert {"nws ok", "om ok", "spc ok", "gefs ok", "refs ok"} <= set(bundle.notes)
+    assert bundle.notes.index("nws ok") < bundle.notes.index("gefs ok")
 
     # Same inputs -> identical merged notes order regardless of thread timing (NFR-4).
     again = gather(_mission(), polygon=box(-112.0, 37.0, -111.9, 37.1))
@@ -168,25 +168,25 @@ def test_gather_combines_concurrent_ensembles(monkeypatch):
     # SREF and HREF run concurrently on private bundles; gather merges member_support per-key
     # by max (the stronger ensemble wins, §16.5) and computes the SREF<->HREF agreement after
     # both complete (FR-17) — HREF no longer has to run after SREF to see its signal.
-    from upstreamwx.ingest import href_provider, nws, openmeteo, spc, sref_provider
+    from upstreamwx.ingest import gefs_provider, nws, openmeteo, refs_provider, spc
 
     monkeypatch.setattr(nws, "fetch", lambda m, b: None)
     monkeypatch.setattr(openmeteo, "fetch", lambda m, b: None)
     monkeypatch.setattr(spc, "fetch", lambda m, b: None)
 
-    def sref_fetch(m, b, poly, *, lightning_polygon=None, cycle=None):
-        b.sref_p_precip, b.sref_p_tstm = 70.0, 10.0
+    def gefs_fetch(m, b, poly, *, lightning_polygon=None, cycle=None):
+        b.gefs_p_precip, b.gefs_p_tstm = 70.0, 10.0
         b.member_support.update({"flash_flood": 0.70, "lightning": 0.10})
-        b.sources_ok["sref"] = True
+        b.sources_ok["gefs"] = True
 
-    def href_fetch(m, b, poly, **k):
+    def refs_fetch(m, b, poly, **k):
         # HREF strongly diverges on precip (SREF strong, HREF near-absent) -> "partial".
-        b.href_p_precip, b.href_p_lightning = 5.0, 8.0
+        b.refs_p_precip, b.refs_p_lightning = 5.0, 8.0
         b.member_support.update({"flash_flood": 0.05, "lightning": 0.08})
-        b.sources_ok["href"] = True
+        b.sources_ok["refs"] = True
 
-    monkeypatch.setattr(sref_provider, "fetch", sref_fetch)
-    monkeypatch.setattr(href_provider, "fetch", href_fetch)
+    monkeypatch.setattr(gefs_provider, "fetch", gefs_fetch)
+    monkeypatch.setattr(refs_provider, "fetch", refs_fetch)
 
     bundle = gather(_mission(), polygon=box(-112.0, 37.0, -111.9, 37.1))
 
@@ -198,22 +198,22 @@ def test_gather_combines_concurrent_ensembles(monkeypatch):
 
 def test_gather_degrades_gracefully(monkeypatch):
     # All sources raise; gather must not raise and must flag the failures (NFR-6).
-    from upstreamwx.ingest import nws, openmeteo, spc, sref_provider
+    from upstreamwx.ingest import gefs_provider, nws, openmeteo, spc
 
     def boom(*a, **k):
         raise RuntimeError("down")
 
-    for mod in (nws, openmeteo, spc, sref_provider):
+    for mod in (nws, openmeteo, spc, gefs_provider):
         monkeypatch.setattr(mod, "fetch", boom)
 
     bundle = gather(_mission(), polygon=box(-112.0, 37.0, -111.9, 37.1))
     assert bundle.sources_ok.get("nws") is False
-    assert bundle.sources_ok.get("sref") is False
+    assert bundle.sources_ok.get("gefs") is False
     # NWS is mandatory: its failure is surfaced as a warning.
     assert any("mandatory source" in n for n in bundle.notes)
     # Engine still gets usable (empty) inputs rather than crashing.
     inputs = to_hazard_inputs(bundle)
-    assert inputs.sref_p_precip is None
+    assert inputs.gefs_p_precip is None
 
 
 # --- Live smoke tests (services reachable in dev env; opt-in) -------------------
@@ -250,19 +250,19 @@ def test_spc_live():
 
 
 @pytest.mark.network
-def test_sref_provider_live(fixtures_dir):
+def test_gefs_provider_live(fixtures_dir):
     import json
 
     from shapely.geometry import shape
 
-    from upstreamwx.ingest import sref_provider
+    from upstreamwx.ingest import gefs_provider
 
     geojson = json.loads((fixtures_dir / "buckskin_huc12.geojson").read_text())
     polygon = shape(geojson["features"][0]["geometry"])
     bundle = IngestBundle()
-    sref_provider.fetch(_mission(), bundle, polygon)
-    if bundle.sources_ok.get("sref"):
-        assert 0.0 <= bundle.sref_p_precip <= 100.0
+    gefs_provider.fetch(_mission(), bundle, polygon)
+    if bundle.sources_ok.get("gefs"):
+        assert 0.0 <= bundle.gefs_p_precip <= 100.0
 
 
 @pytest.mark.network

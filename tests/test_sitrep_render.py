@@ -38,15 +38,15 @@ def canyon_href_case() -> tuple[dict, str]:
         is_slot=True,
     )
     inputs = HazardInputs(
-        sref_p_precip=65, measurable_precip=True, sref_p_tstm=50,
-        href_p_precip=45, href_p_lightning=35,
+        gefs_p_precip=65, measurable_precip=True, gefs_p_tstm=50,
+        refs_p_precip=45, refs_p_lightning=35,
         heat_index_f=95, apparent_temp_f=92, wind_mph=8, cape_jkg=1200,
         spc_category="slight", afd_storm_mode="scattered", source_agreement="partial",
     )
     bundle = IngestBundle(
-        sref_p_precip=65, sref_p_tstm=50, measurable_precip=True, cape_jkg=1200,
-        href_p_precip=45, href_p_lightning=35, href_in_range=True,
-        href_cycle="20260620/12Z", href_fhour="f09-f16", source_agreement="partial",
+        gefs_p_precip=65, gefs_p_tstm=50, measurable_precip=True, cape_jkg=1200,
+        refs_p_precip=45, refs_p_lightning=35, refs_in_range=True,
+        refs_cycle="20260620/12Z", refs_fhour="f09-f16", source_agreement="partial",
         heat_index_f=95, apparent_temp_f=92, wind_mph=8, spc_category="slight",
         afd_storm_mode="scattered", notes=["openmeteo: ok"],
     )
@@ -71,7 +71,7 @@ def cave_minimal_case() -> tuple[dict, str]:
         window_end=datetime(2026, 6, 20, 18),
         name="Dry Cave",
     )
-    inputs = HazardInputs(sref_p_precip=5, sref_p_tstm=5, heat_index_f=70, apparent_temp_f=70)
+    inputs = HazardInputs(gefs_p_precip=5, gefs_p_tstm=5, heat_index_f=70, apparent_temp_f=70)
     result = assess(mission, inputs)
     return {"result": result}, "cave_minimal.md"
 
@@ -112,7 +112,7 @@ def _pourpoint_render(basin: PourpointBasin) -> str:
         window_end=datetime(2026, 6, 20, 18),
         name="Zion Narrows",
     )
-    result = assess(mission, HazardInputs(sref_p_precip=20, measurable_precip=True))
+    result = assess(mission, HazardInputs(gefs_p_precip=20, measurable_precip=True))
     return render_md(result, upstream=basin)
 
 

@@ -144,7 +144,7 @@ def test_cave_isolation_posture(client):
     """A cave mission renders flash flood only in the technical span (FR-14c)."""
     resp = client.post(
         "/v1/briefing",
-        json=_spec(activity="cave", slot=False, inputs={"sref_p_precip": 70}).model_dump(
+        json=_spec(activity="cave", slot=False, inputs={"gefs_p_precip": 70}).model_dump(
             mode="json"
         ),
     )

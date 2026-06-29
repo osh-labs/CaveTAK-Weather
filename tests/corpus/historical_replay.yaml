@@ -40,10 +40,10 @@ cases:
       window_end: "2026-08-12T15:00:00"
       is_slot: true
     inputs:
-      sref_p_precip: 75
+      gefs_p_precip: 75
       measurable_precip: true
       convective_rate_in_per_hr: 2.0
-      sref_p_tstm: 35
+      gefs_p_tstm: 35
       cape_jkg: 1800
       heat_index_f: 92
       apparent_temp_f: 82
@@ -76,10 +76,10 @@ cases:
       is_slot: true
     inputs:
       flash_flood_watch: true
-      sref_p_precip: 55
+      gefs_p_precip: 55
       measurable_precip: true
       convective_rate_in_per_hr: 0.8
-      sref_p_tstm: 55
+      gefs_p_tstm: 55
       spc_category: slight
       cape_jkg: 1500
       afd_storm_mode: scattered
@@ -103,8 +103,8 @@ cases:
       window_start: "2026-05-12T08:00:00"
       window_end: "2026-05-12T17:00:00"
     inputs:
-      sref_p_precip: 0
-      sref_p_tstm: 0
+      gefs_p_precip: 0
+      gefs_p_tstm: 0
       heat_index_f: 70
       apparent_temp_f: 72
       wind_mph: 6
@@ -130,10 +130,10 @@ cases:
       window_start: "2026-07-22T11:00:00"
       window_end: "2026-07-22T18:00:00"
     inputs:
-      sref_p_tstm: 80
+      gefs_p_tstm: 80
       spc_category: moderate
       cape_jkg: 3000
-      sref_p_precip: 30
+      gefs_p_precip: 30
       measurable_precip: true
     expect:
       overall: extreme
@@ -158,8 +158,8 @@ cases:
     inputs:
       heat_index_f: 120
       apparent_temp_f: 100
-      sref_p_precip: 0
-      sref_p_tstm: 5
+      gefs_p_precip: 0
+      gefs_p_tstm: 5
       wind_mph: 4
     expect:
       overall: high
@@ -185,8 +185,8 @@ cases:
     inputs:
       apparent_temp_f: 40
       heat_index_f: 50
-      sref_p_precip: 5
-      sref_p_tstm: 5
+      gefs_p_precip: 5
+      gefs_p_tstm: 5
     expect:
       overall: high
       hazards:

@@ -15,7 +15,7 @@ from shapely.geometry import box
 
 from upstreamwx.api.cache import mission_cache_key
 from upstreamwx.engine.models import ActivityType, Mission
-from upstreamwx.ingest import href_provider, orchestrator, sref_provider
+from upstreamwx.ingest import gefs_provider, orchestrator, refs_provider
 from upstreamwx.ingest.base import IngestBundle
 from upstreamwx.sitrep.structured import _laoc
 from upstreamwx.watershed import roc_disk
@@ -53,18 +53,18 @@ def _capture_providers(monkeypatch) -> dict:
     """Stub SREF/HREF fetch to record the (precip, lightning) polygons they were handed."""
     captured: dict = {}
 
-    def fake_sref(mission, bundle, polygon, *, lightning_polygon=None, cycle=None):
-        captured["sref_precip"] = polygon
-        captured["sref_ltng"] = lightning_polygon
-        bundle.sources_ok["sref"] = True
+    def fake_gefs(mission, bundle, polygon, *, lightning_polygon=None, cycle=None):
+        captured["gefs_precip"] = polygon
+        captured["gefs_ltng"] = lightning_polygon
+        bundle.sources_ok["gefs"] = True
 
-    def fake_href(mission, bundle, polygon, *, lightning_polygon=None, now=None, settings=None):
-        captured["href_precip"] = polygon
-        captured["href_ltng"] = lightning_polygon
-        bundle.sources_ok["href"] = True
+    def fake_refs(mission, bundle, polygon, *, lightning_polygon=None, now=None, settings=None):
+        captured["refs_precip"] = polygon
+        captured["refs_ltng"] = lightning_polygon
+        bundle.sources_ok["refs"] = True
 
-    monkeypatch.setattr(sref_provider, "fetch", fake_sref)
-    monkeypatch.setattr(href_provider, "fetch", fake_href)
+    monkeypatch.setattr(gefs_provider, "fetch", fake_gefs)
+    monkeypatch.setattr(refs_provider, "fetch", fake_refs)
     return captured
 
 
@@ -79,11 +79,11 @@ def test_lightning_aggregates_over_laoc_disk(monkeypatch) -> None:
 
     expected_disk = roc_disk(_LAT, _LON, 20.0)
     # Flash-flood precip aggregates over the full watershed; lightning over the LAoC disk.
-    assert captured["sref_precip"].equals(poly)
-    assert captured["href_precip"].equals(poly)
-    assert captured["sref_ltng"].equals(expected_disk)
-    assert captured["href_ltng"].equals(expected_disk)
-    assert not captured["sref_ltng"].equals(poly)
+    assert captured["gefs_precip"].equals(poly)
+    assert captured["refs_precip"].equals(poly)
+    assert captured["gefs_ltng"].equals(expected_disk)
+    assert captured["refs_ltng"].equals(expected_disk)
+    assert not captured["gefs_ltng"].equals(poly)
     # The disk is surfaced on the bundle for the PWA ring.
     assert bundle.laoc_radius_km == 20.0
     assert bundle.laoc_disk is not None and bundle.laoc_disk.equals(expected_disk)
@@ -97,8 +97,8 @@ def test_no_lightning_radius_falls_back_to_watershed(monkeypatch) -> None:
 
     bundle = orchestrator._run_watershed_and_ensembles(_mission(), None, None)
 
-    assert captured["sref_ltng"].equals(poly)
-    assert captured["href_ltng"].equals(poly)
+    assert captured["gefs_ltng"].equals(poly)
+    assert captured["refs_ltng"].equals(poly)
     assert bundle.laoc_disk is None
     assert bundle.laoc_radius_km is None
 

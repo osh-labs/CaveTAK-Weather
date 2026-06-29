@@ -70,3 +70,23 @@ No separate instance or bill is needed for v1.
 - Select specific forecast hours for CAPE (avoid pulling all 30).
 - Cache the decoded grid for the cycle; parallelize per-domain aggregation if domain
   count grows.
+
+## Post-EOL addendum (2026-06-29): REFS & GEFS replacements
+
+SREF and HREF retire 2026-08-31 (SCN 26-47). Measured profiles for the replacements
+(Spikes E/F, Buckskin domain) and the one cost change that matters:
+
+| Replacement | Field set measured | Download | Wall time | Peak RSS | Note |
+| --- | --- | ---: | ---: | ---: | --- |
+| **REFS** (HREF→) | 7 NEP fields, 1 fhour | ~0.93 MB | ~20 s | ~981 MB | drop-in cost ≈ HREF; same per-message idx subset |
+| **GEFS** (SREF→) | APCP+CAPE × 31 members | ~25 MB | **~83 s sequential** | ~296 MB | ⚠️ over the 60 s budget |
+
+**The new cost lever — parallelize GEFS member fetches.** GEFS ships no probability
+product, so the provider fetches one subset **per member** (62 ranged GETs for 2 fields ×
+31 members) and computes exceedance in-house. Done sequentially this is ~83 s — past the
+`download_subset` 60 s budget. Fanned across the existing `ThreadPoolExecutor` pattern
+(`ingest/orchestrator.py`) at ~16-way concurrency it collapses to ~4 waves ≈ 5–7 s. This,
+plus fetching only the mission's exposure-hours/fields and warming member subsets per cycle,
+keeps GEFS within budget. REFS needs no such change (it keeps the pre-baked NEP `prob`
+product, like HREF). See [spike-e-refs-report.md](spike-e-refs-report.md) and
+[spike-f-gefs-report.md](spike-f-gefs-report.md).

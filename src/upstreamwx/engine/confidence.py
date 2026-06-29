@@ -1,6 +1,6 @@
 """Per-hazard confidence qualifier — PRD Appendix B §16.5, FR-17.
 
-Confidence is the SREF member-support fraction for the assigned tier, adjusted by
+Confidence is the GEFS member-support fraction for the assigned tier, adjusted by
 cross-source agreement: partial disagreement caps confidence at Moderate; a
 material conflict forces Low. With no ensemble information available we default to
 Moderate rather than overclaiming High.

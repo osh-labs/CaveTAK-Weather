@@ -6,56 +6,43 @@ version: "1.4.0"
 provenance:
   effective_date: "2026-06-29"
   rationale: >-
-    Primary basis is SREF probability of thunderstorms over the exposure window,
-    cross-checked against the SPC convective outlook and AFD. CAPE/Lifted Index
-    modulate confidence and severity but never set the tier. v1.1 added the HREF
-    same-day overlay (FR-7a, §16.2): HREF neighborhood P(lightning)/P(reflectivity)
-    on its own cut points, taken as another tier candidate (higher wins). v1.2
-    recalibrates both ensembles: SREF Extreme raised from 70% to 80% (or 85% when
-    HREF is in-window) to reduce false Extreme triggers from diffuse ensemble spread;
-    HREF cut points lowered (45/20/8%) so the higher-resolution same-day ensemble is
-    the dominant Extreme signal in its window. v1.3 replaces the binary AFD convective
-    mention with a graded storm-mode signal (isolated/scattered/numerous) and adds a
-    contextual ceiling: when the AFD describes routine coverage (isolated -> Elevated
-    ceiling; scattered -> High ceiling) and HREF P(lightning) is below 60%, Extreme
-    is suppressed. HREF >= 60% bypasses the ceiling so same-day high-res evidence can
-    still trigger Extreme on days the AFD discussion predates. v1.4 replaces the SREF
-    thunderstorm proxy from P(CAPE>1000 J/kg) to P(APCP>2.54 mm/3h). CAPE>1000 J/kg
-    is an instability indicator that saturates to ~100% on any summer afternoon in the
-    Southeast regardless of CIN, returning Extreme on heat-dome/suppressed-convection
-    days where the AFD describes no meaningful storm threat. P(APCP>2.54 mm/3h) is a
-    precipitation-accumulation field that is zero when CIN prevents convective
-    initiation and only fires when ensemble members actually produce rainfall — the
-    correct signal for thunderstorm probability. Cut points recalibrated for the new
-    variable's probability range (spatial max over the LAoC disk, temporal max over
-    the mission window): Extreme 70%/75% (no/with HREF), High 35%, Elevated 10%.
-    To be tuned via field testing (FR-20a).
-  source: "UpstreamWX PRD v0.8 §16.2"
+    Primary basis is the global ensemble probability of thunderstorms over the exposure
+    window, cross-checked against the SPC convective outlook and AFD. CAPE modulates
+    confidence/severity but never sets the tier. v1.1 added the same-day overlay (FR-7a).
+    v1.2 recalibrated the Extreme bars; v1.3 added the graded AFD storm-mode signal and
+    the contextual ceiling. v1.4 transitions the ensembles for the SREF+HREF EOL (NWS SCN
+    26-47, 2026-08-31): the global ensemble is now **GEFS** (was SREF) and the same-day
+    overlay is now **REFS** (was HREF). Cut points carry over unchanged as the baseline.
+    IMPORTANT: GEFS has no native thunderstorm-probability field, so `gefs_ptstm` is fed by
+    a derived CAPE×precip member-exceedance **proxy** (ingest.gefs_provider) — coarser and
+    less direct than SREF's P(tstm); its cut points are pending calibration and its confidence
+    should be read conservatively. In-window, REFS `LTNG` (3 km, explicit) is the dominant
+    Extreme trigger; the GEFS proxy carries beyond REFS range. Tune via field testing (FR-20a).
+  source: "UpstreamWX PRD v0.8 §16.2; NWS SCN 26-47"
 
 products:
   thunderstorm_warning_tier: extreme   # active (severe) thunderstorm warning -> Extreme
 
-# SREF P(APCP>2.54 mm/3h) thunderstorm proxy over the exposure window, percent [0, 100].
-# Highest band wins. Spatial max over the LAoC disk, temporal max over the mission window.
-# When HREF is available in-window, extreme_min_with_href applies instead of extreme_min
+# GEFS P(thunderstorm) over the exposure window, percent [0, 100]. Highest band wins.
+# When REFS is available in-window, extreme_min_with_refs applies instead of extreme_min
 # so the higher-resolution same-day ensemble is the dominant Extreme trigger (§16.2).
-sref_ptstm:
-  extreme_min: 70           # >=70% -> Extreme (no HREF): majority of members see convective precip
-  extreme_min_with_href: 75 # >=75% -> Extreme (HREF in-window; HREF drives Extreme at lower prob)
-  high_min: 35              # 35-69% -> High
-  elevated_min: 10          # 10-34% -> Elevated
-                            # <10%   -> Minimal
+gefs_ptstm:
+  extreme_min: 80           # >=80% -> Extreme (no REFS)
+  extreme_min_with_refs: 85 # >=85% -> Extreme (REFS in-window; REFS drives Extreme at lower prob)
+  high_min: 40              # 40-79% -> High
+  elevated_min: 15          # 15-39% -> Elevated
+                            # <15%   -> Minimal
 
-# HREF same-day overlay (FR-7a, §16.2), percent [0, 100]. HREF neighborhood
+# REFS same-day overlay (FR-7a, §16.2), percent [0, 100]. REFS neighborhood
 # P(lightning) (explicit) or P(composite reflectivity >= 40 dBZ) over the exposure
-# window. NOT comparable to the SREF bands (neighborhood / 3 km / 11-member basis),
+# window. NOT comparable to the GEFS bands (neighborhood / 3 km / 11-member basis),
 # so its own cut points. Evaluated only in-range (~6-36 h) and added as another tier
 # candidate; the assigned tier is the max across all candidates. UpstreamWX proposals.
-href_convection:
-  extreme_min: 45     # >=45% -> Extreme (HREF NEP at this level is a strong same-day signal)
+refs_convection:
+  extreme_min: 45     # >=45% -> Extreme (REFS NEP at this level is a strong same-day signal)
   high_min: 20        # 20-44% -> High
   elevated_min: 8     # 8-19%  -> Elevated
-                      # <8%    -> no HREF contribution
+                      # <8%    -> no REFS contribution
 
 # SPC convective outlook category over the window -> tier (any one triggers).
 # Keys cover the SPC categorical labels plus a "categorical" alias for the
@@ -78,12 +65,12 @@ afd_storm_mode:
   numerous: high
 
 # Contextual ceiling when AFD describes routine convection. Cap the final tier unless
-# HREF P(lightning) exceeds href_override_min: the same-day high-res ensemble
+# REFS P(lightning) exceeds refs_override_min: the same-day high-res ensemble
 # may see more than an AFD discussion written hours earlier. No ceiling for "numerous".
 afd_ceiling:
   isolated: elevated    # isolated -> cap final tier at Elevated
   scattered: high       # scattered -> cap final tier at High
-  href_override_min: 60 # HREF P(lightning) >= 60% bypasses the ceiling
+  refs_override_min: 60 # REFS P(lightning) >= 60% bypasses the ceiling
 
 # Instability bands (CAPE J/kg) — modulate confidence/severity, NOT the tier.
 cape_bands_jkg:

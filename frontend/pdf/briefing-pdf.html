@@ -486,7 +486,7 @@ function renderMission(b) {
     <dl class="meta-grid">
       <div class="meta-row"><dt>Activity</dt><dd>${b.mission.activity === "cave" ? "Cave" : (b.mission.is_slot ? "Slot canyon" : "Canyon")}</dd></div>
       <div class="meta-row"><dt>Generated</dt><dd>${fmtWhen(b.generated_at)} UTC</dd></div>
-      <div class="meta-row"><dt>SREF cycle</dt><dd class="mono">${esc(b.cache_cycle)}</dd></div>
+      <div class="meta-row"><dt>GEFS cycle</dt><dd class="mono">${esc(b.cache_cycle)}</dd></div>
       <div class="meta-row"><dt>UpstreamWX</dt><dd class="mono">${esc(appVersion(b))}</dd></div>
     </dl>
   </div>`;
@@ -600,12 +600,12 @@ function renderSourceData(b) {
   const ri = b.risk_inputs || {};
   const ws = b.watershed || {};
   const ensemble = [
-    ["SREF P(precip/thunder)", ri.sref_p_precip != null ? ri.sref_p_precip + "%" : "—"],
-    ["SREF P(thunderstorm)", ri.sref_p_tstm != null ? ri.sref_p_tstm + "%" : "—"],
+    ["GEFS P(precip/thunder)", ri.gefs_p_precip != null ? ri.gefs_p_precip + "%" : "—"],
+    ["GEFS P(thunderstorm)", ri.gefs_p_tstm != null ? ri.gefs_p_tstm + "%" : "—"],
     ["CAPE", ri.cape_jkg != null ? ri.cape_jkg + " J/kg" : "—"],
-    ["HREF P(QPF)", ri.href_in_range && ri.href_p_precip != null ? ri.href_p_precip + "%" : "n/a"],
-    ["HREF P(lightning)", ri.href_in_range && ri.href_p_lightning != null ? ri.href_p_lightning + "%" : "n/a"],
-    ["HREF cycle", ri.href_cycle || "—"],
+    ["REFS P(QPF)", ri.refs_in_range && ri.refs_p_precip != null ? ri.refs_p_precip + "%" : "n/a"],
+    ["REFS P(lightning)", ri.refs_in_range && ri.refs_p_lightning != null ? ri.refs_p_lightning + "%" : "n/a"],
+    ["REFS cycle", ri.refs_cycle || "—"],
   ];
   const nws = [
     ["Flash Flood Warning", ri.flash_flood_warning ? "ACTIVE" : "none"],

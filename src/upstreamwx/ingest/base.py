@@ -67,39 +67,39 @@ class IngestBundle:
     # not an engine input; None when ingest could not populate it (NFR-6).
     forecast_hourly: ForecastHourly | None = None
 
-    # SREF ensemble over the upstream domain (FR-7).
-    sref_p_precip: float | None = None
-    sref_p_tstm: float | None = None
+    # GEFS ensemble over the upstream domain (FR-7).
+    gefs_p_precip: float | None = None
+    gefs_p_tstm: float | None = None
     convective_rate_in_per_hr: float | None = None
     cape_jkg: float | None = None
     member_support: dict[str, float] = field(default_factory=dict)
 
-    # HREF same-day high-resolution supplement over the upstream domain (FR-7a).
-    # Set only when the mission window is in HREF range (~6-36 h).
-    href_p_precip: float | None = None
-    href_p_lightning: float | None = None
-    href_in_range: bool = False
-    href_cycle: str | None = None  # primary run, "YYYYMMDD/HHZ"; display only
-    href_fhour: str | None = None  # range label, e.g. "f11" or "f06-f30 (+ 00Z f13-f17 ...)"
+    # REFS same-day high-resolution supplement over the upstream domain (FR-7a).
+    # Set only when the mission window is in REFS range (~6-36 h).
+    refs_p_precip: float | None = None
+    refs_p_lightning: float | None = None
+    refs_in_range: bool = False
+    refs_cycle: str | None = None  # primary run, "YYYYMMDD/HHZ"; display only
+    refs_fhour: str | None = None  # range label, e.g. "f11" or "f06-f30 (+ 00Z f13-f17 ...)"
     # Per contributing run: (run label, min fhour, max fhour), primary first then spin-up
     # backfills. Multi-run when an older run backfills the current run's spin-up; display only.
-    href_runs: list[tuple[str, int, int]] | None = None
+    refs_runs: list[tuple[str, int, int]] | None = None
 
-    # SREF<->HREF cross-ensemble agreement (FR-17, §16.5); feeds the confidence
-    # qualifier. "consistent" unless an in-range HREF materially diverges from SREF.
+    # GEFS<->REFS cross-ensemble agreement (FR-17, §16.5); feeds the confidence
+    # qualifier. "consistent" unless an in-range REFS materially diverges from GEFS.
     source_agreement: str = "consistent"
 
     # SPC convective outlook category.
     spc_category: str | None = None
 
-    # Upstream contributing-watershed domain used for SREF/HREF aggregation (FR-3),
+    # Upstream contributing-watershed domain used for GEFS/REFS aggregation (FR-3),
     # delineated pour-point-exact (NLDI raindrop two-step) with a WBD fallback. Set
     # by the orchestrator unless an explicit polygon override is passed; carries the
     # provenance (method, area, snapped point, flowline) the SITREP header renders.
     upstream: PourpointBasin | None = None
 
     # Radius of Concern (RoC, FR-3): the upstream watershed clipped to a user-set disk
-    # around the mission origin. ``aggregation_polygon`` is the polygon the SREF/HREF
+    # around the mission origin. ``aggregation_polygon`` is the polygon the GEFS/REFS
     # zonal aggregation actually ran over (the clipped ``kept`` when a RoC is set, else
     # the full basin). ``roc_disk``/``roc_excluded`` drive the PWA's dashed-ring and
     # hatched-exclusion rendering; ``roc_excluded`` is None when the basin fits the disk.
@@ -110,7 +110,7 @@ class IngestBundle:
     roc_kept_area_km2: float | None = None
 
     # Lightning Area of Concern (LAoC): the disk around the activity that the lightning
-    # ensemble fields (``sref_p_tstm``/``href_p_lightning``) aggregate over instead of the
+    # ensemble fields (``gefs_p_tstm``/``refs_p_lightning``) aggregate over instead of the
     # upstream watershed (PRD §16.1, §13 principle 4 — lightning is a point/corridor
     # estimate, not basin-routed). ``laoc_disk`` drives the PWA's yellow ring. None unless
     # the mission sets ``lightning_radius_km``; lightning then falls back to the flood domain.
@@ -142,13 +142,13 @@ def to_hazard_inputs(bundle: IngestBundle, *, dry_party: bool = False) -> Hazard
         flood_advisory=bundle.flood_advisory,
         flood_watch=bundle.flood_watch,
         thunderstorm_warning=bundle.thunderstorm_warning,
-        sref_p_precip=bundle.sref_p_precip,
-        sref_p_tstm=bundle.sref_p_tstm,
+        gefs_p_precip=bundle.gefs_p_precip,
+        gefs_p_tstm=bundle.gefs_p_tstm,
         measurable_precip=bundle.measurable_precip,
         convective_rate_in_per_hr=bundle.convective_rate_in_per_hr,
         cape_jkg=bundle.cape_jkg,
-        href_p_precip=bundle.href_p_precip,
-        href_p_lightning=bundle.href_p_lightning,
+        refs_p_precip=bundle.refs_p_precip,
+        refs_p_lightning=bundle.refs_p_lightning,
         member_support=dict(bundle.member_support),
         source_agreement=bundle.source_agreement,
         spc_category=bundle.spc_category,

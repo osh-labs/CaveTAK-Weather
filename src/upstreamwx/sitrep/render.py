@@ -91,13 +91,13 @@ def render_md(
     """Render a :class:`BriefingResult` to a Markdown SITREP (Appendix A skeleton).
 
     ``upstream`` supplies the HUC-12 domain for the header and watershed summary;
-    ``bundle`` supplies the numeric SOURCE DATA drill-down (including the HREF block
+    ``bundle`` supplies the numeric SOURCE DATA drill-down (including the REFS block
     when in range). Both are optional — the render is complete from the engine result
     alone. ``generated_at`` is the only time-varying input and is rendered in a single
     header line; omit it (the default) for byte-identical golden output.
     """
     mission = result.mission
-    used_href = bool(bundle and bundle.href_in_range)
+    used_refs = bool(bundle and bundle.refs_in_range)
     lines: list[str] = []
 
     # ---- Header -----------------------------------------------------------------
@@ -180,15 +180,15 @@ def render_md(
         lines.extend(f"- {note}" for note in result.notes)
 
     # ---- Sources (verify) -------------------------------------------------------
-    links = build_source_links(mission.lat, mission.lon, used_href=used_href)
+    links = build_source_links(mission.lat, mission.lon, used_refs=used_refs)
     lines.append("")
     lines.append("## SOURCES (verify)")
     lines.append("")
     lines.append(f"- NWS active alerts: {links.active_alerts}")
     lines.append(f"- NWS point forecast / AFD: {links.nws_point_forecast}")
-    lines.append(f"- Model source (SREF): {links.sref_model}")
-    if links.href_model is not None:
-        lines.append(f"- Model source (HREF, same-day): {links.href_model}")
+    lines.append(f"- Model source (GEFS): {links.gefs_model}")
+    if links.refs_model is not None:
+        lines.append(f"- Model source (REFS, same-day): {links.refs_model}")
 
     # ---- Disclaimer -------------------------------------------------------------
     lines.append("")
@@ -273,18 +273,18 @@ def _render_source_data(lines: list[str], bundle: IngestBundle | None) -> None:
     lines.append(f"- SPC outlook: {bundle.spc_category or 'n/a'}")
 
     lines.append("")
-    lines.append("SREF ensemble (upstream domain):")
-    lines.append(f"- P(precip/thunder): {_pct(bundle.sref_p_precip)}")
-    lines.append(f"- P(thunderstorm): {_pct(bundle.sref_p_tstm)}")
+    lines.append("GEFS ensemble (upstream domain):")
+    lines.append(f"- P(precip/thunder): {_pct(bundle.gefs_p_precip)}")
+    lines.append(f"- P(thunderstorm): {_pct(bundle.gefs_p_tstm)}")
     lines.append(f"- Convective rate: {_num(bundle.convective_rate_in_per_hr, 'in/hr')}")
     lines.append(f"- CAPE: {_num(bundle.cape_jkg, 'J/kg')}")
 
-    if bundle.href_in_range:
-        fhour = bundle.href_fhour or "n/a"
+    if bundle.refs_in_range:
+        fhour = bundle.refs_fhour or "n/a"
         lines.append("")
-        lines.append(f"HREF same-day supplement (cycle {bundle.href_cycle or 'n/a'} {fhour}):")
-        lines.append(f"- Neighborhood P(QPF): {_pct(bundle.href_p_precip)}")
-        lines.append(f"- Neighborhood P(lightning): {_pct(bundle.href_p_lightning)}")
+        lines.append(f"REFS same-day supplement (cycle {bundle.refs_cycle or 'n/a'} {fhour}):")
+        lines.append(f"- Neighborhood P(QPF): {_pct(bundle.refs_p_precip)}")
+        lines.append(f"- Neighborhood P(lightning): {_pct(bundle.refs_p_lightning)}")
     lines.append("")
     lines.append(f"Cross-ensemble agreement: {bundle.source_agreement}")
 

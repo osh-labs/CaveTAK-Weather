@@ -22,7 +22,7 @@ def _result():
         window_start=datetime(2026, 6, 20, 8), window_end=datetime(2026, 6, 20, 18),
         name="Test",
     )
-    inputs = HazardInputs(sref_p_precip=65, measurable_precip=True, sref_p_tstm=50,
+    inputs = HazardInputs(gefs_p_precip=65, measurable_precip=True, gefs_p_tstm=50,
                           heat_index_f=95, apparent_temp_f=92)
     return assess(mission, inputs)
 

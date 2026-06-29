@@ -40,8 +40,8 @@ def _mission() -> Mission:
 def _inputs() -> HazardInputs:
     # Enough signal to light up flash flood + lightning + heat.
     return HazardInputs(
-        sref_p_precip=65.0,
-        sref_p_tstm=92.0,
+        gefs_p_precip=65.0,
+        gefs_p_tstm=92.0,
         measurable_precip=True,
         spc_category="marginal",
         afd_storm_mode="numerous",
@@ -75,8 +75,8 @@ def _bundle() -> IngestBundle:
         sky=["☀️", "⛅", "🌧️"],
     )
     return IngestBundle(
-        sref_p_precip=65.0,
-        sref_p_tstm=92.0,
+        gefs_p_precip=65.0,
+        gefs_p_tstm=92.0,
         upstream=basin,
         forecast_hourly=fh,
         sources_ok={"nws": True, "open_meteo": True, "sref": True, "watershed": True},

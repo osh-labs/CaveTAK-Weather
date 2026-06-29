@@ -281,7 +281,7 @@ def _metrics(bundle: IngestBundle | None) -> list[dict]:
     gust = mx(fh.gust_mph) if fh else None
     precip = mx(fh.precip_pct) if fh else None
     qpf = sm(fh.qpf_in) if fh else None
-    tstm = bundle.sref_p_tstm if bundle is not None else None
+    tstm = bundle.gefs_p_tstm if bundle is not None else None
     def card(label: str, icon: str, value: str, unit: str, sub: str) -> dict:
         return {"label": label, "icon": icon, "value": value, "unit": unit, "sub": sub}
 
@@ -289,7 +289,7 @@ def _metrics(bundle: IngestBundle | None) -> list[dict]:
         card("Temp", "heat", s(temp), "°F", f"Feels {s(feels)}°"),
         card("Wind", "cold_wet", s(wind), "mph", f"Gust {s(gust)}"),
         card("Precip", "flash_flood", s(precip), "%", f"{s(qpf, '{:.1f}')} in"),
-        card("T-storm", "lightning", s(tstm), "%", "SREF P(tstm)"),
+        card("T-storm", "lightning", s(tstm), "%", "GEFS P(tstm)"),
     ]
 
 
@@ -308,12 +308,12 @@ def _risk_inputs(bundle: IngestBundle | None) -> dict:
         return round(v) if v is not None else None
 
     return {
-        "sref_p_precip": pct(bundle.sref_p_precip),
-        "sref_p_tstm": pct(bundle.sref_p_tstm),
-        "href_in_range": bundle.href_in_range,
-        "href_p_precip": pct(bundle.href_p_precip) if bundle.href_in_range else None,
-        "href_p_lightning": pct(bundle.href_p_lightning) if bundle.href_in_range else None,
-        "href_cycle": bundle.href_cycle,
+        "gefs_p_precip": pct(bundle.gefs_p_precip),
+        "gefs_p_tstm": pct(bundle.gefs_p_tstm),
+        "refs_in_range": bundle.refs_in_range,
+        "refs_p_precip": pct(bundle.refs_p_precip) if bundle.refs_in_range else None,
+        "refs_p_lightning": pct(bundle.refs_p_lightning) if bundle.refs_in_range else None,
+        "refs_cycle": bundle.refs_cycle,
         "cape_jkg": round(bundle.cape_jkg) if bundle.cape_jkg is not None else None,
         "convective_rate_in_per_hr": (
             round(bundle.convective_rate_in_per_hr, 3)
@@ -354,10 +354,10 @@ def _forecast(bundle: IngestBundle | None) -> tuple[dict, dict, dict]:
     return forecast_hourly, temp_series, wind_series
 
 
-def _resources(lat: float, lon: float, threshold_version: str, *, used_href: bool) -> list[dict]:
-    links = build_source_links(lat, lon, used_href=used_href)
-    model_sub = "Open-Meteo (HRRR-derived) · SREF" + (
-        " + HREF (NOMADS ensprod, in-house)" if used_href else " (NOMADS ensprod, in-house)"
+def _resources(lat: float, lon: float, threshold_version: str, *, used_refs: bool) -> list[dict]:
+    links = build_source_links(lat, lon, used_refs=used_refs)
+    model_sub = "Open-Meteo (HRRR-derived) · GEFS (member exceedance)" + (
+        " + REFS (3 km enspost NEP, same-day)" if used_refs else ""
     )
     return [
         {
@@ -376,7 +376,7 @@ def _resources(lat: float, lon: float, threshold_version: str, *, used_href: boo
             "icon": "model",
             "title": "Model & ensemble source",
             "sub": model_sub,
-            "url": links.sref_model,
+            "url": links.gefs_model,
         },
         {
             "icon": "calc",
@@ -412,7 +412,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
     bundle = gen.bundle
     mission = result.mission
     upstream = bundle.upstream if bundle is not None else None
-    used_href = bool(bundle is not None and bundle.href_in_range)
+    used_refs = bool(bundle is not None and bundle.refs_in_range)
 
     forecast_hourly, temp_series, wind_series = _forecast(bundle)
     risk_inputs = _risk_inputs(bundle)
@@ -456,6 +456,6 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
         "wind_series": wind_series,
         "risk_inputs": risk_inputs,
         "resources": _resources(
-            mission.lat, mission.lon, result.threshold_version, used_href=used_href
+            mission.lat, mission.lon, result.threshold_version, used_refs=used_refs
         ),
     }

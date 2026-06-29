@@ -1,10 +1,10 @@
 """Flash flood tier evaluator — PRD Appendix B §16.1.
 
 Active NWS flood products anchor the near term (they already encode the
-QPF-vs-FFG determination); SREF probability over the upstream domain covers the
+QPF-vs-FFG determination); GEFS probability over the upstream domain covers the
 planning horizon. Coverage spans the acute flash-flood family *and* the slower
 areal/river Flood Warning/Advisory/Watch, plus an AFD excessive-rainfall signal —
-all of which raise (never lower) the SREF/HREF-derived posture. Modifiers:
+all of which raise (never lower) the GEFS/REFS-derived posture. Modifiers:
 antecedent-wetness bump and the conservative slot fallback.
 """
 
@@ -15,7 +15,7 @@ from ..thresholds import HazardThresholds
 
 # Active flood products, in display order, paired with the input flag and the
 # config key carrying their tier. Each active product is a candidate tier; the
-# engine takes the max across all of them and the SREF/HREF signal.
+# engine takes the max across all of them and the GEFS/REFS signal.
 _PRODUCTS = (
     ("flash_flood_warning", "flash_flood_warning_tier",
      "Active Flash Flood Warning over area or upstream domain"),
@@ -28,22 +28,22 @@ _PRODUCTS = (
 )
 
 
-def _sref_tier(inputs: HazardInputs, prob: dict) -> tuple[Tier, str]:
-    """SREF P(precip/thunderstorm) over the upstream domain -> (tier, driver)."""
-    p = inputs.sref_p_precip
+def _gefs_tier(inputs: HazardInputs, prob: dict) -> tuple[Tier, str]:
+    """GEFS P(precip/thunderstorm) over the upstream domain -> (tier, driver)."""
+    p = inputs.gefs_p_precip
     if p is None:
-        return Tier.MINIMAL, "No SREF precip signal over upstream domain"
+        return Tier.MINIMAL, "No GEFS precip signal over upstream domain"
     if p >= prob["high_min"]:
         return Tier.HIGH, (
-            f"SREF P(precip/thunder) {p:.0f}% ≥ {prob['high_min']}% over upstream domain"
+            f"GEFS P(precip/thunder) {p:.0f}% ≥ {prob['high_min']}% over upstream domain"
         )
     if p >= prob["elevated_min"] and inputs.measurable_precip:
         return Tier.ELEVATED, (
-            f"SREF P(precip/thunder) {p:.0f}% in {prob['elevated_min']}-{prob['high_min']}% "
+            f"GEFS P(precip/thunder) {p:.0f}% in {prob['elevated_min']}-{prob['high_min']}% "
             "band with measurable forecast precip"
         )
     return Tier.MINIMAL, (
-        f"SREF P(precip/thunder) {p:.0f}% below {prob['elevated_min']}%; dry upstream"
+        f"GEFS P(precip/thunder) {p:.0f}% below {prob['elevated_min']}%; dry upstream"
     )
 
 
@@ -53,11 +53,11 @@ def evaluate(
     drivers: list[str] = []
     notes: list[str] = []
     products = cfg["products"]
-    prob = cfg["sref_probability"]
+    prob = cfg["gefs_probability"]
     mods = cfg["modifiers"]
 
     # Active products anchor the near term but only raise the posture — a lesser
-    # product (e.g. a Flood Advisory) must never suppress a stronger SREF signal.
+    # product (e.g. a Flood Advisory) must never suppress a stronger GEFS signal.
     tier = Tier.MINIMAL
     product_active = False
     for flag, tier_key, driver in _PRODUCTS:
@@ -66,9 +66,9 @@ def evaluate(
             tier = max(tier, Tier.from_name(products[tier_key]))
             drivers.append(driver)
 
-    # SREF planning-horizon signal. Shown on its own when no product anchors the
+    # GEFS planning-horizon signal. Shown on its own when no product anchors the
     # near term, and additionally whenever it raises a product-set posture.
-    sref_tier, sref_driver = _sref_tier(inputs, prob)
+    sref_tier, sref_driver = _gefs_tier(inputs, prob)
     if not product_active or sref_tier > tier:
         drivers.append(sref_driver)
     tier = max(tier, sref_tier)
@@ -85,11 +85,11 @@ def evaluate(
         elif tier > Tier.MINIMAL:
             drivers.append("AFD excessive-rainfall / flooding discussion concurs")
 
-    # HREF same-day high-resolution overlay (FR-7a, §16.1): evaluate HREF neighborhood
+    # REFS same-day high-resolution overlay (FR-7a, §16.1): evaluate REFS neighborhood
     # P(QPF) on its own cut points and take the higher tier (FR-19). None out of range.
-    hp = inputs.href_p_precip
+    hp = inputs.refs_p_precip
     if hp is not None:
-        hb = cfg["href_probability"]
+        hb = cfg["refs_probability"]
         href_tier = Tier.MINIMAL
         if hp >= hb["high_min"]:
             href_tier = Tier.HIGH
@@ -97,13 +97,13 @@ def evaluate(
             href_tier = Tier.ELEVATED
         if href_tier > tier:
             drivers.append(
-                f"HREF neighborhood P(QPF) {hp:.0f}% over upstream domain "
+                f"REFS neighborhood P(QPF) {hp:.0f}% over upstream domain "
                 f"(~3 km, same-day) raises flood tier to {href_tier.label}"
             )
             tier = href_tier
         elif href_tier > Tier.MINIMAL:
             drivers.append(
-                f"HREF neighborhood P(QPF) {hp:.0f}% concurs at {href_tier.label}"
+                f"REFS neighborhood P(QPF) {hp:.0f}% concurs at {href_tier.label}"
             )
 
     # Antecedent wetness bumps an existing precip-driven posture up one level.
