@@ -268,16 +268,17 @@
 
   /* ── Running margins + reference-only footer (§17.3, FR-29/FR-40) ──────────
      All content is wrapped in <table class="layout">. Browsers repeat a table's
-     <thead> and <tfoot> on EVERY printed page — including iOS Safari, which does
-     not repeat position:fixed elements. So:
-       · <thead> holds a spacer (.run-top) = the top page margin, every page;
-       · <tfoot> holds the actual footer (.page-foot) = the disclaimer, every
-         page, with padding-bottom = the bottom page margin.
-     This is why the footer now prints on every page instead of floating once. */
+     <thead> and <tfoot> on EVERY printed page.
+       · <thead> holds .run-top = the top page margin, every page.
+       · <tfoot> holds .run-foot = bottom-margin spacer, every page. It is a
+         bare spacer only (no footer text) so position:fixed on .page-foot can
+         own the footer without needing to live inside a hidden tfoot.
+       · .page-foot sits outside the table as a fixed sibling; Chromium repeats
+         position:fixed elements on every PDF page. */
   .layout { width: 100%; border-collapse: collapse; }
-  .layout > thead > tr > td, .layout > tbody > tr > td { padding: 0; }
-  .layout > tfoot > tr > td { padding: 0 0 9mm; }   /* bottom page margin below footer */
-  .run-top { height: 10mm; }                        /* top page margin, every page */
+  .layout > thead > tr > td, .layout > tbody > tr > td, .layout > tfoot > tr > td { padding: 0; }
+  .run-top { height: 10mm; }    /* top page margin, every page */
+  .run-foot { height: 22mm; }   /* bottom margin + footer clearance, every page */
 
   .page-foot {
     display: flex; align-items: flex-end; justify-content: space-between; gap: 14px;
@@ -293,10 +294,9 @@
     html, body { background: #fff; }
     .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
     .no-print { display: none !important; }
-    /* Server-side (Chromium/Playwright) render: pin the footer to the bottom of
-       every page with fixed positioning. The tfoot table approach is kept for the
-       offline ?print=1 path (iOS Safari doesn't support print fixed positioning),
-       but for the PDF download path Chromium's fixed-in-print support is reliable. */
+    /* Pin the footer to the bottom of every page. .page-foot lives outside the
+       layout table so hiding tfoot never affects it. Chromium repeats fixed
+       elements on every PDF page. */
     .page-foot {
       position: fixed;
       bottom: 9mm;
@@ -305,14 +305,10 @@
       margin-top: 0;
       background: var(--p-bg);
     }
-    /* The tfoot carried the footer for multi-page Safari — not needed when fixed
-       positioning handles it (avoids a duplicate footer at the bottom of page 1). */
-    .layout > tfoot { display: none; }
-    /* Reserve space so flowing content never slides under the fixed footer. */
-    .layout > tbody > tr > td { padding-bottom: 28mm; }
   }
   @media screen {
-    .run-top { height: 0; }   /* the screen .sheet already pads the top */
+    .run-top { height: 0; }    /* the screen .sheet already pads the top */
+    .run-foot { height: 0; }   /* screen doesn't need the per-page bottom spacer */
   }
 
   /* Screen-only toolbar */
@@ -657,15 +653,18 @@ function render(b) {
     renderForecast(b) +
     renderHazardDetail(b) +
     renderSourceData(b);
-  // Wrap in a layout table: <thead> spacer = top margin, <tfoot> = the footer.
-  // Both repeat on every printed page (Safari-safe), so the footer prints
-  // per page instead of floating once.
+  // Layout table: <thead>/<tfoot> are spacers that repeat on every printed page,
+  // giving a consistent top and bottom margin. The footer text (.page-foot) lives
+  // outside the table as a standalone element: position:fixed in @media print pins
+  // it to the bottom of every Chromium PDF page, while @media screen hides it
+  // (screen doesn't need a repeated footer).
   document.getElementById("sheet").innerHTML =
     `<table class="layout">
        <thead><tr><td><div class="run-top"></div></td></tr></thead>
        <tbody><tr><td>${content}</td></tr></tbody>
-       <tfoot><tr><td>${renderPageFoot(b)}</td></tr></tfoot>
-     </table>`;
+       <tfoot><tr><td><div class="run-foot"></div></td></tr></tfoot>
+     </table>` +
+    renderPageFoot(b);
 }
 
 /* The app hands off the live briefing through localStorage (one-shot, read and
