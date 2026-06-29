@@ -39,7 +39,9 @@
           lightning, heat, and cold/wet hypothermia — and shows the reasoning. It never
           tells you whether to go.
         </p>
+        <span class="beta-pill">Public Beta</span>
         <a class="cta" href="https://app.upstreamwx.com">Open the app &rarr;</a>
+        <p class="hero__beta-note">Free &middot; No account required &middot; Works in your browser</p>
       </header>
 
       <!-- App screenshot — live example of the Map view with upstream watershed. -->
@@ -146,8 +148,8 @@
           <div class="about-sources">
             <div><div class="about-source__name">NWS API <span class="about-source__access">api.weather.gov</span></div><div class="about-source__desc">Forecast discussions (AFD), watches, warnings, advisories, and NWS Heat Index categories. The authoritative anchor and a mandatory source.</div></div>
             <div><div class="about-source__name">Open-Meteo <span class="about-source__access">HRRR-derived fields</span></div><div class="about-source__desc">Derived numerical fields (QPF, precip probability, CAPE / lifted index, temperature, humidity, apparent temperature, wind) feeding all four hazard models.</div></div>
-            <div><div class="about-source__name">GEFS (in-house) <span class="about-source__access">NCEP GRIB2, processed server-side</span></div><div class="about-source__desc">Global Ensemble Forecast System member-exceedance probabilities of precip and a convective proxy over the upstream domain to the full planning horizon (replaced SREF after its 2026-08-31 retirement).</div></div>
-            <div><div class="about-source__name">REFS (in-house) <span class="about-source__access">~3 km, same-day ~6 to 36 h</span></div><div class="about-source__desc">Rapid Ensemble Forecast System (RRFS Ensemble) neighborhood probabilities (1 h / 3 h QPF, lightning, reflectivity) that sharpen the same-day window. The engine takes the higher of GEFS and REFS (replaced HREF after its 2026-08-31 retirement).</div></div>
+            <div><div class="about-source__name">GEFS (in-house) <span class="about-source__access">NCEP GRIB2, processed server-side</span></div><div class="about-source__desc">Global Ensemble Forecast System member-exceedance probabilities of precip and a convective proxy over the upstream domain, covering the full multi-day planning horizon at ~25 km resolution.</div></div>
+            <div><div class="about-source__name">REFS (in-house) <span class="about-source__access">~3 km, same-day ~6 to 36 h</span></div><div class="about-source__desc">Rapid Ensemble Forecast System (RRFS Ensemble) neighborhood probabilities — 1 h / 3 h QPF, lightning, reflectivity — that sharpen the same-day window at ~3 km. Where both GEFS and REFS are in range, the engine takes the higher posture; REFS is authoritative for confidence.</div></div>
             <div><div class="about-source__name">SPC outlook <span class="about-source__access">Storm Prediction Center</span></div><div class="about-source__desc">Categorical and probabilistic severe and thunderstorm outlook, a secondary cross-check for lightning.</div></div>
             <div><div class="about-source__name">USGS NHD / WBD <span class="about-source__access">NLDI and Watershed Boundary Dataset</span></div><div class="about-source__desc">The stream network and watershed boundaries used to delineate the upstream contributing basin (a pour-point trace, with a HUC-12 fallback).</div></div>
           </div>
