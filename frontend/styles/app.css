@@ -1017,6 +1017,36 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 }
 .degraded-note { color: var(--color-warn); }
 
+/* ── Loading skeleton (initial briefing fetch) ─────────────────────────
+   Shown between renderTabs() and renderAll() so the 10–15 s generation
+   wait isn't a blank screen.  Once renderAll() fires it overwrites these. */
+@keyframes skel-pulse {
+  0%, 100% { opacity: 0.38; }
+  50%       { opacity: 0.70; }
+}
+.skel {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  animation: skel-pulse 1.8s ease-in-out infinite;
+}
+.skel--icon  { width: 24px; height: 24px; flex-shrink: 0; }
+.skel--label { height: 14px; width: 100%; }
+.skel--chip  { width: 84px; height: 28px; border-radius: var(--radius-pill); flex-shrink: 0; }
+/* Skeleton hazard row — mirrors .hazard-line's flex layout exactly. */
+.skel-hazard-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+}
+.skel-hazard-line:first-child { border-top: none; }
+.skel-hazard-line__body { flex: 1; min-width: 0; }
+.skel-hazard-line__right { flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; opacity: 0.55; }
+}
+
 /* ── 7.14a Update-available banner (stale-client nudge) ────────────────
    Non-dismissible: a newer release is live while this tab runs old code.
    Fixed to the top, above every view (docs/deployment-workflow.md). */

@@ -1906,6 +1906,48 @@ function closeAbout() {
   selectTab("resources");
 }
 
+/* ── Boot-time loading skeleton (FR-39, FR-41) ─────────────────────── */
+// Called immediately after renderTabs() — fills the header and overview with
+// placeholder structure so the 10–15 s generation wait isn't a blank page.
+// renderAll() overwrites every element this touches, so no cleanup is needed.
+function renderLoadingState() {
+  // Brand-only header: logo is static, no briefing data required yet.
+  document.getElementById("header").innerHTML = `
+    <div class="brand">
+      <img src="icons/logo.png" class="brand__logo" alt="UpstreamWX Weather Briefing" />
+    </div>
+    <div class="app-header__spacer"></div>`;
+  // Status line: mirror the "Updating…" text used by refresh() so the copy is consistent.
+  const statusEl = document.getElementById("status");
+  if (statusEl) {
+    statusEl.innerHTML = `<span class="status-line__currency">Generating briefing…</span>`;
+  }
+  // Use the saved spec if available so the user's own mission name and coords appear
+  // in the skeleton; fall back to DEFAULT_SPEC for first-run (ack modal will cover this).
+  const spec = savedSpec() || DEFAULT_SPEC;
+  const name = spec.name || "Your expedition";
+  const coords = `${Number(spec.lat).toFixed(4)}, ${Number(spec.lon).toFixed(4)}`;
+  const skelRows = [0, 1, 2, 3].map(() => `
+    <div class="skel-hazard-line">
+      <div class="skel skel--icon"></div>
+      <div class="skel-hazard-line__body"><div class="skel skel--label"></div></div>
+      <div class="skel-hazard-line__right"><div class="skel skel--chip"></div></div>
+    </div>`).join("");
+  document.getElementById("view-overview").innerHTML = `
+    <section class="card mission-card">
+      <div class="mission-card__main">
+        <div class="eyebrow">Expedition</div>
+        <h1 class="mission-card__title">${esc(name)}</h1>
+        <div class="mission-card__meta"><span class="mono">${esc(coords)}</span></div>
+      </div>
+      <div class="mission-card__posture">
+        <div class="eyebrow">Overall posture</div>
+        <div class="skel skel--chip"></div>
+      </div>
+    </section>
+    <section class="card">${skelRows}</section>`;
+}
+
 /* ── Briefing generation progress bar ──────────────────────────────── */
 // Thin brand-cyan strip at the top of the status bar.  Crawls to ~80 % while
 // the server generates, then snaps to 100 % and fades out on completion.
@@ -2564,6 +2606,7 @@ async function main() {
     if (cfg?.heat_labels) Object.assign(TIER_LABELS, cfg.heat_labels);
   } catch (_) { /* keep identity defaults */ }
   renderTabs();
+  renderLoadingState();
   initGlossaryInteractions();
   initPlannerControls();
   initSettingsControls();
