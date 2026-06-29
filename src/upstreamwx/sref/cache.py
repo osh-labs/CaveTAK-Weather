@@ -31,12 +31,12 @@ from .fetch import download_subset, fetch_idx, select_messages
 from .sources import SREF_CYCLES, SrefCycle
 
 # The (var, prob, freq) fields the request path aggregates (see
-# :mod:`upstreamwx.ingest.sref_provider`): P(APCP>6.35 mm/3h) precip proxy and
-# P(CAPE>1000 J/kg) thunderstorm proxy. Both live in the 3hrly ``prob`` product. Kept here
+# :mod:`upstreamwx.ingest.sref_provider`): P(APCP>6.35 mm/3h) flash-flood proxy and
+# P(APCP>2.54 mm/3h) thunderstorm proxy. Both live in the 3hrly ``prob`` product. Kept here
 # so ``warm_cycle`` pre-pulls exactly what the request path will read (they stay in lockstep).
 DEFAULT_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("APCP", ">6.35", "3hrly"),
-    ("CAPE", ">1000", "3hrly"),
+    ("APCP", ">2.54", "3hrly"),
 )
 
 

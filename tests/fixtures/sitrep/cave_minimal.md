@@ -36,7 +36,7 @@
 - SREF P(precip/thunder) 5% below 20%; dry upstream
 
 ### Lightning
-- SREF P(tstm) below 15%; no convective mention
+- SREF P(tstm) below 10%; no convective mention
 
 ### Heat
 - Heat index 70 °F → None
@@ -51,7 +51,7 @@ Upstream watershed not resolved for this briefing.
 
 ## SOURCE DATA
 
-Threshold config: flash_flood=1.2.0;lightning=1.3.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.2.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
 
 Source field detail unavailable (rendered from engine result only).
 
