@@ -21,6 +21,7 @@ import concurrent.futures
 import json as _json
 import logging
 import multiprocessing
+import unicodedata
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -225,7 +226,17 @@ async def briefing_pdf(briefing: BriefingResponse) -> Response:
             status_code=500, detail="PDF render failed — check server logs for details."
         ) from exc
 
-    mission_name = (briefing.mission.get("name") or "briefing").replace(" ", "_")
+    raw_name = briefing.mission.get("name") or "briefing"
+    # HTTP headers must be latin-1; mission names can contain curly quotes or other
+    # non-ASCII Unicode (e.g. U+2019 RIGHT SINGLE QUOTATION MARK from the Haiku framing
+    # or copy-pasted place names).  NFKD normalisation converts accented chars to their
+    # ASCII base; encode("ascii","ignore") drops anything that doesn't decompose cleanly.
+    mission_name = (
+        unicodedata.normalize("NFKD", raw_name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .replace(" ", "_")
+    ) or "briefing"
     filename = f"upstreamwx_{mission_name}.pdf"
     return Response(
         content=pdf_bytes,

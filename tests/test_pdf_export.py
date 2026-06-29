@@ -102,6 +102,25 @@ def test_pdf_endpoint_returns_pdf(client, monkeypatch):
     assert resp.content.startswith(b"%PDF")
 
 
+def test_pdf_endpoint_non_ascii_mission_name(client, monkeypatch):
+    """Mission names with curly quotes / non-ASCII must not crash Content-Disposition.
+
+    U+2019 (RIGHT SINGLE QUOTATION MARK) in a place name like "Robber’s Roost"
+    caused a UnicodeEncodeError when Starlette encoded the header value as latin-1.
+    """
+    async def _fake_render(briefing: dict) -> bytes:
+        return b"%PDF-1.4 fake-bytes"
+
+    monkeypatch.setattr(pdf_mod, "render_pdf", _fake_render)
+
+    payload = _structured_briefing()
+    payload["mission"]["name"] = "Robber’s Roost"  # curly apostrophe
+    resp = client.post("/v1/briefing/pdf", json=payload)
+    assert resp.status_code == 200
+    # curly apostrophe dropped; remaining ASCII chars preserved in filename
+    assert "Robbers_Roost" in resp.headers["content-disposition"]
+
+
 def test_pdf_endpoint_template_missing_returns_503(client, monkeypatch):
     """A missing template surfaces as a 503 so the PWA falls back to the print path (NFR-6)."""
     async def _raise_missing(briefing: dict) -> bytes:
