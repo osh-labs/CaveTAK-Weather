@@ -99,6 +99,148 @@ http://dl.google.com/linux/chrome/deb/ stable main" \
     fi
 fi
 
+# --- 2b. Warm the REFS ensemble cache ------------------------------------------------
+# REFS is cache-driven: the scheduler fills it on 00/06/12/18Z cycle boundaries, so a
+# fresh deploy or server restart leaves the cache empty until the next tick (up to 6 h).
+# Pre-fill it now — field-by-field with verbose output — so the first briefing on staging
+# has a live REFS signal rather than degrading to GEFS-only.
+#
+# Skip: cache is current (≤ 2 cycles / 12 h old).
+# Warm: cache is empty, absent, or > 2 cycles stale.
+log "checking REFS ensemble cache"
+
+# Collect UPSTREAMWX_* env vars from the app env file so the Python subprocess sees the
+# same data dir and feed config the running service will use.  Vars already set in the
+# caller's environment take precedence (env file read is additive, not overriding).
+_uwx_env=()
+if [ -f "$DEPLOY_ENV_FILE" ]; then
+    while IFS= read -r _line; do
+        [[ "$_line" =~ ^[[:space:]]*# ]] && continue   # skip comment lines
+        [[ -z "${_line//[[:space:]]/}" ]] && continue   # skip blank lines
+        [[ "$_line" =~ ^UPSTREAMWX_ ]] && _uwx_env+=("$_line")
+    done < "$DEPLOY_ENV_FILE"
+fi
+# Always ensure the data dir is set; default to the deploy layout if the env file omits it.
+if ! printf '%s\n' "${_uwx_env[@]+"${_uwx_env[@]}"}" | grep -q '^UPSTREAMWX_DATA_DIR='; then
+    _uwx_env+=("UPSTREAMWX_DATA_DIR=$DEPLOY_DATA_DIR")
+fi
+
+# Run the warm script as the service user so all cache files are owned correctly.
+# Python reads the script from stdin (python -) to avoid writing a temp file.
+# Non-fatal: a warm failure degrades REFS (scheduler recovers on next tick) but must not
+# block the deploy.
+if ! $RUN_USER env "${_uwx_env[@]}" \
+        "$DEPLOY_APP_DIR/.venv/bin/python" - <<'PYEOF'
+import sys
+import logging
+from datetime import UTC, datetime
+
+logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
+
+try:
+    import requests
+    from upstreamwx.config import get_settings
+    from upstreamwx.refs.sources import REFS_FHOURS, RefsCycle, latest_available_cycle, refs_feed
+    from upstreamwx.refs.cache import DEFAULT_FIELDS, accum_window, load_probability_field_cached
+except ImportError as exc:
+    print(f"  REFS warm skipped (import error: {exc})", file=sys.stderr)
+    sys.exit(0)
+
+settings = get_settings()
+cache_root = settings.data_dir / "refs"
+now = datetime.now(UTC)
+
+# ── staleness check ──────────────────────────────────────────────────────────────────
+def newest_cached() -> RefsCycle | None:
+    """Newest non-empty cycle dir in the on-disk cache, or None."""
+    if not cache_root.is_dir():
+        return None
+    best: RefsCycle | None = None
+    for d in cache_root.iterdir():
+        if not d.is_dir() or not any(d.iterdir()):
+            continue
+        try:
+            date, hh = d.name.split("_")
+            c = RefsCycle(date=date, hour=int(hh))
+        except (ValueError, KeyError):
+            continue
+        if best is None or c.init_time > best.init_time:
+            best = c
+    return best
+
+STALE_CYCLES = 2          # warm if the cache is older than this many REFS cycles
+STALE_H = STALE_CYCLES * 6.0  # cycles are 6 h apart
+
+existing = newest_cached()
+if existing is None:
+    print("  REFS cache: empty")
+    needs_warm = True
+else:
+    age_h = (now - existing.init_time).total_seconds() / 3600.0
+    print(f"  REFS cache: newest cycle {existing.date}/{existing.hh}Z,  age {age_h:.1f} h")
+    if age_h > STALE_H:
+        print(f"  Stale (> {STALE_H:.0f} h / {STALE_CYCLES} cycles) — warming")
+        needs_warm = True
+    else:
+        print(f"  Current — skipping warm")
+        needs_warm = False
+
+if not needs_warm:
+    sys.exit(0)
+
+# ── probe the feed for the newest live cycle ─────────────────────────────────────────
+base, subdir = refs_feed(settings)
+print(f"  Feed: {settings.refs_source}  {base}/{subdir}/")
+cycle = latest_available_cycle(settings=settings)
+if cycle is None:
+    print(
+        f"  No live REFS cycle found on the {settings.refs_source!r} feed.\n"
+        "  If using the AWS prototype, try UPSTREAMWX_REFS_SOURCE=nomads_para in the env file.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+print(f"  Live cycle: {cycle.date}/{cycle.hh}Z")
+
+# ── warm field by field with progress output ─────────────────────────────────────────
+FMIN, FMAX = 3, 48
+fhours = [f for f in REFS_FHOURS if FMIN <= f <= FMAX]
+total = len(fhours) * len(DEFAULT_FIELDS)
+fetched = cached = skipped = 0
+
+print(f"  Warming {len(fhours)} forecast hours × {len(DEFAULT_FIELDS)} fields  ({total} total)")
+for fhour in fhours:
+    for spec in DEFAULT_FIELDS:
+        fcst = accum_window(fhour, spec.window_h) if spec.window_h else None
+        label = f"f{fhour:02d}  {spec.var}{spec.prob}"
+        idx = fetched + cached + skipped + 1
+        try:
+            field = load_probability_field_cached(
+                cycle, fhour, spec.var, spec.prob, fcst=fcst, settings=settings
+            )
+            hit = field.extras.get("cached", False)
+            if hit:
+                cached += 1
+                status = "cached"
+            else:
+                fetched += 1
+                status = "fetched"
+        except (LookupError, TimeoutError, OSError, requests.RequestException) as exc:
+            skipped += 1
+            status = f"skip ({exc})"
+        print(f"    [{idx:2d}/{total}]  {label}: {status}")
+
+print(f"  Warm complete: {fetched} fetched,  {cached} already cached,  {skipped} skipped")
+if fetched + cached == 0:
+    print(
+        "  All fields failed — REFS will remain degraded until the scheduler recovers.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+PYEOF
+then
+    warn "REFS cache warm had issues (see above) — GEFS covers briefings until the scheduler fills it"
+fi
+
 # --- 3. Restart the service ----------------------------------------------------------
 log "restarting $DEPLOY_SERVICE"
 systemctl restart "$DEPLOY_SERVICE"
