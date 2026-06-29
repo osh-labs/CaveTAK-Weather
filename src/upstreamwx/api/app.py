@@ -179,7 +179,11 @@ async def briefing_pdf(briefing: BriefingResponse) -> Response:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("pdf render failed")
-        raise HTTPException(status_code=500, detail=f"PDF render error: {exc}") from exc
+        # Do NOT echo exc directly — Playwright surfaces the full Chromium launch log
+        # (flags, pids, error lines) which is useless and alarming to end users.
+        raise HTTPException(
+            status_code=500, detail="PDF render failed — check server logs for details."
+        ) from exc
 
     mission_name = (briefing.mission.get("name") or "briefing").replace(" ", "_")
     filename = f"upstreamwx_{mission_name}.pdf"

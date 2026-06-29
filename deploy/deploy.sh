@@ -74,20 +74,28 @@ if $RUN_USER env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
         "$DEPLOY_APP_DIR/.venv/bin/playwright" install chromium 2>/dev/null; then
     ok "Playwright Chromium ready at $PLAYWRIGHT_BROWSERS_DIR"
 else
-    warn "playwright install chromium failed (unsupported distro?) — trying system Chromium"
-    # chromium / chromium-browser are interchangeable names across distros.
-    if command -v apt-get >/dev/null 2>&1; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium 2>/dev/null \
-            || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium-browser 2>/dev/null \
-            || warn "system Chromium unavailable — PDF export endpoint will return 503"
-    elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
-        "${PKG:-dnf}" install -y chromium >/dev/null 2>&1 \
-            || warn "system Chromium unavailable — PDF export endpoint will return 503"
+    warn "playwright install chromium failed (unsupported distro?) — falling back to Google Chrome"
+    # Ubuntu 22.04+ ships Chromium as a snap package only.  Snap processes need a user
+    # session (XDG_RUNTIME_DIR, snap home dir) that don't exist for a system service
+    # account, so the snap wrapper always fails in this context.  Google Chrome ships a
+    # proper apt package that works headlessly without any snap infrastructure.
+    if command -v apt-get >/dev/null 2>&1 \
+            && ! command -v google-chrome-stable >/dev/null 2>&1 \
+            && ! command -v google-chrome >/dev/null 2>&1; then
+        log "adding Google Chrome apt repository"
+        curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+            | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] \
+http://dl.google.com/linux/chrome/deb/ stable main" \
+            > /etc/apt/sources.list.d/google-chrome.list
+        DEBIAN_FRONTEND=noninteractive apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq google-chrome-stable \
+            || warn "google-chrome-stable install failed — PDF export endpoint will return 503"
     fi
-    if command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; then
-        ok "system Chromium available for PDF export"
+    if command -v google-chrome-stable >/dev/null 2>&1 || command -v google-chrome >/dev/null 2>&1; then
+        ok "Google Chrome available for PDF export"
     else
-        warn "no Chromium found — PDF export endpoint will return 503"
+        warn "no usable Chromium found — PDF export endpoint will return 503"
     fi
 fi
 

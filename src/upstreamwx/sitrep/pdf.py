@@ -31,8 +31,10 @@ _CHROMIUM_CANDIDATES = [
 ]
 
 # System binary names searched via PATH when no explicit path matches.
-# Covers: Playwright-managed install, system apt/dnf package, snap wrapper.
-_CHROMIUM_WHICH = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]
+# Google Chrome is listed first: on Ubuntu 22.04+ the `chromium` apt package is a snap
+# wrapper that requires a user session (XDG_RUNTIME_DIR, snap home) which doesn't exist
+# for a system service account.  Google Chrome ships a real apt binary that works headlessly.
+_CHROMIUM_WHICH = ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser"]
 
 # The print template relative to this package (src/upstreamwx/sitrep/pdf.py).
 _TEMPLATE = Path(__file__).resolve().parents[3] / "frontend" / "pdf" / "briefing-pdf.html"
@@ -53,7 +55,9 @@ def _chromium_path() -> str | None:
             return p
     for name in _CHROMIUM_WHICH:
         found = shutil.which(name)
-        if found:
+        # Skip snap wrappers — they need a user login session (XDG_RUNTIME_DIR,
+        # snap home dir) that system service accounts don't have.
+        if found and not found.startswith("/snap/"):
             return found
     return None
 
