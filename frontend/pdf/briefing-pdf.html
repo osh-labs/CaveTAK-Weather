@@ -74,6 +74,11 @@
     line-height: 1.45;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    /* Disable mobile/WebKit text auto-inflation (iOS Safari enlarges body text
+       on print, which blew the fonts up and broke pagination — 2 pages became
+       3). Pin it so the pt sizes render as authored on every device. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   .mono { font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace; }
@@ -298,13 +303,15 @@
     font: inherit; font-weight: 600; cursor: pointer;
     background: #0b76b8; color: #fff; border: 0; border-radius: 6px; padding: 6px 14px;
   }
+  .toolbar button.secondary { background: transparent; border: 1px solid #9aa7b8; color: #e6edf3; }
   .toolbar span { color: #9aa7b8; }
 </style>
 </head>
 <body>
 <div class="toolbar no-print">
-  <button onclick="window.print()">Save as PDF / Print</button>
-  <span>UpstreamWX briefing export template — worked example renders below.</span>
+  <button id="tb-print">Save as PDF</button>
+  <button id="tb-back" class="secondary">Back</button>
+  <span>Use the browser's share or print menu to save this briefing as a PDF.</span>
 </div>
 
 <div class="sheet" id="sheet">
@@ -318,10 +325,12 @@ const SEV_COLOR = {
   "sev-elevated": "var(--sev-elevated)",
   "sev-high": "var(--sev-high)",
   "sev-extreme": "var(--sev-extreme)",
+  // Heat keys must match the engine's CSS class: heat-{HeatCategory.name.lower()},
+  // i.e. heat-extreme_caution / heat-extreme_danger (NOT ext-caution).
   "heat-caution": "var(--heat-caution)",
-  "heat-ext-caution": "var(--heat-ext-caution)",
+  "heat-extreme_caution": "var(--heat-ext-caution)",
   "heat-danger": "var(--heat-danger)",
-  "heat-ext-danger": "var(--heat-ext-danger)",
+  "heat-extreme_danger": "var(--heat-ext-danger)",
 };
 const sevColor = (cls) => SEV_COLOR[cls] || "var(--p-ink-2)";
 
@@ -345,6 +354,41 @@ function hazIcon(hz, cls = "hz-icon") {
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* Approachable posture language — mirrors the app exactly (data/display-config.json
+   merged into TIER_LABELS, applied via displayTier/displayLeadLabel/displayLogic in
+   js/app.js). Loaded in boot() before the first render so the PDF speaks the same
+   language as the app: tier labels become "Low/Moderate/High/Extreme Exposure" and
+   heat's NWS categories fold into the same set (Caution→Low Exposure, Extreme
+   Caution→Moderate Exposure, Danger→High Exposure, Extreme Danger→Extreme Exposure).
+   Per-hazard colors (sev-* / heat ramp) are unchanged, also matching the app. */
+let TIER_LABELS = { Minimal: "Minimal", Elevated: "Elevated", High: "High", Extreme: "Extreme" };
+async function loadLabelConfig() {
+  try {
+    const cfg = await fetch("../data/display-config.json", { cache: "no-store" }).then((r) => r.json());
+    if (cfg && cfg.tier_labels) Object.assign(TIER_LABELS, cfg.tier_labels);
+    if (cfg && cfg.heat_labels) Object.assign(TIER_LABELS, cfg.heat_labels);
+  } catch (e) {
+    /* config unavailable — keep identity defaults (raw engine labels) */
+  }
+}
+function displayTier(t) {
+  return TIER_LABELS[t] ?? t;
+}
+function displayLeadLabel(s) {
+  return String(s).replace(/— (.+)$/, (_, t) => `— ${displayTier(t)}`);
+}
+function displayLogic(s) {
+  const entries = Object.entries(TIER_LABELS)
+    .filter(([k, v]) => k !== v)
+    .sort(([a], [b]) => b.length - a.length); // longest key first: "Extreme Caution" before "Extreme"
+  if (!entries.length) return String(s);
+  const re = new RegExp(
+    `\\b(${entries.map(([k]) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
+    "g"
+  );
+  return String(s).replace(re, (m) => TIER_LABELS[m] ?? m);
+}
 
 /* Confidence → filled pips (Low 1 / Moderate 2 / High 3). */
 function confPips(label) {
@@ -410,11 +454,11 @@ function renderBluf(b) {
     <div class="bluf">
       <div class="bluf__posture">
         <span class="bluf__eyebrow">Overall posture</span>
-        <span class="bluf__chip" style="background:${sevColor(ovClass)}">${esc(b.overall_posture)}</span>
+        <span class="bluf__chip" style="background:${sevColor(ovClass)}">${esc(displayTier(b.overall_posture))}</span>
         <span class="bluf__conf">Confidence: <strong>${esc(b.overall_confidence)}</strong></span>
       </div>
       <div class="bluf__divider"></div>
-      <p class="bluf__summary">${esc(b.summary)}</p>
+      <p class="bluf__summary">${blufSummary(b)}</p>
     </div>
     ${b.framed ? `<div class="framed-banner">Plain-language summary framed by an AI language model. It narrates the engine's structured result and does not change any posture, tier, or confidence.</div>` : ""}
   </div>`;
@@ -422,11 +466,26 @@ function renderBluf(b) {
 function severityClassFor(label) {
   return { Minimal: "sev-minimal", Elevated: "sev-elevated", High: "sev-high", Extreme: "sev-extreme" }[label] || "";
 }
+/* The contract's `summary` is the optional Haiku framing — null when framing is
+   off (the usual production case). Fall back to a deterministic recap of the
+   engine's own postures so the BLUF box is never empty. Reference-only: it
+   restates the structured result and issues no recommendation. */
+function blufSummary(b) {
+  if (b.summary) return esc(b.summary);
+  const recap = (b.bluf || [])
+    .map((h) => `${HAZARD_LABEL[h.hazard] || h.hazard} ${displayTier(h.label)}`)
+    .join(" · ");
+  return esc(
+    `Overall posture ${displayTier(b.overall_posture)}, confidence ${b.overall_confidence}. ` +
+    (recap ? `By hazard: ${recap}. ` : "") +
+    "Planning reference only; verify against the official NWS sources and let conditions in the field overrule this briefing."
+  );
+}
 
 function renderHazardTable(b) {
   const rows = b.bluf.map((h) => `<tr>
     <td class="hz-name">${hazIcon(h.hazard)}${esc(HAZARD_LABEL[h.hazard] || h.hazard)}</td>
-    <td><span class="chip" style="background:${sevColor(h.severity_class)}">${esc(h.label)}</span></td>
+    <td><span class="chip" style="background:${sevColor(h.severity_class)}">${esc(displayTier(h.label))}</span></td>
     <td>${confPips(h.confidence)}</td>
     <td class="mono">${h.is_persistent ? "Through-period" : fmtWindow(h.window)}</td>
   </tr>`).join("");
@@ -443,7 +502,7 @@ function renderPhases(b) {
   const cards = b.phases.map((p) => `<div class="phase">
     <div class="phase__head">
       <div><span class="phase__name">${esc(p.phase)}</span> <span class="phase__win">${fmtWindow(p.window)}</span></div>
-      <div class="phase__lead">${esc(p.lead_label)}</div>
+      <div class="phase__lead">${esc(displayLeadLabel(p.lead_label))}</div>
     </div>
     <div class="phase__body">
       <div class="phase__applies">Applies: ${esc(p.applicable)}</div>
@@ -460,12 +519,12 @@ function renderHazardDetail(b) {
   const cards = b.hazard_detail.map((h) => `<div class="hz-detail">
     <div class="hz-detail__head">
       <span class="hz-detail__name">${hazIcon(h.hazard)}${esc(HAZARD_LABEL[h.hazard] || h.hazard)}</span>
-      <span class="chip" style="background:${sevColor(h.severity_class)}">${esc(h.label)}</span>
+      <span class="chip" style="background:${sevColor(h.severity_class)}">${esc(displayTier(h.label))}</span>
       ${confPips(h.confidence)}
     </div>
     <ul>${h.drivers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>
     ${h.assumptions.map((a) => `<div class="hz-detail__assume">${esc(a)}</div>`).join("")}
-    <div class="hz-detail__logic">${esc(h.logic)}</div>
+    <div class="hz-detail__logic">${esc(displayLogic(h.logic))}</div>
   </div>`).join("");
   // This section flows onto page 2: page 1 fills through the forecast, leaving
   // no room here, so the drivers cards naturally begin the second page. The
@@ -563,6 +622,7 @@ function render(b) {
    cleared here) and opens this page with ?print=1 to drive Save-as-PDF. */
 const PDF_HANDOFF_KEY = "uwx.pdf.briefing";
 function readHandoffBriefing() {
+  // Same-tab navigation, so localStorage carries the briefing across the load.
   try {
     const raw = localStorage.getItem(PDF_HANDOFF_KEY);
     if (raw) {
@@ -570,15 +630,23 @@ function readHandoffBriefing() {
       return JSON.parse(raw);
     }
   } catch (e) {
-    /* storage blocked — fall through to the opener reference */
-  }
-  try {
-    if (window.opener && window.opener.__uwxPdfBriefing) return window.opener.__uwxPdfBriefing;
-  } catch (e) {
-    /* cross-origin opener — ignore */
+    /* storage blocked — fall back to the template's own data path */
   }
   return null;
 }
+
+/* Toolbar (screen only): Back returns to the app — history.back() restores the
+   PWA from bfcache; otherwise navigate to the app root. */
+function wireToolbar() {
+  const print = document.getElementById("tb-print");
+  if (print) print.addEventListener("click", () => window.print());
+  const back = document.getElementById("tb-back");
+  if (back) back.addEventListener("click", () => {
+    if (history.length > 1) history.back();
+    else window.location.assign("../");
+  });
+}
+wireToolbar();
 /* Don't print before the masthead logo has decoded, or the PDF shows an empty
    logo box. */
 function whenLogoReady() {
@@ -595,6 +663,7 @@ function whenLogoReady() {
    the committed worked example (standalone open). */
 (async function boot() {
   try {
+    await loadLabelConfig();
     let b = window.__BRIEFING__ || readHandoffBriefing();
     if (!b) {
       const res = await fetch("../data/sample-briefing.json", { cache: "no-store" });

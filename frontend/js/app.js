@@ -1645,24 +1645,21 @@ function renderResources(b) {
 
 /* Export the current briefing to PDF (FR-27). Hands the structured briefing to
  * the print template (frontend/pdf/briefing-pdf.html) through localStorage and
- * opens it with ?print=1, which renders the briefing and triggers the browser's
- * Save-as-PDF. Single-origin, so it works for the deployed PWA and offline
- * (the template + logo are precached by the service worker). */
+ * navigates to it with ?print=1, which renders the briefing and triggers the
+ * browser's Save-as-PDF. Single-tab on purpose: iOS traps the print preview in
+ * a popup tab that can't be dismissed, so we stay in the current tab and the
+ * template offers a Back control to return here. Single-origin, so it works for
+ * the deployed PWA and offline (template + logo are precached by the SW). */
 function exportBriefingPdf(b) {
   const briefing = b || state.briefing;
   if (!briefing) return;
-  // Primary handoff via localStorage; also stash a same-origin window reference
-  // the template can read through window.opener if storage is blocked.
-  window.__uwxPdfBriefing = briefing;
   try {
     localStorage.setItem("uwx.pdf.briefing", JSON.stringify(briefing));
   } catch (e) {
-    // Storage unavailable (private mode / quota) — the opener fallback covers it.
+    // Storage blocked (private mode / quota): the template falls back to the
+    // last-cached briefing. Rare; don't block the export.
   }
-  const win = window.open("pdf/briefing-pdf.html?print=1", "_blank");
-  if (!win) {
-    alert("Allow pop-ups for this site to export the briefing to PDF.");
-  }
+  window.location.assign("pdf/briefing-pdf.html?print=1");
 }
 
 /* ── About & methodology (FR-20 "how this is calculated") ──────────────
