@@ -293,6 +293,23 @@
     html, body { background: #fff; }
     .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
     .no-print { display: none !important; }
+    /* Server-side (Chromium/Playwright) render: pin the footer to the bottom of
+       every page with fixed positioning. The tfoot table approach is kept for the
+       offline ?print=1 path (iOS Safari doesn't support print fixed positioning),
+       but for the PDF download path Chromium's fixed-in-print support is reliable. */
+    .page-foot {
+      position: fixed;
+      bottom: 9mm;
+      left: 0;
+      right: 0;
+      margin-top: 0;
+      background: var(--p-bg);
+    }
+    /* The tfoot carried the footer for multi-page Safari — not needed when fixed
+       positioning handles it (avoids a duplicate footer at the bottom of page 1). */
+    .layout > tfoot { display: none; }
+    /* Reserve space so flowing content never slides under the fixed footer. */
+    .layout > tbody > tr > td { padding-bottom: 28mm; }
   }
   @media screen {
     .run-top { height: 0; }   /* the screen .sheet already pads the top */
@@ -371,13 +388,29 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 let TIER_LABELS = { Minimal: "Minimal", Elevated: "Elevated", High: "High", Extreme: "Extreme" };
 async function loadLabelConfig() {
   try {
-    const cfg = await fetch("../data/display-config.json", { cache: "no-store" }).then((r) => r.json());
+    // Server-side render injects window.__DISPLAY_CONFIG__ to avoid the file://
+    // cross-origin fetch restriction Chromium enforces when loading via file: URI.
+    // The standalone / offline path falls back to fetching the JSON normally.
+    const cfg = window.__DISPLAY_CONFIG__ ||
+      await fetch("../data/display-config.json", { cache: "no-store" }).then((r) => r.json());
     if (cfg && cfg.tier_labels) Object.assign(TIER_LABELS, cfg.tier_labels);
     if (cfg && cfg.heat_labels) Object.assign(TIER_LABELS, cfg.heat_labels);
   } catch (e) {
     /* config unavailable — keep identity defaults (raw engine labels) */
   }
 }
+
+/* Sky condition emoji → short text labels. Headless Chromium on a server may
+   lack emoji fonts; these concise ASCII labels are unambiguous and equally clear
+   in a tabular forecast. Applied to all hourly cell values — no-op for numbers. */
+const SKY_TEXT = {
+  "☀️": "Clear", "🌤️": "PClear", "⛅": "PCloudy",
+  "🌥️": "Cloudy", "☁️": "Ocast",
+  "🌦️": "ShwrPoss", "🌧️": "Rain", "⛈️": "Tstm", "🌩️": "Tstm",
+  "🌨️": "Flurries", "❄️": "Snow", "🌬️": "Windy", "💨": "Windy",
+  "🌫️": "Fog",
+};
+const skyLabel = (v) => SKY_TEXT[String(v).trim()] ?? v;
 function displayTier(t) {
   return TIER_LABELS[t] ?? t;
 }
@@ -546,7 +579,7 @@ function renderForecast(b) {
   const head = `<tr><th>Hour</th>${fx.hours.map((h) => `<th>${fmtWindow(h).slice(0, 5)}</th>`).join("")}</tr>`;
   const body = fx.rows.map((r) => `<tr>
     <th>${esc(r.label)}</th>
-    ${r.values.map((v) => `<td class="mono">${esc(v)}</td>`).join("")}
+    ${r.values.map((v) => `<td class="mono">${esc(skyLabel(v))}</td>`).join("")}
   </tr>`).join("");
   return `<div class="section section--break">
     <div class="section__head">Hourly forecast</div>

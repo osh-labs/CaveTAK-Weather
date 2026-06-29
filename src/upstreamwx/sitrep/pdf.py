@@ -97,6 +97,15 @@ async def render_pdf(briefing: dict) -> bytes:
 
     briefing_json = json.dumps(briefing)
 
+    # Read the display config so the template can map engine tier names to the
+    # user-facing labels ("Low Exposure", "Moderate Exposure", etc.) without
+    # making a file:// → file:// fetch (which Chromium blocks).
+    display_config_path = _TEMPLATE.parent.parent / "data" / "display-config.json"
+    try:
+        display_config_json = display_config_path.read_text() if display_config_path.exists() else "{}"
+    except OSError:
+        display_config_json = "{}"
+
     # google-chrome-stable is a shell wrapper that tries to create
     # $HOME/.local/share/applications/ before exec-ing the real binary.
     # Under ProtectSystem=strict the service user's HOME (/opt/upstreamwx) is
@@ -109,8 +118,10 @@ async def render_pdf(briefing: dict) -> bytes:
             browser = await pw.chromium.launch(**launch_kwargs)
             try:
                 page = await browser.new_page()
-                # Inject before any page script runs so boot() sees window.__BRIEFING__.
+                # Inject before any page script runs so boot() sees window.__BRIEFING__
+                # and window.__DISPLAY_CONFIG__ (avoids file:// cross-resource fetch).
                 await page.add_init_script(f"window.__BRIEFING__ = {briefing_json};")
+                await page.add_init_script(f"window.__DISPLAY_CONFIG__ = {display_config_json};")
                 await page.goto(
                     template_path.as_uri(),
                     wait_until="networkidle",
