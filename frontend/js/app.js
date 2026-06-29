@@ -1888,6 +1888,24 @@ let _nameIsDefault = false;
 // Fallback view (CONUS center) when no point is set yet.
 const MP_DEFAULT_CENTER = [-111.5, 39.5];  // MapLibre uses [lng, lat]
 
+// Return "YYYY-MM-DDTHH:MM" for the current moment expressed in tzName (or browser local time).
+function nowInTz(tzName) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  if (tzName) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tzName, year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(now);
+      const g = (t) => parts.find((p) => p.type === t)?.value ?? "00";
+      const hr = g("hour") === "24" ? "00" : g("hour");
+      return `${g("year")}-${g("month")}-${g("day")}T${hr}:${g("minute")}`;
+    } catch (_) { /* fall through */ }
+  }
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
 // Return "YYYY-MM-DDTHH:MM" for the next whole hour, expressed in tzName if supplied.
 function nextWholeHour(tzName) {
   const now = new Date();
@@ -2124,12 +2142,12 @@ function openMissionPlanner(spec) {
   // spec's start is absent or in the past (first-run seed, stale saved missions).
   const tz = _mpSpec.tz_name ?? null;
   const startStr = String(_mpSpec.start || "").slice(0, 16);
-  const startIsStale = !startStr || new Date(startStr + ":00") < new Date();
+  const startIsStale = !startStr || startStr <= nowInTz(tz);
   const startVal = startIsStale ? nextWholeHour(tz) : startStr;
   document.getElementById("mp-start").value = startVal;
 
   const endStr = String(_mpSpec.end || "").slice(0, 16);
-  const endIsStale = !endStr || new Date(endStr + ":00") <= new Date(startVal + ":00");
+  const endIsStale = !endStr || endStr <= startVal;
   document.getElementById("mp-end").value = endIsStale ? addHoursLocal(startVal, 4) : endStr;
   // Reset the flag so end auto-follows start again unless the user edits it.
   _mpEndUserSet = !endIsStale;
@@ -2207,16 +2225,21 @@ function initPlannerControls() {
     updatePlannerRoc();
   });
 
-  // Start time: warn if in the past; auto-advance end by 4 h unless user has set it.
+  // Start time: warn if in the past; auto-advance end by 4 h if end hasn't been set or
+  // if the new start has moved past the existing end.
   document.getElementById("mp-start").addEventListener("change", () => {
     const startVal = document.getElementById("mp-start").value;
     if (!startVal) return;
-    if (new Date(startVal + ":00").getTime() < Date.now()) {
+    const tz = _mpSpec?.tz_name ?? null;
+    if (startVal <= nowInTz(tz)) {
       setPlannerStatus("Start time is in the past — missions cannot be planned retroactively.", true);
     } else {
       setPlannerStatus("");
     }
-    if (!_mpEndUserSet) document.getElementById("mp-end").value = addHoursLocal(startVal, 4);
+    const endEl = document.getElementById("mp-end");
+    if (!_mpEndUserSet || !endEl.value || startVal >= endEl.value) {
+      endEl.value = addHoursLocal(startVal, 4);
+    }
   });
 
   // End time: once the user touches this field it stops auto-following start.
@@ -2261,11 +2284,14 @@ function initPlannerControls() {
       setPlannerStatus("Set a start and end time for the mission.", true);
       return;
     }
-    const startMs = new Date(startVal + ":00").getTime();
-    if (startMs < Date.now()) {
+    const tz = _mpSpec?.tz_name ?? null;
+    if (startVal <= nowInTz(tz)) {
       setPlannerStatus("Start time must be in the future — missions cannot be planned in the past.", true);
       return;
     }
+    // Duration check: parse wall-clock strings as browser-local Date objects for arithmetic
+    // (both values are in the same timezone so the offset cancels out).
+    const startMs = new Date(startVal + ":00").getTime();
     const endMs = new Date(endVal + ":00").getTime();
     const prefs = loadPrefs();
     const minDurationHr = (prefs.approach_hrs ?? PHASE_DEFAULT_HR) + (prefs.egress_hrs ?? PHASE_DEFAULT_HR);
