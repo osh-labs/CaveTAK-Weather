@@ -112,6 +112,22 @@ def test_pdf_endpoint_template_missing_returns_503(client, monkeypatch):
     assert resp.status_code == 503
 
 
+def test_pdf_endpoint_playwright_missing_returns_503(client, monkeypatch):
+    """A missing playwright package surfaces as 503, not 500.
+
+    render_pdf() imports playwright lazily at call time; the endpoint's outer ImportError
+    check wraps that call so a ModuleNotFoundError maps to 503 (PWA falls back to the
+    localStorage → ?print=1 path, NFR-6).  The earlier bug caught ImportError only around
+    the pdf.py module import, which always succeeds.
+    """
+    async def _raise_import(briefing: dict) -> bytes:
+        raise ModuleNotFoundError("No module named 'playwright'")
+
+    monkeypatch.setattr(pdf_mod, "render_pdf", _raise_import)
+    resp = client.post("/v1/briefing/pdf", json=_structured_briefing())
+    assert resp.status_code == 503
+
+
 # -- real render (skipped when no Chromium is reachable) ----------------------------------
 def _chromium_available() -> bool:
     try:
