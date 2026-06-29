@@ -441,21 +441,31 @@ function fmtWindow(w) {
   if (!w) return "—";
   return w.replace(/\b(\d{2})(\d{2})\b/g, "$1:$2");
 }
-function fmtWhen(iso, tz) {
+function fmtWhen(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d)) return iso;
-  const opts = { year: "numeric", month: "short", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false };
-  if (tz) opts.timeZone = tz;
-  return d.toLocaleString("en-US", opts);
+  return d.toLocaleString("en-US", {
+    year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC",
+  });
+}
+/* Extract the local wall-clock time (HH:MM) from an ISO datetime string directly,
+   without converting through Date — the string already encodes the local offset
+   (e.g. 2026-06-20T08:00:00-04:00) so slicing avoids the server-timezone shift. */
+function isoLocalTime(iso) {
+  const m = iso && iso.match(/T(\d{2}:\d{2})/);
+  return m ? m[1] : "—";
+}
+function isoLocalDate(iso) {
+  const m = iso && iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso || "—";
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 function fmtWindowRange(b) {
-  const tz = b.mission.timezone;
-  const s = new Date(b.mission.window_start), e = new Date(b.mission.window_end);
-  const day = { month: "short", day: "numeric", ...(tz ? { timeZone: tz } : {}) };
-  const t = { hour: "2-digit", minute: "2-digit", hour12: false, ...(tz ? { timeZone: tz } : {}) };
-  return `${s.toLocaleDateString("en-US", day)}, ${s.toLocaleTimeString("en-US", t)}–${e.toLocaleTimeString("en-US", t)} ${tz}`;
+  const tz = b.mission.timezone || "UTC";
+  return `${isoLocalDate(b.mission.window_start)}, ${isoLocalTime(b.mission.window_start)}–${isoLocalTime(b.mission.window_end)} ${tz}`;
 }
 
 /* ── Section renderers ────────────────────────────────────────────────────── */
