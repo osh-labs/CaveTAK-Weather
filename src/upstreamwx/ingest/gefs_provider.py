@@ -32,6 +32,7 @@ from ..gefs import (
     load_member_field_cached,
 )
 from ..gefs.sources import MEMBERS, GefsCycle
+from ..grib.cache import decode_pool_enabled
 from .base import IngestBundle
 
 logger = logging.getLogger("upstreamwx.ingest.gefs_provider")
@@ -82,6 +83,28 @@ def _poly_max(field, polygon: BaseGeometry, var: str) -> float | None:
     return aggregate_over_polygon(da, polygon, field_name=var, threshold="max").max_value
 
 
+def _poly_max_precropped(field, polygon: BaseGeometry, var: str) -> float | None:
+    """Domain max for a field already cropped+normalized in the decode pool (no re-crop).
+
+    Re-running :func:`crop_and_normalize` on coords already shifted to [-180, 180) would
+    double-shift longitude and corrupt the grid, so the pool path skips the crop. The worker
+    cropped to the *union* of the watershed + LAoC bboxes, so masking each domain over the
+    cropped grid is identical to cropping the full grid per domain (NFR-4).
+    """
+    return aggregate_over_polygon(field.data, polygon, field_name=var, threshold="max").max_value
+
+
+def _union_bounds(
+    p: BaseGeometry, q: BaseGeometry | None
+) -> tuple[float, float, float, float]:
+    """Bounding box covering both polygons (minx, miny, maxx, maxy)."""
+    if q is None or q is p:
+        return p.bounds
+    ax, ay, axx, ayy = p.bounds
+    bx, by, bxx, byy = q.bounds
+    return (min(ax, bx), min(ay, by), max(axx, bxx), max(ayy, byy))
+
+
 def _member_sample(
     cycle: GefsCycle,
     member: str,
@@ -90,32 +113,41 @@ def _member_sample(
     ltng_polygon: BaseGeometry,
     *,
     settings: Settings,
+    crop_bbox: tuple[float, float, float, float] | None = None,
+    use_pool: bool = False,
 ) -> tuple[float | None, float | None, float | None]:
     """One member at one fhour: (apcp over watershed, apcp over LAoC, cape over LAoC).
 
-    Each field is fetched once (cache-through) and cropped per domain. Missing fields -> None so
+    Each field is fetched once (cache-through) and reduced per domain. Missing fields -> None so
     a partially-published member degrades gracefully (NFR-6). The apcp-over-LAoC reuses the
     watershed value when the two domains coincide (no Lightning Area of Concern set).
+
+    When ``use_pool`` + ``crop_bbox`` are set the decode is cropped in the pool worker, so the
+    returned field is already in the polygon frame and is reduced via :func:`_poly_max_precropped`
+    (no re-crop); otherwise the legacy in-process decode + per-domain :func:`_poly_max` is used.
     """
     start = max(fhour - GEFS_STEP_H, 0)
     apcp_fcst = f"{start}-{fhour} hour acc"
     cape_fcst = f"{fhour} hour fcst"
     same_domain = ltng_polygon is polygon
+    pmax = _poly_max_precropped if (use_pool and crop_bbox is not None) else _poly_max
 
     apcp_flood = apcp_ltng = cape_ltng = None
     try:
         af = load_member_field_cached(
-            cycle, member, fhour, PRECIP_VAR, apcp_fcst, PRECIP_LEVEL, settings=settings
+            cycle, member, fhour, PRECIP_VAR, apcp_fcst, PRECIP_LEVEL,
+            settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
         )
-        apcp_flood = _poly_max(af, polygon, PRECIP_VAR)
-        apcp_ltng = apcp_flood if same_domain else _poly_max(af, ltng_polygon, PRECIP_VAR)
+        apcp_flood = pmax(af, polygon, PRECIP_VAR)
+        apcp_ltng = apcp_flood if same_domain else pmax(af, ltng_polygon, PRECIP_VAR)
     except LookupError:
         pass
     try:
         cf = load_member_field_cached(
-            cycle, member, fhour, CAPE_VAR, cape_fcst, CAPE_LEVEL, settings=settings
+            cycle, member, fhour, CAPE_VAR, cape_fcst, CAPE_LEVEL,
+            settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
         )
-        cape_ltng = _poly_max(cf, ltng_polygon, CAPE_VAR)
+        cape_ltng = pmax(cf, ltng_polygon, CAPE_VAR)
     except LookupError:
         pass
     return apcp_flood, apcp_ltng, cape_ltng
@@ -158,8 +190,15 @@ def fetch(
 
     fhours = _select_fhours(cycle, mission.window_start, mission.window_end)
 
-    # Fan (fhour, member) member fetches across a thread pool; decode is internally serialized,
-    # network + aggregation run concurrently (Spike F: keeps the 31-member fetch in budget).
+    # When a decode pool is installed (API), decode each member in a worker process and crop there
+    # to the union of the watershed + LAoC bboxes — true-parallel decode with a ~KB result instead
+    # of the 16.5 MB global grid. With no pool (CLI/tests) this stays the in-process path.
+    use_pool = decode_pool_enabled()
+    crop_bbox = _union_bounds(polygon, ltng_polygon) if use_pool else None
+
+    # Fan (fhour, member) member fetches across a thread pool; network + aggregation run
+    # concurrently (Spike F: keeps the 31-member fetch in budget), decode runs in the pool above
+    # (or serialized in-process when no pool is installed).
     tasks = [(f, m) for f in fhours for m in MEMBERS]
     sample_t = tuple[float | None, float | None, float | None]
     samples: dict[int, list[sample_t]] = {f: [] for f in fhours}
@@ -167,7 +206,8 @@ def fetch(
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {
                 pool.submit(
-                    _member_sample, cycle, m, f, polygon, ltng_polygon, settings=settings
+                    _member_sample, cycle, m, f, polygon, ltng_polygon,
+                    settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
                 ): f
                 for f, m in tasks
             }

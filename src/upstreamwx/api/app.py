@@ -17,8 +17,10 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json as _json
 import logging
+import multiprocessing
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +30,7 @@ from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings
+from ..grib import cache as grib_cache
 from ..sitrep.frame import _SYSTEM_PROMPT, DEFAULT_MODEL, _structured_view
 from .cache import mission_cache_key
 from .cycles import cycle_key, next_cycle
@@ -54,10 +57,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.api_enable_warm:
         service.start_warming()
         logger.info("watershed warm pool started")
+    if settings.api_enable_decode_pool:
+        # Spawn (not fork): briefings run inside nested thread pools, and fork() of a
+        # multi-threaded process can deadlock on inherited locks. Spawn starts clean workers.
+        grib_cache.configure_decode_cache(max_bytes=settings.decode_cache_max_bytes)
+        pool = concurrent.futures.ProcessPoolExecutor(
+            max_workers=settings.decode_pool_workers,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+        grib_cache.set_decode_pool(pool)
+        logger.info("GEFS decode pool started (%d spawn workers)", settings.decode_pool_workers)
     try:
         yield
     finally:
         service.stop_warming()
+        grib_cache.shutdown_decode_pool(wait=False)
         if task is not None:
             stop.set()
             task.cancel()

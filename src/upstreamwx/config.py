@@ -7,6 +7,7 @@ without rework.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -63,10 +64,13 @@ class Settings(BaseSettings):
     # even on a missed scheduler tick or a late publish.
     refs_cache_keep_cycles: int = 3
 
-    # GEFS forecast hours the scheduler pre-warms each cycle. GEFS is per-member (31×fields),
-    # so warming is heavy: empty by default → GEFS serves on demand via its parallel
-    # cache-through fetch. Set e.g. UPSTREAMWX_GEFS_WARM_FHOURS=[24,36,48] to pre-warm a band.
-    gefs_warm_fhours: list[int] = Field(default_factory=list)
+    # GEFS forecast hours the scheduler (and deploy.sh) pre-warm each cycle. GEFS is per-member
+    # (31×fields), so warming is heavy — but leaving it on-demand puts the full ~500-subset cold
+    # ingest on the first briefing's critical path every cycle. Default to the f24-f120 / 6 h band
+    # (the multi-day planning horizon GEFS owns beyond REFS's ~36 h window); warming is download-
+    # only and fanned across a thread pool (:func:`upstreamwx.gefs.cache.warm_cycle`). Override
+    # with UPSTREAMWX_GEFS_WARM_FHOURS=[...] (e.g. [] to revert to fully on-demand).
+    gefs_warm_fhours: list[int] = Field(default_factory=lambda: list(range(24, 121, 6)))
 
     # Start the M0.3 API's background refresh scheduler on app startup (FR-12). Default
     # on for the always-on EC2 service; set UPSTREAMWX_API_ENABLE_SCHEDULER=0 to run the
@@ -78,6 +82,20 @@ class Settings(BaseSettings):
     # cold trace behind the user's mission-entry time (FR-3). Default on for the always-on
     # service; set UPSTREAMWX_API_ENABLE_WARM=0 for tests or a worker-less deployment.
     api_enable_warm: bool = True
+
+    # Decode GEFS GRIB2 in a persistent process pool (spawn) so the per-member decodes run truly
+    # in parallel. eccodes is not thread-safe, so the in-process path serializes every decode on a
+    # global lock — the dominant cost once a cycle's ~500 member subsets are on disk. The pool is
+    # created/owned by the API lifespan; the CLI and the test suite never run it, so they keep the
+    # in-process serialized path. Set UPSTREAMWX_API_ENABLE_DECODE_POOL=0 to disable.
+    api_enable_decode_pool: bool = True
+    # Worker count for the decode pool. Each worker re-imports cfgrib once at spawn (a few s),
+    # amortized across the cycle's hundreds of decodes by the persistent pool.
+    decode_pool_workers: int = Field(default_factory=lambda: min(8, (os.cpu_count() or 2)))
+    # Resident byte budget for the in-process decoded-grid LRU (memory-aware eviction). The old
+    # flat count cap thrashed on a GEFS briefing's working set; this bounds memory while keeping
+    # many small (pool-cropped) grids resident across briefings. Default ~512 MiB.
+    decode_cache_max_bytes: int = 512 * 1024 * 1024
 
     # Dead-man's-switch monitoring (Healthchecks.io or any ping-on-success service). When
     # set, the GEFS/REFS + AFD refresh scheduler pings this URL each cycle (".../start" before the

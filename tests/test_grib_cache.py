@@ -59,7 +59,7 @@ def test_decode_cached_redecodes_when_file_changes(tmp_path: Path) -> None:
 def test_decode_cached_evicts_beyond_capacity(tmp_path: Path, monkeypatch) -> None:
     """The LRU is bounded: the oldest entry is evicted and re-decoded after overflow."""
     monkeypatch.setattr(gc, "_DECODE_CACHE_MAX", 2)
-    gc._decoded.clear()
+    gc._clear_decoded()
     decode, calls = _counting_decode()
 
     paths = []
@@ -76,3 +76,37 @@ def test_decode_cached_evicts_beyond_capacity(tmp_path: Path, monkeypatch) -> No
 
     assert after_s0 == 4  # 3 initial decodes + 1 re-decode of the evicted s0
     assert len(calls) == after_s0  # s2 was still cached, so its hit added no decode
+
+
+def test_decode_cached_evicts_on_byte_budget(tmp_path: Path, monkeypatch) -> None:
+    """Eviction also fires on the resident-byte budget, independent of the count cap."""
+    monkeypatch.setattr(gc, "_DECODE_CACHE_MAX", 1000)  # high count cap, so bytes govern
+    monkeypatch.setattr(gc, "_DECODE_CACHE_MAX_BYTES", 250)  # holds ~2 of the 100 B grids
+    gc._clear_decoded()
+
+    class _Grid:
+        def __init__(self, tag: str) -> None:
+            self.tag = tag
+            self.nbytes = 100  # charged to the byte budget via _entry_size
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, _Grid) and other.tag == self.tag
+
+    calls: list[Path] = []
+
+    def decode(path: Path):
+        calls.append(path)
+        return _Grid(path.read_text())
+
+    paths = []
+    for i in range(3):
+        p = tmp_path / f"g{i}.grib2"
+        p.write_text(f"grid-{i}")
+        paths.append(p)
+        gc.decode_cached(p, decode)  # 3 × 100 B into a 250 B budget
+
+    assert len(calls) == 3  # three distinct decodes
+    gc.decode_cached(paths[0], decode)  # g0 was evicted by the byte budget -> re-decode
+    assert len(calls) == 4
+    gc.decode_cached(paths[2], decode)  # g2 is still resident -> hit, no decode
+    assert len(calls) == 4

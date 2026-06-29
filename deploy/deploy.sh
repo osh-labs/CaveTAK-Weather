@@ -241,6 +241,103 @@ then
     warn "REFS cache warm had issues (see above) — GEFS covers briefings until the scheduler fills it"
 fi
 
+# --- 2c. Warm the GEFS ensemble cache ------------------------------------------------
+# GEFS is per-member (31 members × 2 fields × the f24-f120 band ≈ 1000 subsets), so a fresh
+# deploy/restart otherwise pays the full cold ingest on the first briefing's critical path.
+# Pre-fill it now — download-only and fanned across a thread pool inside warm_cycle, fhour by
+# fhour for progress. Non-fatal: failure degrades GEFS until the scheduler recovers (NFR-6).
+# Reuses the $_uwx_env collected for the REFS warm above.
+log "checking GEFS ensemble cache"
+if ! $RUN_USER env "${_uwx_env[@]}" \
+        "$DEPLOY_APP_DIR/.venv/bin/python" - <<'PYEOF'
+import sys
+import logging
+from datetime import UTC, datetime
+
+logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
+
+try:
+    from upstreamwx.config import get_settings
+    from upstreamwx.gefs.sources import GEFS_CYCLES, GefsCycle, latest_available_cycle
+    from upstreamwx.gefs.cache import warm_cycle
+except ImportError as exc:
+    print(f"  GEFS warm skipped (import error: {exc})", file=sys.stderr)
+    sys.exit(0)
+
+settings = get_settings()
+fhours = sorted(settings.gefs_warm_fhours or [])
+if not fhours:
+    print("  GEFS warm disabled (gefs_warm_fhours empty) — serving on demand")
+    sys.exit(0)
+
+cache_root = settings.data_dir / "gefs"
+now = datetime.now(UTC)
+
+# ── staleness check ──────────────────────────────────────────────────────────────────
+def newest_cached() -> GefsCycle | None:
+    """Newest non-empty cycle dir in the on-disk cache, or None."""
+    if not cache_root.is_dir():
+        return None
+    best: GefsCycle | None = None
+    for d in cache_root.iterdir():
+        if not d.is_dir() or not any(d.iterdir()):
+            continue
+        try:
+            date, hh = d.name.split("_")
+            c = GefsCycle(date=date, hour=int(hh))
+        except (ValueError, KeyError):
+            continue
+        if c.hour in GEFS_CYCLES and (best is None or c.init_time > best.init_time):
+            best = c
+    return best
+
+STALE_CYCLES = 2          # warm if the cache is older than this many GEFS cycles
+STALE_H = STALE_CYCLES * 6.0  # cycles are 6 h apart
+
+existing = newest_cached()
+if existing is None:
+    print("  GEFS cache: empty")
+    needs_warm = True
+else:
+    age_h = (now - existing.init_time).total_seconds() / 3600.0
+    print(f"  GEFS cache: newest cycle {existing.date}/{existing.hh}Z,  age {age_h:.1f} h")
+    if age_h > STALE_H:
+        print(f"  Stale (> {STALE_H:.0f} h / {STALE_CYCLES} cycles) — warming")
+        needs_warm = True
+    else:
+        print("  Current — skipping warm")
+        needs_warm = False
+
+if not needs_warm:
+    sys.exit(0)
+
+# ── probe NOMADS for the newest live cycle ───────────────────────────────────────────
+cycle = latest_available_cycle()
+if cycle is None:
+    print("  No live GEFS cycle found on NOMADS (retention/lag).", file=sys.stderr)
+    sys.exit(1)
+print(f"  Live cycle: {cycle.date}/{cycle.hh}Z")
+print(f"  Warming {len(fhours)} forecast hours (31 members × 2 fields each, download-only)")
+
+# ── warm fhour by fhour (each fhour's ~62 subsets fan out inside warm_cycle) ──────────
+total = 0
+for fhour in fhours:
+    paths = warm_cycle(cycle, (fhour,), settings=settings)
+    total += len(paths)
+    print(f"    f{fhour:03d}: {len(paths)} subsets cached")
+
+print(f"  Warm complete: {total} member subsets cached")
+if total == 0:
+    print(
+        "  All fields failed — GEFS will remain on-demand until the scheduler recovers.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+PYEOF
+then
+    warn "GEFS cache warm had issues (see above) — GEFS serves on demand until the scheduler fills it"
+fi
+
 # --- 3. Restart the service ----------------------------------------------------------
 log "restarting $DEPLOY_SERVICE"
 systemctl restart "$DEPLOY_SERVICE"

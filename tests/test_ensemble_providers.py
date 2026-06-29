@@ -83,7 +83,9 @@ def test_gefs_fetch_computes_member_exceedance_and_proxy(monkeypatch):
         cape = 1500.0 if i < n // 3 else 200.0      # > 1000 for the first third
         samples[m] = (apcp, apcp, cape)
 
-    def fake_member_sample(cycle, member, fhour, polygon, ltng_polygon, *, settings):
+    def fake_member_sample(
+        cycle, member, fhour, polygon, ltng_polygon, *, settings, crop_bbox=None, use_pool=False
+    ):
         return samples[member]
 
     monkeypatch.setattr(gefs_provider, "_select_fhours", fake_select)

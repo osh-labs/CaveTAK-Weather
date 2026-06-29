@@ -279,6 +279,21 @@ generates mid-warm is handled by a **single-flight registry** in `watershed/cach
 briefing *joins* the in-flight delineation instead of racing it (cache writes are atomic).
 Warming only fills a cache the briefing already used — engine output is unchanged.
 
+**Latency follow-on (GEFS ingest speed).** GEFS replaced SREF's pre-baked probability product with
+per-member grids, so a cold briefing fetches/decodes ~500 subsets (members × fhours × fields) — and
+every cfgrib decode was serialized on one global lock (eccodes is not thread-safe), so the 16-worker
+member fan-out decoded one-at-a-time. Three fixes: (1) **GEFS warming is on by default** — the
+scheduler *and* `deploy/deploy.sh` pre-warm the `gefs_warm_fhours` band (default f24–f120 / 6 h, the
+horizon GEFS owns beyond REFS), via a parallel **download-only** `gefs.warm_cycle` (no wasted decode
+at warm time); (2) the per-member GEFS **decode runs in a spawn `ProcessPoolExecutor`** owned by the
+API lifespan (`api_enable_decode_pool`, default on; absent in CLI/tests so they keep the in-process
+path), with the crop pushed *into the worker* (`gefs.cache._decode_cropped` over the union of the
+watershed + LAoC bboxes) so only a ~KB array crosses the process boundary, and the pool path skips
+the compute lock (cross-process decode is eccodes-safe; broken-pool falls back in-process, NFR-6);
+(3) the decoded-grid LRU (`grib/cache.py`) is now **memory-budget-aware** (`decode_cache_max_bytes`,
+~512 MiB) with a count backstop instead of a flat 48-entry cap. Engine output is unchanged — the
+union-crop-then-mask is bit-identical to decode-full-then-crop-per-domain (NFR-4).
+
 **Briefing tab.** The PWA now has six primary tabs in this order: Overview, Map, Hazards,
 **Briefing**, Forecast, Resources. The Briefing tab renders the full Markdown SITREP
 (`BriefingResponse.markdown`) as formatted HTML using a zero-dependency in-browser converter

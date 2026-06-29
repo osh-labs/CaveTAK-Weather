@@ -48,17 +48,31 @@ def _primary_dataarray(ds: xr.Dataset) -> xr.DataArray:
     return ds[names[0]]
 
 
-def crop_and_normalize(
-    da: xr.DataArray, poly: BaseGeometry, *, margin: float = 1.0
+def crop_bbox_normalize(
+    da: xr.DataArray,
+    bbox: tuple[float, float, float, float],
+    *,
+    margin: float = 1.0,
 ) -> xr.DataArray:
-    """Crop a global 0-360 GEFS grid to the polygon's neighborhood and shift lon to [-180, 180).
+    """Crop a global 0-360 GEFS grid to ``bbox`` (minx,miny,maxx,maxy); shift lon to [-180,180).
 
     Crops with 0-360 bounds first (a monotonic, cheap slice — avoids masking ~1 M global points),
     then reassigns longitude to -180..180 so regionmask matches the polygon's frame. Latitude is
     descending on GEFS, so the slice runs north->south. Mirrors the Spike F prototype.
+
+    The bbox-based core of :func:`crop_and_normalize`; the decode pool calls this directly with
+    the union bbox of the watershed + lightning domains (via a picklable partial) so the worker
+    returns a small cropped array instead of the ~16.5 MB global grid (FR-7, NFR-6).
     """
-    minx, miny, maxx, maxy = poly.bounds
+    minx, miny, maxx, maxy = bbox
     lo, hi = (minx - margin) % 360, (maxx + margin) % 360
     da = da.sel(longitude=slice(lo, hi), latitude=slice(maxy + margin, miny - margin))
     da = da.assign_coords(longitude=(((da["longitude"] + 180) % 360) - 180))
     return da
+
+
+def crop_and_normalize(
+    da: xr.DataArray, poly: BaseGeometry, *, margin: float = 1.0
+) -> xr.DataArray:
+    """Crop a global 0-360 GEFS grid to the polygon's neighborhood and shift lon to [-180, 180)."""
+    return crop_bbox_normalize(da, poly.bounds, margin=margin)
