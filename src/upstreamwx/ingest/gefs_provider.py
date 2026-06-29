@@ -122,15 +122,17 @@ def _member_sample(
     a partially-published member degrades gracefully (NFR-6). The apcp-over-LAoC reuses the
     watershed value when the two domains coincide (no Lightning Area of Concern set).
 
-    When ``use_pool`` + ``crop_bbox`` are set the decode is cropped in the pool worker, so the
-    returned field is already in the polygon frame and is reduced via :func:`_poly_max_precropped`
-    (no re-crop); otherwise the legacy in-process decode + per-domain :func:`_poly_max` is used.
+    When ``crop_bbox`` is set the decode crops to it (in the pool worker if ``use_pool`` and a pool
+    is installed, else in-process), so the field comes back already in the polygon frame and is
+    reduced via :func:`_poly_max_precropped` (no re-crop); otherwise the uncropped grid is reduced
+    per-domain via :func:`_poly_max`. Cropping at decode time keeps memory bounded with or without
+    the pool.
     """
     start = max(fhour - GEFS_STEP_H, 0)
     apcp_fcst = f"{start}-{fhour} hour acc"
     cape_fcst = f"{fhour} hour fcst"
     same_domain = ltng_polygon is polygon
-    pmax = _poly_max_precropped if (use_pool and crop_bbox is not None) else _poly_max
+    pmax = _poly_max_precropped if crop_bbox is not None else _poly_max
 
     apcp_flood = apcp_ltng = cape_ltng = None
     try:
@@ -190,11 +192,12 @@ def fetch(
 
     fhours = _select_fhours(cycle, mission.window_start, mission.window_end)
 
-    # When a decode pool is installed (API), decode each member in a worker process and crop there
-    # to the union of the watershed + LAoC bboxes — true-parallel decode with a ~KB result instead
-    # of the 16.5 MB global grid. With no pool (CLI/tests) this stays the in-process path.
+    # Always crop each member decode to the union of the watershed + LAoC bboxes — this keeps the
+    # retained/in-flight arrays ~KB instead of the 16.5 MB global grid (the in-process full-grid
+    # retention is what OOM-killed the 2 GB host). The crop runs in a worker process when a decode
+    # pool is installed (API, opt-in), else in-process (the default everywhere).
     use_pool = decode_pool_enabled()
-    crop_bbox = _union_bounds(polygon, ltng_polygon) if use_pool else None
+    crop_bbox = _union_bounds(polygon, ltng_polygon)
 
     # Fan (fhour, member) member fetches across a thread pool; network + aggregation run
     # concurrently (Spike F: keeps the 31-member fetch in budget), decode runs in the pool above
