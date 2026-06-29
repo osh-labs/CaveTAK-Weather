@@ -62,18 +62,34 @@ if ! $RUN_USER "$DEPLOY_APP_DIR/.venv/bin/python" -c "import cfgrib" 2>/dev/null
     warn "cfgrib failed to import — check ecCodes (see deploy/README.md troubleshooting)"
 fi
 
-# Install Playwright's Chromium binary for server-side PDF export (FR-27, sitrep/pdf.py).
-# `playwright install chromium` is idempotent: it compares the installed build number
-# against the version baked into the Playwright Python package and only downloads when
-# they differ (~300 MB on first run; seconds on subsequent deploys).  The binary lives
-# at PLAYWRIGHT_BROWSERS_PATH (set in the systemd EnvironmentFile) so the service user
-# and the install step use the same location.
+# Install a Chromium binary for server-side PDF export (FR-27, sitrep/pdf.py).
+#
+# Strategy: try Playwright's own managed Chromium first (preferred — version-pinned,
+# known-good with the installed Playwright Python package).  If the distro isn't
+# supported yet (e.g. Ubuntu 26.04 before Playwright catches up), fall back to the
+# system Chromium from apt.  pdf.py searches both locations via _chromium_path().
 PLAYWRIGHT_BROWSERS_DIR="$DEPLOY_APP_DIR/.playwright-browsers"
-log "ensuring Playwright Chromium is current (PDF export)"
-$RUN_USER env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
-    "$DEPLOY_APP_DIR/.venv/bin/playwright" install chromium \
-    || warn "playwright install chromium failed — PDF export endpoint will return 503"
-ok "Playwright Chromium ready at $PLAYWRIGHT_BROWSERS_DIR"
+log "ensuring Chromium is available for PDF export"
+if $RUN_USER env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
+        "$DEPLOY_APP_DIR/.venv/bin/playwright" install chromium 2>/dev/null; then
+    ok "Playwright Chromium ready at $PLAYWRIGHT_BROWSERS_DIR"
+else
+    warn "playwright install chromium failed (unsupported distro?) — trying system Chromium"
+    # chromium / chromium-browser are interchangeable names across distros.
+    if command -v apt-get >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium 2>/dev/null \
+            || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium-browser 2>/dev/null \
+            || warn "system Chromium unavailable — PDF export endpoint will return 503"
+    elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+        "${PKG:-dnf}" install -y chromium >/dev/null 2>&1 \
+            || warn "system Chromium unavailable — PDF export endpoint will return 503"
+    fi
+    if command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; then
+        ok "system Chromium available for PDF export"
+    else
+        warn "no Chromium found — PDF export endpoint will return 503"
+    fi
+fi
 
 # --- 3. Restart the service ----------------------------------------------------------
 log "restarting $DEPLOY_SERVICE"

@@ -17,26 +17,44 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger("upstreamwx.pdf")
 
-# Pre-installed Chromium path (set by the managed remote execution environment).
-# Falls back to letting Playwright locate a browser it installed itself.
+# Explicit paths checked before falling back to PATH / Playwright auto-detection.
+# Ordered from most-specific (versioned dev-container path) to most-generic.
 _CHROMIUM_CANDIDATES = [
+    # Claude Code managed dev container (PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers)
     "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
     "/opt/pw-browsers/chromium/chrome-linux/chrome",
 ]
+
+# System binary names searched via PATH when no explicit path matches.
+# Covers: Playwright-managed install, system apt/dnf package, snap wrapper.
+_CHROMIUM_WHICH = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]
 
 # The print template relative to this package (src/upstreamwx/sitrep/pdf.py).
 _TEMPLATE = Path(__file__).resolve().parents[3] / "frontend" / "pdf" / "briefing-pdf.html"
 
 
 def _chromium_path() -> str | None:
-    """Return the first available pre-installed Chromium binary, or None."""
+    """Return a usable Chromium binary path, or None to let Playwright auto-detect.
+
+    Search order:
+    1. Explicit hardcoded paths (dev container, common install locations)
+    2. PATH via shutil.which (covers apt/dnf system packages, snap wrappers,
+       and Playwright-managed installs when PLAYWRIGHT_BROWSERS_PATH is set)
+    3. None → Playwright searches its own registry (works if `playwright install`
+       succeeded for this distro)
+    """
     for p in _CHROMIUM_CANDIDATES:
         if Path(p).exists():
             return p
+    for name in _CHROMIUM_WHICH:
+        found = shutil.which(name)
+        if found:
+            return found
     return None
 
 
