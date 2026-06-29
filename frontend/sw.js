@@ -34,6 +34,8 @@ const SHELL_ASSETS = [
   // PDF export template + its logo, so Export-to-PDF works offline (FR-27).
   "pdf/briefing-pdf.html",
   "pdf/logo-light.png",
+  // Posture-label config the PDF (and app) read for approachable language.
+  "data/display-config.json",
 ];
 
 self.addEventListener("install", (event) => {
