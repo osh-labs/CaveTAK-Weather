@@ -181,7 +181,7 @@ const GLOSSARY = [
   ["QPF", "Quantitative Precipitation Forecast", "Forecast precipitation amount (e.g. inches) over a given period."],
   ["NEP", "Neighborhood Ensemble Probability", "The probability an event occurs within a neighborhood of a point across the ensemble members."],
   ["CAPE", "Convective Available Potential Energy", "A measure of atmospheric instability (J/kg). Higher CAPE means more energy available for storm development; used to modulate lightning confidence, not to set the tier directly."],
-  ["P(tstm)", "Probability of Thunderstorms", "The SREF ensemble probability that at least one member produces a thunderstorm over the aggregation domain. The primary lightning tier driver beyond the same-day window."],
+  ["P(tstm)", "Convective Precipitation Probability", "The SREF ensemble probability of ≥0.1 in of precipitation in a 3-hour window over the aggregation domain, used as the thunderstorm proxy. Unlike raw instability (CAPE), this is zero when atmospheric capping (CIN) prevents storm development — so it correctly returns low values on hot, suppressed days. Primary lightning tier driver beyond the same-day window."],
   ["P(precip)", "Probability of Precipitation", "The SREF ensemble probability of measurable precipitation over the upstream watershed. A primary input to the flash flood tier."],
   ["P(ltg)", "Probability of Lightning", "The HREF same-day probability of a lightning strike within the aggregation domain (~6–36 h window). Sharpens the lightning tier when HREF is in range."],
   ["RoC", "Radius of Concern", "The user-configured maximum distance from the expedition point used to clip the upstream watershed before SREF/HREF aggregation. Smaller values focus the weather domain on the immediate drainage area."],
@@ -1698,7 +1698,7 @@ async function exportBriefingPdf(b) {
 const ABOUT_SOURCES = [
   ["NWS API", "api.weather.gov", "Forecast discussions (AFD), watches, warnings, advisories, and NWS Heat Index categories. The authoritative anchor and a mandatory source.", "doc"],
   ["Open-Meteo", "HRRR-derived fields", "Derived numerical fields (QPF, precip probability, CAPE / lifted index, temperature, humidity, apparent temperature, wind) feeding all four hazard models.", "model"],
-  ["SREF (in-house)", "NCEP GRIB2, processed server-side", "Short-Range Ensemble probabilities of precip and thunder, with member spread, over the upstream domain to the full planning horizon.", "model"],
+  ["SREF (in-house)", "NCEP GRIB2, processed server-side", "Short-Range Ensemble probabilities of precipitation (flash flood and convective proxy), with member spread, over the upstream domain to the full planning horizon.", "model"],
   ["HREF (in-house)", "~3 km, same-day ~6 to 36 h", "High-Resolution Ensemble neighborhood probabilities (1 h / 3 h QPF, lightning, reflectivity) that sharpen the same-day window. The engine takes the higher of SREF and HREF.", "model"],
   ["SPC outlook", "Storm Prediction Center", "Categorical and probabilistic severe and thunderstorm outlook, a secondary cross-check for lightning.", "alert"],
   ["USGS NHD / WBD", "NLDI and Watershed Boundary Dataset", "The stream network and watershed boundaries used to delineate the upstream contributing basin (a pour-point trace, with a HUC-12 fallback).", "map"],
@@ -1712,10 +1712,10 @@ const ABOUT_THRESHOLDS = [
     ["Minimal", "sev-minimal", "Low convective probability, dry upstream forecast"],
   ], "Same-day windows also evaluate HREF neighborhood P(QPF) (at or above 40% → High, 10 to 39% → Elevated) and take the higher of the SREF- and HREF-derived tiers. Antecedent rain bumps up one tier. For slot canyons, a convective rate at or above 0.5 in/hr over the domain is treated as at least High."],
   ["lightning", "Lightning", "Activity point and approach corridor (excluded in the technical span)", [
-    ["Extreme", "sev-extreme", "Active thunderstorm warning, or SREF P(tstm) at or above 80% (85% when HREF is in-window), or HREF P(lightning) at or above 45%, or SPC categorical / Moderate / High risk"],
-    ["High", "sev-high", "SREF P(tstm) 40 to 79%, or HREF P(lightning) 20 to 44%, or SPC Slight or Enhanced during an exposed phase"],
-    ["Elevated", "sev-elevated", "SREF P(tstm) 15 to 39%, or HREF P(lightning) 8 to 19%, or SPC Marginal, or AFD describes isolated or scattered convection"],
-    ["Minimal", "sev-minimal", "SREF P(tstm) below 15%, no convective signal"],
+    ["Extreme", "sev-extreme", "Active thunderstorm warning, or SREF P(tstm) at or above 70% (75% when HREF is in-window), or HREF P(lightning) at or above 45%, or SPC categorical / Moderate / High risk"],
+    ["High", "sev-high", "SREF P(tstm) 35 to 69%, or HREF P(lightning) 20 to 44%, or SPC Slight or Enhanced during an exposed phase"],
+    ["Elevated", "sev-elevated", "SREF P(tstm) 10 to 34%, or HREF P(lightning) 8 to 19%, or SPC Marginal, or AFD describes isolated or scattered convection"],
+    ["Minimal", "sev-minimal", "SREF P(tstm) below 10%, no convective signal"],
   ], "CAPE and lifted index modulate confidence but never set the tier. When the AFD describes isolated convection the final tier is capped at Elevated; scattered caps at High — unless HREF P(lightning) is at or above 60%, which bypasses the cap. HREF P(lightning) and P(reflectivity) are evaluated only in the same-day window (~6–36 h)."],
   ["heat", "Heat stress", "Activity point, using NWS Heat Index categories", [
     ["Extreme Danger", "heat-extreme_danger", "Heat index at or above 125 °F"],
