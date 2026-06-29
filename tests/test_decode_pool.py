@@ -58,6 +58,31 @@ def teardown_function() -> None:
     gc._clear_decoded()
 
 
+def test_lifespan_does_not_create_pool_by_default(monkeypatch) -> None:
+    """Default settings must NOT start a decode pool — it OOMs small hosts (api_enable_decode_pool).
+
+    Opt-in only: with the flag on, the lifespan installs a pool; off (default), it does not.
+    """
+    from fastapi.testclient import TestClient
+
+    from upstreamwx.api.app import app as fastapi_app
+
+    # Avoid the background scheduler/warm pool doing work during the smoke test. get_settings()
+    # re-reads env every call, so monkeypatch.setenv before startup is enough (no cache to clear).
+    monkeypatch.setenv("UPSTREAMWX_API_ENABLE_SCHEDULER", "0")
+    monkeypatch.setenv("UPSTREAMWX_API_ENABLE_WARM", "0")
+
+    with TestClient(fastapi_app):
+        assert gc.decode_pool_enabled() is False  # default: no spawn workers
+    assert gc.decode_pool_enabled() is False
+
+    monkeypatch.setenv("UPSTREAMWX_API_ENABLE_DECODE_POOL", "1")
+    monkeypatch.setenv("UPSTREAMWX_DECODE_POOL_WORKERS", "1")
+    with TestClient(fastapi_app):
+        assert gc.decode_pool_enabled() is True  # opt-in: pool installed
+    assert gc.decode_pool_enabled() is False  # torn down on shutdown
+
+
 def test_use_pool_without_installed_pool_is_in_process(tmp_path: Path) -> None:
     """``use_pool=True`` with no pool installed falls through to the in-process memoised decode."""
     gc.set_decode_pool(None)

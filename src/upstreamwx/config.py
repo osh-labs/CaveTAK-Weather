@@ -84,18 +84,22 @@ class Settings(BaseSettings):
     api_enable_warm: bool = True
 
     # Decode GEFS GRIB2 in a persistent process pool (spawn) so the per-member decodes run truly
-    # in parallel. eccodes is not thread-safe, so the in-process path serializes every decode on a
-    # global lock — the dominant cost once a cycle's ~500 member subsets are on disk. The pool is
-    # created/owned by the API lifespan; the CLI and the test suite never run it, so they keep the
-    # in-process serialized path. Set UPSTREAMWX_API_ENABLE_DECODE_POOL=0 to disable.
-    api_enable_decode_pool: bool = True
-    # Worker count for the decode pool. Each worker re-imports cfgrib once at spawn (a few s),
-    # amortized across the cycle's hundreds of decodes by the persistent pool.
-    decode_pool_workers: int = Field(default_factory=lambda: min(8, (os.cpu_count() or 2)))
+    # in parallel — eccodes is not thread-safe, so the in-process path serializes them on a global
+    # lock. **Opt-in (default off):** each spawn worker is a fresh interpreter that re-imports the
+    # whole scientific stack (xarray + cfgrib/eccodes + regionmask/rasterio, and the package chain
+    # pulls in timezonefinder) — ~300–500 MB RSS *per worker* on top of the main process. On the
+    # small (≤2 GB) production host that OOM-killed uvicorn (→ nginx 502). Only enable
+    # (UPSTREAMWX_API_ENABLE_DECODE_POOL=1, and tune UPSTREAMWX_DECODE_POOL_WORKERS) on a host with
+    # real RAM headroom; otherwise the single-interpreter in-process decode is the safe path and
+    # GEFS *warming* (off the request path) is the latency win.
+    api_enable_decode_pool: bool = False
+    # Worker count for the decode pool when enabled. Keep small — see the RSS-per-worker note above.
+    decode_pool_workers: int = Field(default_factory=lambda: min(4, (os.cpu_count() or 2)))
     # Resident byte budget for the in-process decoded-grid LRU (memory-aware eviction). The old
     # flat count cap thrashed on a GEFS briefing's working set; this bounds memory while keeping
-    # many small (pool-cropped) grids resident across briefings. Default ~512 MiB.
-    decode_cache_max_bytes: int = 512 * 1024 * 1024
+    # grids resident across briefings. With the pool off, the LRU holds full ~16.5 MB GEFS grids, so
+    # this is the main-process cap — 256 MiB is safe on a ≤2 GB host (raise it where RAM allows).
+    decode_cache_max_bytes: int = 256 * 1024 * 1024
 
     # Dead-man's-switch monitoring (Healthchecks.io or any ping-on-success service). When
     # set, the GEFS/REFS + AFD refresh scheduler pings this URL each cycle (".../start" before the
