@@ -31,6 +31,15 @@ from .models import BriefingResponse, MissionSpec
 logger = logging.getLogger("upstreamwx.api.service")
 
 
+class BriefingBusy(Exception):
+    """Raised when the concurrent-generation cap is saturated (maps to HTTP 503).
+
+    Signals the request path that no generation slot freed within the busy timeout, so the API
+    should tell the client to retry shortly rather than pile another cold ingest onto a host that
+    is already at capacity (the PWA surfaces a retry banner).
+    """
+
+
 @dataclass
 class _Registered:
     """A live mission tracked for scheduled refresh while its window is in range."""
@@ -44,8 +53,14 @@ class BriefingService:
     """Orchestrates caching, generation, and refresh registration for briefings."""
 
     def __init__(self, cache: BriefingCache | None = None) -> None:
-        maxsize = get_settings().api_cache_max_entries
+        settings = get_settings()
+        maxsize = settings.api_cache_max_entries
         self.cache = cache or BriefingCache(maxsize=maxsize)
+        # Bound concurrent cold generations so a burst can't OOM/thrash a small host. A value <= 0
+        # disables the cap (an effectively unbounded semaphore). Cache hits never acquire it.
+        self._gen_busy_timeout = settings.briefing_busy_timeout_s
+        n = settings.briefing_max_concurrency
+        self._gen_sem = threading.BoundedSemaphore(n) if n and n > 0 else None
         self._active: dict[str, _Registered] = {}
         # Stores the engine BriefingResult alongside its cache key so the streaming
         # framing endpoint can call Haiku without re-running ingest. LRU-bounded like the
@@ -76,17 +91,34 @@ class BriefingService:
         if cached is not None:
             return self._response(cached, token, cached=True)
 
-        # Haiku framing is always deferred to the streaming /v1/briefing/frame endpoint
-        # so the structured posture data is returned immediately without waiting for the
-        # LLM call.  The engine result is stored in _result_store for the frame endpoint.
-        briefing = generate_briefing(mission, inputs=inputs, frame=False, generated_at=now)
-        self._result_store.put(key, briefing.result)
-        self.cache.put(key, briefing, token)
-        # Track live, still-in-range missions for the scheduler (FR-12). Deterministic
-        # offline briefings need no refresh, so they are not registered.
-        if inputs is None and now < _as_utc(mission.window_end):
-            self._active[key] = _Registered(mission=mission, frame=False, key=key)
-        return self._response(briefing, token, cached=False)
+        # Cap concurrent cold generations: a burst of distinct missions would otherwise each spin up
+        # the full ingest (watershed delineation + GEFS/REFS), spiking memory/CPU enough to OOM a
+        # small host. Wait briefly for a slot; if none frees, raise BriefingBusy (-> 503) so the
+        # client retries rather than piling on. Cache hits above never reach here.
+        if self._gen_sem is not None and not self._gen_sem.acquire(
+            timeout=self._gen_busy_timeout
+        ):
+            raise BriefingBusy()
+        try:
+            # A request for the same mission may have generated it while we waited for a slot.
+            cached = self.cache.get(key, token)
+            if cached is not None:
+                return self._response(cached, token, cached=True)
+
+            # Haiku framing is always deferred to the streaming /v1/briefing/frame endpoint
+            # so the structured posture data is returned immediately without waiting for the
+            # LLM call.  The engine result is stored in _result_store for the frame endpoint.
+            briefing = generate_briefing(mission, inputs=inputs, frame=False, generated_at=now)
+            self._result_store.put(key, briefing.result)
+            self.cache.put(key, briefing, token)
+            # Track live, still-in-range missions for the scheduler (FR-12). Deterministic
+            # offline briefings need no refresh, so they are not registered.
+            if inputs is None and now < _as_utc(mission.window_end):
+                self._active[key] = _Registered(mission=mission, frame=False, key=key)
+            return self._response(briefing, token, cached=False)
+        finally:
+            if self._gen_sem is not None:
+                self._gen_sem.release()
 
     def get_result(self, key: str) -> BriefingResult | None:
         """Return the cached engine result for ``key``, or None on miss.
