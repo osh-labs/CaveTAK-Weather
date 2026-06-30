@@ -227,6 +227,12 @@ main {
 /* ── 7.3 Mission card ──────────────────────────────────────────────── */
 .mission-card {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.mission-card__top {
+  display: flex;
   gap: var(--space-3);
   align-items: flex-start;
 }
@@ -237,22 +243,10 @@ main {
 }
 
 .mission-card__title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   font-size: var(--text-h1);
   line-height: var(--lh-h1);
   font-weight: 650;
   margin: 2px 0 var(--space-1);
-}
-
-.mission-card__edit {
-  width: 16px;
-  height: 16px;
-  color: var(--color-text-muted);
-  background: none;
-  border: none;
-  padding: 0;
 }
 
 .mission-card__meta {
@@ -270,6 +264,18 @@ main {
   align-items: flex-end;
   gap: var(--space-3);
   text-align: right;
+}
+
+.mission-card__actions {
+  display: flex;
+  gap: var(--space-3);
+  padding-top: var(--space-1);
+}
+
+.mission-card__actions .btn-ghost,
+.mission-card__actions .btn-primary {
+  flex: 1;
+  margin: 0;
 }
 
 /* ── 7.4 Posture chip ──────────────────────────────────────────────── */

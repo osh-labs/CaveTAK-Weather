@@ -580,19 +580,23 @@ function missionCard(b) {
   const fmtT = (d) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz });
   return `
     <section class="card mission-card">
-      <div class="mission-card__main">
-        <div class="eyebrow">Expedition</div>
-        <h1 class="mission-card__title">${esc(m.name)}
-          <button class="mission-card__edit" aria-label="Edit expedition">${icon("edit", "")}</button>
-        </h1>
-        <div class="mission-card__meta">${fmtD} · ${fmtT(start)}–${fmtT(end)} ${esc(m.timezone)}</div>
-        <div class="mission-card__meta"><span class="mono">${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}</span></div>
-        ${b.watershed ? `<div class="mission-card__meta">Watershed area <span class="mono">${b.watershed.area_sq_mi.toFixed(1)} mi²</span></div>` : ""}
+      <div class="mission-card__top">
+        <div class="mission-card__main">
+          <div class="eyebrow">Expedition</div>
+          <h1 class="mission-card__title">${esc(m.name)}</h1>
+          <div class="mission-card__meta">${fmtD} · ${fmtT(start)}–${fmtT(end)} ${esc(m.timezone)}</div>
+          <div class="mission-card__meta"><span class="mono">${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}</span></div>
+          ${b.watershed ? `<div class="mission-card__meta">Watershed area <span class="mono">${b.watershed.area_sq_mi.toFixed(1)} mi²</span></div>` : ""}
+        </div>
+        <div class="mission-card__posture">
+          <div class="eyebrow">Overall posture</div>
+          ${postureChip(displayTier(b.overall_posture), overallSevClass(b), true)}
+          ${confidenceTag(b.overall_confidence, true)}
+        </div>
       </div>
-      <div class="mission-card__posture">
-        <div class="eyebrow">Overall posture</div>
-        ${postureChip(displayTier(b.overall_posture), overallSevClass(b), true)}
-        ${confidenceTag(b.overall_confidence, true)}
+      <div class="mission-card__actions">
+        <button class="mission-card__plan btn-ghost" type="button">Plan Mission</button>
+        <button class="mission-card__refresh btn-primary" type="button">Update Briefing</button>
       </div>
     </section>`;
 }
@@ -704,8 +708,10 @@ function renderOverview(b) {
       }
     })
   );
-  const edit = document.querySelector(".mission-card__edit");
-  if (edit) edit.addEventListener("click", () => openMissionPlanner(specFromBriefing(b)));
+  const planBtn = document.querySelector(".mission-card__plan");
+  if (planBtn) planBtn.addEventListener("click", () => openMissionPlanner(specFromBriefing(b)));
+  const refreshBtn = document.querySelector(".mission-card__refresh");
+  if (refreshBtn) refreshBtn.addEventListener("click", () => refresh(specWithFutureTimes(specFromBriefing(b))));
   linkifyAcronyms(document.getElementById("view-overview"));
 }
 
@@ -1935,14 +1941,16 @@ function renderLoadingState() {
     </div>`).join("");
   document.getElementById("view-overview").innerHTML = `
     <section class="card mission-card">
-      <div class="mission-card__main">
-        <div class="eyebrow">Expedition</div>
-        <h1 class="mission-card__title">${esc(name)}</h1>
-        <div class="mission-card__meta"><span class="mono">${esc(coords)}</span></div>
-      </div>
-      <div class="mission-card__posture">
-        <div class="eyebrow">Overall posture</div>
-        <div class="skel skel--chip"></div>
+      <div class="mission-card__top">
+        <div class="mission-card__main">
+          <div class="eyebrow">Expedition</div>
+          <h1 class="mission-card__title">${esc(name)}</h1>
+          <div class="mission-card__meta"><span class="mono">${esc(coords)}</span></div>
+        </div>
+        <div class="mission-card__posture">
+          <div class="eyebrow">Overall posture</div>
+          <div class="skel skel--chip"></div>
+        </div>
       </div>
     </section>
     <section class="card">${skelRows}</section>`;
@@ -2083,6 +2091,34 @@ function addHoursLocal(str, h) {
   const d = new Date(yr, mo - 1, da, hour + h, mn);
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Return a spec with start/end shifted forward (preserving duration and time-of-day) so
+// that start is in the future relative to now in the mission timezone.  Used by "Update
+// Briefing" to prevent re-generating a briefing whose window has already passed.
+function specWithFutureTimes(spec) {
+  const tz = spec.tz_name ?? null;
+  const nowStr = nowInTz(tz);
+  const startStr = String(spec.start || "").slice(0, 16);
+  if (!startStr || startStr > nowStr) return spec;
+
+  // Find the day offset needed to bring start into the future.  Parse both strings as
+  // naive local dates (matching the addHoursLocal convention used elsewhere).
+  const parseDay = (s) => {
+    const [yr, mo, da] = s.slice(0, 10).split("-").map(Number);
+    return new Date(yr, mo - 1, da);
+  };
+  const msDiff = parseDay(nowStr) - parseDay(startStr);
+  let daysShift = Math.round(msDiff / (24 * 3600 * 1000));
+  // If the shifted start is still at or before now (same day, time already past), add one more day.
+  if (addHoursLocal(startStr, daysShift * 24) <= nowStr) daysShift += 1;
+
+  const endStr = String(spec.end || spec.start).slice(0, 16);
+  return {
+    ...spec,
+    start: addHoursLocal(startStr, daysShift * 24),
+    end: addHoursLocal(endStr, daysShift * 24),
+  };
 }
 
 // Reflect the slider index in the readout ("20 mi") and keep _mpSpec.radius_km in km.
