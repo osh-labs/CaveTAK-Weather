@@ -1520,12 +1520,18 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
    zone is read before the collapsed methodology below. */
 .about-contact { display: inline-block; margin-top: var(--space-2); font-size: var(--text-label); font-weight: 600; color: var(--color-brand); }
 .about-support { border-color: rgba(56, 189, 248, 0.30); }
+.about-support__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
 .about-donate {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  margin-top: var(--space-3);
   padding: var(--space-3) var(--space-5);
   background: var(--color-brand);
   color: var(--color-text-inverse);
@@ -1536,7 +1542,23 @@ details[open] .hazard-detail__chev { transform: rotate(180deg); }
 }
 .about-donate:hover { background: var(--color-brand-strong); }
 .about-donate__icon { width: 18px; height: 18px; }
-.about-support__note { font-size: var(--text-caption); line-height: var(--lh-caption); color: var(--color-text-muted); margin: var(--space-2) 0 0; }
+.about-bug {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-label);
+  font-weight: 650;
+  text-decoration: none;
+}
+.about-bug:hover { background: var(--color-surface-2); color: var(--color-text); }
+.about-bug__icon { width: 18px; height: 18px; }
+.about-support__note { font-size: var(--text-caption); line-height: var(--lh-caption); color: var(--color-text-muted); margin: var(--space-2) 0 0; text-align: center; }
 
 /* "How this is calculated" section heading above the collapsed methodology. */
 .about-section-head { font-size: var(--text-h2); line-height: var(--lh-h2); font-weight: 620; margin-top: var(--space-2); }

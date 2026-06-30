@@ -1779,7 +1779,7 @@ const ABOUT_THRESHOLDS = [
 
 // Stripe-hosted donation page (FR: free, donation-supported). Opened in a new tab.
 const DONATE_URL = "https://donate.stripe.com/3cIbIT75o6Jxept4aw4c800";
-const CONTACT_EMAIL = "info@southeastexpeditionmed.com";
+const CONTACT_EMAIL = "info@upstreamwx.com";
 
 function renderAbout(b) {
   const sources = ABOUT_SOURCES.map(
@@ -1820,7 +1820,10 @@ function renderAbout(b) {
     <section class="card about-support">
       <div class="eyebrow">Support UpstreamWX</div>
       <p class="about-p">Running UpstreamWX has real costs: the servers that process the GEFS and REFS ensembles, the map and watershed data, and the time to keep the app up to date. It stays free because people who find it useful chip in. If it saved you time planning a trip, a donation helps keep it online for the next expedition.</p>
-      <a class="about-donate" href="${DONATE_URL}" target="_blank" rel="noopener noreferrer">${icon("external", "about-donate__icon")}Donate</a>
+      <div class="about-support__actions">
+        <a class="about-donate" href="${DONATE_URL}" target="_blank" rel="noopener noreferrer">${icon("external", "about-donate__icon")}Donate</a>
+        <a class="about-bug" href="mailto:${CONTACT_EMAIL}?subject=UpstreamWX%20Bug%20Report" target="_blank" rel="noopener noreferrer">${icon("alert", "about-bug__icon")}Report a Bug</a>
+      </div>
       <p class="about-support__note">Secure checkout handled by Stripe. Give once or monthly, any amount.</p>
     </section>
 
