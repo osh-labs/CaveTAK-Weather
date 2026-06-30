@@ -595,7 +595,7 @@ function missionCard(b) {
         </div>
       </div>
       <div class="mission-card__actions">
-        <button class="mission-card__plan btn-ghost" type="button">Plan Mission</button>
+        <button class="mission-card__plan btn-ghost" type="button">Plan Expedition</button>
         <button class="mission-card__refresh btn-primary" type="button">Update Briefing</button>
       </div>
     </section>`;
