@@ -29,7 +29,7 @@ from ..engine.models import (
     PhaseAssessment,
     Tier,
 )
-from ..ingest.base import IngestBundle
+from ..ingest.base import IngestBundle, bundle_data_gaps
 from ..watershed import PourpointBasin, UpstreamTrace
 from .frame import _INSERT_BEFORE, _SUMMARY_HEADING
 from .hazard_copy import HAZARD_LOGIC
@@ -328,6 +328,24 @@ def _risk_inputs(bundle: IngestBundle | None) -> dict:
     }
 
 
+def _data_quality(bundle: IngestBundle | None) -> dict:
+    """First-class availability/provenance block for the structured contract (NFR-6).
+
+    Names the data gaps that affected this briefing — a hazard evaluated without its
+    primary input must be visibly "unassessed", never quietly benign — plus the model
+    cycles actually used, so a stale run can never masquerade as current. Display-only;
+    the engine never reads this (FR-13).
+    """
+    if bundle is None:
+        # Offline --inputs path: the feature vector is pinned; no live availability to report.
+        return {"gaps": [], "gefs_cycle": None, "refs_cycle": None}
+    return {
+        "gaps": bundle_data_gaps(bundle),
+        "gefs_cycle": bundle.gefs_cycle,
+        "refs_cycle": bundle.refs_cycle,
+    }
+
+
 def _forecast(bundle: IngestBundle | None) -> tuple[dict, dict, dict]:
     """Return (forecast_hourly table, temp_series, wind_series); empty under degradation."""
     fh = bundle.forecast_hourly if bundle is not None else None
@@ -445,6 +463,7 @@ def to_structured(gen: GeneratedBriefing, *, cached: bool, cache_cycle: str) -> 
         "degraded": gen.degraded,
         "sources_ok": gen.sources_ok,
         "warnings": list(gen.warnings),
+        "data_quality": _data_quality(bundle),
         "summary": _summary(gen.markdown, gen.framed),
         "bluf": _bluf(result),
         "metrics": _metrics(bundle),

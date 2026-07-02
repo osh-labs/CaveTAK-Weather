@@ -56,12 +56,14 @@ class IngestBundle:
     afd_convective_mention: bool = False        # derived from afd_storm_mode; display only
     afd_flood_mention: bool = False
 
-    # Open-Meteo derived fields (FR-6), already in deg F / mph / inch.
+    # Open-Meteo derived fields (FR-6), already in deg F / mph / inch. The precip booleans
+    # are tri-state: None means "unknown" (source down / window not covered) and must never
+    # be conflated with a genuinely dry False — data quality is first-class (NFR-6).
     heat_index_f: float | None = None
     apparent_temp_f: float | None = None
     wind_mph: float | None = None
-    measurable_precip: bool = False
-    antecedent_precip_24_72h: bool = False
+    measurable_precip: bool | None = None
+    antecedent_precip_24_72h: bool | None = None
 
     # Per-hour display forecast over the window (FR-6; M0.4 Forecast view). Display only,
     # not an engine input; None when ingest could not populate it (NFR-6).
@@ -70,6 +72,7 @@ class IngestBundle:
     # GEFS ensemble over the upstream domain (FR-7).
     gefs_p_precip: float | None = None
     gefs_p_tstm: float | None = None
+    gefs_cycle: str | None = None  # model run actually used, "YYYYMMDD/HHZ"; provenance
     convective_rate_in_per_hr: float | None = None
     cape_jkg: float | None = None
     member_support: dict[str, float] = field(default_factory=dict)
@@ -123,6 +126,31 @@ class IngestBundle:
     notes: list[str] = field(default_factory=list)
 
 
+def bundle_data_gaps(bundle: IngestBundle) -> list[str]:
+    """Name the data gaps affecting a gathered bundle (data quality first-class, NFR-6).
+
+    The single source of truth the Markdown render and the structured contract both
+    surface, so a hazard evaluated without its primary input is visibly "unassessed"
+    everywhere the briefing is shown — never quietly benign. Display-only (FR-13).
+    """
+    gaps: list[str] = []
+    if bundle.gefs_p_precip is None and bundle.refs_p_precip is None:
+        gaps.append("flood ensemble signal unavailable over the upstream domain")
+    if bundle.gefs_p_tstm is None and bundle.refs_p_lightning is None:
+        gaps.append("lightning ensemble signal unavailable over the exposure area")
+    if bundle.heat_index_f is None or bundle.apparent_temp_f is None:
+        gaps.append("thermal forecast series unavailable")
+    if bundle.measurable_precip is None:
+        gaps.append("surface precip signal unavailable (unknown, not dry)")
+    if bundle.sources_ok.get("nws") is False:
+        gaps.append("NWS active-alert check unavailable (products unverified)")
+    if bundle.sources_ok.get("nws_afd") is False:
+        gaps.append("NWS forecast discussion unavailable")
+    if bundle.sources_ok.get("watershed") is False:
+        gaps.append("upstream watershed delineation unavailable")
+    return gaps
+
+
 class Provider(Protocol):
     """A data source that contributes part of an :class:`IngestBundle`."""
 
@@ -134,7 +162,12 @@ class Provider(Protocol):
 
 
 def to_hazard_inputs(bundle: IngestBundle, *, dry_party: bool = False) -> HazardInputs:
-    """Map a gathered bundle onto the engine's normalized feature vector."""
+    """Map a gathered bundle onto the engine's normalized feature vector.
+
+    Availability crosses the boundary too: the tri-state precip booleans pass through
+    unchanged, and a failed NWS fetch marks the alert flags as *unchecked* rather than
+    letting their ``False`` defaults read as "no active products" (NFR-6).
+    """
     return HazardInputs(
         flash_flood_warning=bundle.flash_flood_warning,
         flash_flood_watch=bundle.flash_flood_watch,
@@ -158,5 +191,6 @@ def to_hazard_inputs(bundle: IngestBundle, *, dry_party: bool = False) -> Hazard
         apparent_temp_f=bundle.apparent_temp_f,
         wind_mph=bundle.wind_mph,
         antecedent_precip_24_72h=bundle.antecedent_precip_24_72h,
+        nws_products_available=bundle.sources_ok.get("nws") is not False,
         dry_party=dry_party,
     )

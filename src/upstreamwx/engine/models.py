@@ -109,18 +109,23 @@ class HazardInputs:
 
     # Active NWS products (FR-5). Flash flood products anchor the acute near term;
     # the areal/river flood products (warning/advisory/watch) cover the slower-onset
-    # flooding the flash-flood scan alone misses.
+    # flooding the flash-flood scan alone misses. ``nws_products_available`` records
+    # whether the alerts check actually ran: when False the flags below are *unchecked*,
+    # not "no active products", and the evaluators say so (data quality first-class).
     flash_flood_warning: bool = False
     flash_flood_watch: bool = False
     flood_warning: bool = False
     flood_advisory: bool = False
     flood_watch: bool = False
     thunderstorm_warning: bool = False
+    nws_products_available: bool = True
 
     # GEFS ensemble aggregates over the upstream domain.
     gefs_p_precip: float | None = None            # P(precip/thunderstorm), flood
     gefs_p_tstm: float | None = None              # P(thunderstorm), lightning
-    measurable_precip: bool = False               # measurable forecast precip present
+    # Tri-state: None = unknown (surface feed down / window uncovered). Unknown must not
+    # gate the GEFS Elevated flood band off the way a genuinely dry False does.
+    measurable_precip: bool | None = False        # measurable forecast precip present
     convective_rate_in_per_hr: float | None = None  # forecast convective rate (slot)
     cape_jkg: float | None = None                 # instability (modulates, not tier)
 
@@ -144,7 +149,7 @@ class HazardInputs:
     heat_index_f: float | None = None
     apparent_temp_f: float | None = None
     wind_mph: float | None = None
-    antecedent_precip_24_72h: bool = False        # significant prior rain
+    antecedent_precip_24_72h: bool | None = False  # significant prior rain; None = unknown
 
     # Activity modifiers.
     dry_party: bool = False                       # dry cave, no immersion

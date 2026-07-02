@@ -96,10 +96,12 @@ def resolve_valid_time_sources(
 
     Walks the window hour by hour from ``max(window_start, now)`` (never resolving past valid
     times) up to ``min(window_end, now + MAX_LEAD_H)``. For each candidate valid hour the newest
-    ``cycles`` entry whose forecast hour is **published** (in ``REFS_FHOURS``) and within
-    ``[fmin, fmax]`` wins; valid hours that fall between REFS's 3-hourly outputs (no in-band
-    published fhour from any run) are omitted. ``cycles`` must be newest-first (as
-    :func:`cached_cycles` returns).
+    ``cycles`` entry with a **covering** published forecast hour wins: the exact fhour when the
+    hour lands on REFS's 3-hourly outputs, else the next published fhour whose 3 h accumulation
+    bucket spans the hour. Covering-by-bucket matters for short windows — a 12:10–14:50Z slot
+    window sits entirely between 3-hourly outputs and previously resolved to *zero* sources,
+    silently trading the authoritative same-day 3 km ensemble for coarse GEFS (data quality
+    first-class). ``cycles`` must be newest-first (as :func:`cached_cycles` returns).
     """
     now = _as_utc(now) if now is not None else datetime.now(UTC)
     window_start = _as_utc(window_start)
@@ -111,9 +113,24 @@ def resolve_valid_time_sources(
     out: list[ValidTimeSource] = []
     while vt <= end:
         for cycle in cycles:  # newest-first
-            f = round((vt - cycle.init_time).total_seconds() / 3600.0)
-            if fmin <= f <= fmax and f in _AVAILABLE:
+            lead = round((vt - cycle.init_time).total_seconds() / 3600.0)
+            f = _covering_fhour(lead, fmin, fmax)
+            if f is not None:
                 out.append(ValidTimeSource(valid_time=vt, cycle=cycle, fhour=f))
-                break  # freshest in-band run wins
+                break  # freshest run with a covering fhour wins
         vt += timedelta(hours=1)
     return out
+
+
+def _covering_fhour(lead: int, fmin: int, fmax: int) -> int | None:
+    """The published forecast hour covering a lead time, or None.
+
+    Exact 3-hourly match first; otherwise the next published fhour ``f`` with
+    ``f - 3 < lead < f`` (the hour lies inside that fhour's 3 h accumulation bucket).
+    """
+    if fmin <= lead <= fmax and lead in _AVAILABLE:
+        return lead
+    for f in REFS_FHOURS:
+        if f - 3 < lead < f and fmin <= f <= fmax:
+            return f
+    return None

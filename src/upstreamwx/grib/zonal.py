@@ -11,6 +11,14 @@ Edge case: a headwater HUC-12 can be smaller than a single grid cell, so zero
 cells fall inside. We then fall back to nearest-cell sampling at the polygon
 centroid and flag it, so the caller knows the value is point-like, not areal.
 (This fallback fires far less often on the 3 km HREF grid than on 16 km SREF.)
+The fallback is only valid when the polygon actually lies *on* the grid: a
+polygon wholly outside the grid's bounds raises instead of silently returning an
+unrelated edge cell's value (NFR-6 — degrade loudly, never fabricate a signal).
+
+Data quality is first-class here: an all-NaN reduction (bitmap-masked region,
+truncated subset) yields ``max_value``/``mean_value`` of ``None`` rather than a
+NaN that would compare False against every threshold downstream and read as
+"no hazard".
 """
 
 from __future__ import annotations
@@ -28,13 +36,17 @@ from shapely.geometry.base import BaseGeometry
 
 @dataclass
 class PolygonAggregate:
-    """Result of aggregating one field over one polygon."""
+    """Result of aggregating one field over one polygon.
+
+    ``max_value``/``mean_value`` are ``None`` when every masked cell is NaN — the
+    caller must treat that as "no data", never as zero probability.
+    """
 
     field_name: str
     threshold: str
     n_cells: int
-    max_value: float
-    mean_value: float
+    max_value: float | None
+    mean_value: float | None
     fallback_nearest_cell: bool
     per_step: dict  # step label -> {"max":..., "mean":...} when a step dim exists
 
@@ -115,6 +127,34 @@ def region_mask(da: xr.DataArray, geom: BaseGeometry) -> xr.DataArray:
     return mask == 0  # region index 0 inside, NaN outside
 
 
+def _nan_reduce(values: np.ndarray) -> tuple[float | None, float | None]:
+    """(max, mean) ignoring NaN cells; (None, None) when nothing finite remains.
+
+    A NaN that escaped here would compare False against every threshold cut point
+    downstream and silently read as "no hazard" — the anti-conservative direction.
+    """
+    if values.size == 0 or bool(np.isnan(values).all()):
+        return None, None
+    return float(np.nanmax(values)), float(np.nanmean(values))
+
+
+def _off_grid(lat: float, lon: float, grid_lat: np.ndarray, grid_lon: np.ndarray) -> bool:
+    """True when (lat, lon) lies beyond the grid's bounds (plus one cell of slack).
+
+    A coarse guard, not sub-cell precision: it distinguishes "headwater smaller than a
+    cell" (fallback is honest) from "domain nowhere near this grid" (fallback would
+    fabricate a value). Longitude uses the shortest angular Δ so -180..180 and 0..360
+    conventions both work.
+    """
+    lat_flat = grid_lat.ravel()
+    dlon = np.abs((grid_lon.ravel() - lon + 180) % 360 - 180)
+    # One cell of slack at the coarsest plausible spacing of the grids we handle (~0.5°).
+    slack = 0.5
+    lat_ok = float(lat_flat.min()) - slack <= lat <= float(lat_flat.max()) + slack
+    lon_ok = float(dlon.min()) <= slack
+    return not (lat_ok and lon_ok)
+
+
 def aggregate_over_polygon(
     da: xr.DataArray,
     polygon: BaseGeometry | dict,
@@ -131,10 +171,19 @@ def aggregate_over_polygon(
 
     fallback = False
     if n_cells == 0:
-        # Polygon smaller than a grid cell: nearest-cell at centroid.
-        fallback = True
+        # Polygon smaller than a grid cell: nearest-cell at centroid — but only when the
+        # centroid actually lies on the grid. A polygon wholly off the grid (a mission just
+        # outside the REFS domain edge, a degenerate clip) must not be answered with an
+        # unrelated edge cell's value; the caller treats the raise as "source unavailable
+        # over this domain" rather than a fabricated signal (NFR-6).
         c = geom.centroid
         lat, lon = da["latitude"], da["longitude"]
+        if _off_grid(c.y, c.x, lat.values, lon.values):
+            raise ValueError(
+                f"polygon centroid ({c.y:.3f}, {c.x:.3f}) lies outside the field grid; "
+                "refusing nearest-cell fallback"
+            )
+        fallback = True
         # Shortest angular Δlon so the nearest-cell search is correct whether the
         # grid stores longitude as -180..180 (SREF/REFS) or 0..360 (GEFS).
         if lat.ndim == 2:
@@ -156,12 +205,10 @@ def aggregate_over_polygon(
             ix = int(np.argmin(np.abs(dlon)))
             sel = da.isel({lat.dims[0]: iy, lon.dims[0]: ix})
         masked = sel
-        max_value = float(np.nanmax(sel.values))
-        mean_value = float(np.nanmean(sel.values))
+        max_value, mean_value = _nan_reduce(sel.values)
     else:
         masked = da.where(inside)
-        max_value = float(masked.max().values)
-        mean_value = float(masked.mean().values)
+        max_value, mean_value = _nan_reduce(masked.values)
 
     per_step: dict = {}
     if step_dims and not fallback:
@@ -169,10 +216,8 @@ def aggregate_over_polygon(
         for i in range(da.sizes[step_dim]):
             layer = masked.isel({step_dim: i})
             label = str(da[step_dim].values[i]) if step_dim in da.coords else str(i)
-            per_step[label] = {
-                "max": float(layer.max().values),
-                "mean": float(layer.mean().values),
-            }
+            step_max, step_mean = _nan_reduce(layer.values)
+            per_step[label] = {"max": step_max, "mean": step_mean}
 
     return PolygonAggregate(
         field_name=field_name or str(da.name),

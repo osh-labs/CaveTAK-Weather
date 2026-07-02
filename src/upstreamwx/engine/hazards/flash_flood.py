@@ -29,18 +29,37 @@ _PRODUCTS = (
 
 
 def _gefs_tier(inputs: HazardInputs, prob: dict) -> tuple[Tier, str]:
-    """GEFS P(precip/thunderstorm) over the upstream domain -> (tier, driver)."""
+    """GEFS P(precip/thunderstorm) over the upstream domain -> (tier, driver).
+
+    A missing probability is a data gap, not a dry forecast — the driver says so
+    explicitly and the confidence layer floors the qualifier (data quality first-class).
+    An *unknown* ``measurable_precip`` (surface feed down) applies the Elevated band
+    conservatively rather than letting the gap read as "dry" and gate the band off.
+    """
     p = inputs.gefs_p_precip
     if p is None:
-        return Tier.MINIMAL, "No GEFS precip signal over upstream domain"
+        return Tier.MINIMAL, (
+            "DATA GAP: no ensemble precip signal available over the upstream domain "
+            "(feed unavailable or window out of range) — flood tier is unassessed, not low"
+        )
     if p >= prob["high_min"]:
         return Tier.HIGH, (
             f"GEFS P(precip/thunder) {p:.0f}% ≥ {prob['high_min']}% over upstream domain"
         )
-    if p >= prob["elevated_min"] and inputs.measurable_precip:
+    if p >= prob["elevated_min"] and inputs.measurable_precip is not False:
+        if inputs.measurable_precip is None:
+            return Tier.ELEVATED, (
+                f"GEFS P(precip/thunder) {p:.0f}% in {prob['elevated_min']}-{prob['high_min']}% "
+                "band; surface precip signal unavailable, band applied conservatively"
+            )
         return Tier.ELEVATED, (
             f"GEFS P(precip/thunder) {p:.0f}% in {prob['elevated_min']}-{prob['high_min']}% "
             "band with measurable forecast precip"
+        )
+    if p >= prob["elevated_min"]:
+        return Tier.MINIMAL, (
+            f"GEFS P(precip/thunder) {p:.0f}% in the {prob['elevated_min']}-"
+            f"{prob['high_min']}% band but no measurable forecast precip; dry upstream"
         )
     return Tier.MINIMAL, (
         f"GEFS P(precip/thunder) {p:.0f}% below {prob['elevated_min']}%; dry upstream"
@@ -60,6 +79,12 @@ def evaluate(
     # product (e.g. a Flood Advisory) must never suppress a stronger GEFS signal.
     tier = Tier.MINIMAL
     product_active = False
+    if not inputs.nws_products_available:
+        # The alerts check never ran; the product flags are unchecked, not clear (NFR-6).
+        notes.append(
+            "DATA GAP: NWS active-alert check unavailable — flood products could not be "
+            "verified for this briefing."
+        )
     for flag, tier_key, driver in _PRODUCTS:
         if getattr(inputs, flag):
             product_active = True
@@ -119,7 +144,8 @@ def evaluate(
             tier = bumped
 
     # Slot fallback: slots flood at low totals, so a forecast convective rate over
-    # the configured threshold forces at least the configured floor tier.
+    # the configured threshold forces at least the configured floor tier. When the rate
+    # feed is down the safeguard is *unevaluated* — say so rather than staying silent.
     rate = inputs.convective_rate_in_per_hr
     if is_slot and rate is not None and rate > mods["slot_rate_in_per_hr"]:
         floor = Tier.from_name(mods["slot_fallback_min_tier"])
@@ -130,5 +156,10 @@ def evaluate(
                 "(intentionally conservative)."
             )
             tier = floor
+    elif is_slot and rate is None:
+        notes.append(
+            "DATA GAP: forecast convective rate unavailable — the conservative slot-canyon "
+            "fallback could not be evaluated."
+        )
 
     return tier, drivers, notes

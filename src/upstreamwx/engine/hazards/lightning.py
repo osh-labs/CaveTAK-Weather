@@ -20,6 +20,12 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     if inputs.thunderstorm_warning:
         tier = Tier.from_name(cfg["products"]["thunderstorm_warning_tier"])
         return tier, ["Active (severe) thunderstorm warning"], notes
+    if not inputs.nws_products_available:
+        # The alerts check never ran; "no warning" is unchecked, not verified (NFR-6).
+        notes.append(
+            "DATA GAP: NWS active-alert check unavailable — thunderstorm warnings could "
+            "not be verified for this briefing."
+        )
 
     candidates: list[tuple[Tier, str]] = []
 
@@ -75,6 +81,13 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     if candidates:
         tier = max(c[0] for c in candidates)
         drivers.extend(d for _, d in candidates)
+    elif p is None and inputs.refs_p_lightning is None:
+        # No ensemble signal existed to evaluate — a data gap, not a quiet forecast (NFR-6).
+        tier = Tier.MINIMAL
+        drivers.append(
+            "DATA GAP: no ensemble thunderstorm signal available over the exposure area "
+            "(feed unavailable or window out of range) — lightning tier is unassessed, not low"
+        )
     else:
         tier = Tier.MINIMAL
         drivers.append(f"GEFS P(tstm) below {bands['elevated_min']}%; no convective mention")
@@ -87,8 +100,9 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     if ceiling_key:
         ceiling = Tier.from_name(ceiling_key)
         href_min: float = ceiling_cfg["refs_override_min"]
+        # >= to match the configured contract ("REFS >= 60% bypasses") and the note below.
         href_overrides = (
-            inputs.refs_p_lightning is not None and inputs.refs_p_lightning > href_min
+            inputs.refs_p_lightning is not None and inputs.refs_p_lightning >= href_min
         )
         if not href_overrides and tier > ceiling:
             hp_str = (

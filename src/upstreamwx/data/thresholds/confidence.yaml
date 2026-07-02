@@ -1,18 +1,20 @@
 # Confidence qualifier — PRD v0.8 Appendix B §16.5, FR-17.
-# Applies to all hazards. Derived from SREF ensemble agreement (member support for
+# Applies to all hazards. Derived from GEFS/REFS ensemble agreement (member support for
 # the assigned tier condition) and cross-source consistency. The agreement fractions
 # (40% / 75%) are UpstreamWX proposals, tuned via field testing (FR-20a).
 hazard: all
-version: "1.0.0"
+version: "1.1.0"
 provenance:
   effective_date: "2026-06-18"
   rationale: >-
-    Operationalizes confidence as SREF member support for the assigned tier,
+    Operationalizes confidence as ensemble member support for the assigned tier,
     adjusted by inter-source agreement (AFD / SPC / derived fields). Fractions are
-    UpstreamWX proposals.
+    UpstreamWX proposals. v1.1 adds the missing-primary floor: a hazard whose primary
+    driver was unavailable at ingest reports the configured (Low) confidence instead
+    of the no-ensemble Moderate default (data quality first-class, NFR-6).
   source: "UpstreamWX PRD v0.8 §16.5"
 
-# Fraction of SREF members supporting the assigned tier condition, [0, 1].
+# Fraction of ensemble members supporting the assigned tier condition, [0, 1].
 member_support:
   high_min: 0.75      # >=75% members + sources consistent -> High
   moderate_min: 0.40  # 40-75%, or partial source disagreement -> Moderate
@@ -22,3 +24,9 @@ member_support:
 source_agreement:
   partial_disagreement_max: moderate   # partial disagreement caps confidence at Moderate
   material_conflict_tier: low          # material conflict forces Low
+
+# Confidence when a hazard's PRIMARY driver is missing entirely (ensemble feed down over
+# the domain, thermal series unavailable) rather than merely quiet. A posture computed
+# without its primary input must never present as moderately confident; the briefing
+# shows the benign tier with an explicit data-gap driver and this floor (NFR-6).
+missing_primary_confidence: low

@@ -83,7 +83,10 @@ def _domain_max(
     """REFS neighborhood-probability domain max for one cached forecast hour, or None.
 
     Reads through the persistent cache; a miss (e.g. an hour not warmed yet) re-fetches
-    transparently. Returns None when the field is absent (``LookupError``).
+    transparently. Returns None when the field is absent (``LookupError``), when the domain
+    lies off the REFS grid (``ValueError`` — never sample an unrelated edge cell), or when
+    the masked cells are all NaN (the aggregate reports None rather than a NaN that would
+    read as "no hazard" downstream).
     """
     try:
         field = load_probability_field_cached(
@@ -91,7 +94,10 @@ def _domain_max(
         )
     except LookupError:
         return None
-    agg = aggregate_over_polygon(field.data, polygon, field_name=var, threshold=prob)
+    try:
+        agg = aggregate_over_polygon(field.data, polygon, field_name=var, threshold=prob)
+    except ValueError:
+        return None
     return agg.max_value
 
 
@@ -107,7 +113,7 @@ def _fhour_range(fhours: list[int]) -> str:
 def fetch(
     mission: Mission,
     bundle: IngestBundle,
-    polygon: BaseGeometry,
+    polygon: BaseGeometry | None,
     *,
     lightning_polygon: BaseGeometry | None = None,
     now: datetime | None = None,
@@ -117,17 +123,34 @@ def fetch(
 
     QPF aggregates over ``polygon`` (the upstream watershed/RoC); the lightning neighborhood
     fields aggregate over ``lightning_polygon`` — the Lightning Area of Concern disk around the
-    activity (PRD §16.1) — which defaults to ``polygon`` when unset.
+    activity (PRD §16.1) — which defaults to ``polygon`` when unset. A ``None`` flood polygon
+    (delineation failed) skips QPF but still serves the lightning fields over the LAoC.
     """
     settings = settings or get_settings()
     now = now if now is not None else datetime.now(UTC)
     ltng_polygon = lightning_polygon if lightning_polygon is not None else polygon
+    if ltng_polygon is None and polygon is None:
+        bundle.sources_ok[NAME] = False
+        bundle.notes.append("REFS: no aggregation domain available (watershed and LAoC unset).")
+        return
 
     cycles = cached_cycles(now, settings=settings)
     if not cycles:
         # Source of truth is the cache: nothing warmed yet (cold start / before first tick).
         bundle.sources_ok[NAME] = False
         bundle.notes.append("REFS: no warmed cycle in cache yet (awaiting scheduler warm).")
+        return
+    age_h = (now - cycles[0].init_time).total_seconds() / 3600.0
+    if age_h > settings.ensemble_max_age_h:
+        # Freshness gate (data quality first-class): a stalled scheduler must not let a
+        # days-old run keep serving as the *authoritative same-day* 3 km signal. Stale REFS
+        # degrades loudly to "unavailable"; GEFS (which re-probes live) carries the horizon.
+        bundle.sources_ok[NAME] = False
+        bundle.notes.append(
+            f"REFS: newest warmed cycle is {age_h:.0f} h old "
+            f"(> {settings.ensemble_max_age_h:.0f} h freshness bound); treating the "
+            "same-day supplement as unavailable rather than serving stale data."
+        )
         return
 
     sources = resolve_valid_time_sources(
@@ -149,17 +172,18 @@ def fetch(
     for cycle, fhour in sorted(
         {(s.cycle, s.fhour) for s in sources}, key=lambda cf: (cf[0].init_time, cf[1])
     ):
-        p1 = _domain_max(
-            cycle, fhour, PRECIP_VAR, PRECIP_1H_PROB, polygon,
-            fcst=accum_window(fhour, 1), settings=settings,
-        )
-        p3 = _domain_max(
-            cycle, fhour, PRECIP_VAR, PRECIP_3H_PROB, polygon,
-            fcst=accum_window(fhour, 3), settings=settings,
-        )
-        hour_precip = max((v for v in (p1, p3) if v is not None), default=None)
-        if hour_precip is not None:
-            precip_vals.append(hour_precip)
+        if polygon is not None:
+            p1 = _domain_max(
+                cycle, fhour, PRECIP_VAR, PRECIP_1H_PROB, polygon,
+                fcst=accum_window(fhour, 1), settings=settings,
+            )
+            p3 = _domain_max(
+                cycle, fhour, PRECIP_VAR, PRECIP_3H_PROB, polygon,
+                fcst=accum_window(fhour, 3), settings=settings,
+            )
+            hour_precip = max((v for v in (p1, p3) if v is not None), default=None)
+            if hour_precip is not None:
+                precip_vals.append(hour_precip)
 
         ltng = _domain_max(cycle, fhour, LTNG_VAR, LTNG_PROB, ltng_polygon, settings=settings)
         if ltng is None:

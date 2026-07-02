@@ -433,10 +433,12 @@ function confPips(label) {
   return `<span class="conf"><span class="conf__dots">${dots}</span>${esc(label)}</span>`;
 }
 
-/* "1400–2100" → "14:00–21:00"; pass through other shapes untouched. */
+/* "1400–2100" → "14:00–21:00". The value comes from the (possibly hostile) briefing
+   JSON and every caller drops the result straight into innerHTML, so it is HTML-escaped
+   here; the digit reformatting is unaffected for legitimate clock windows. */
 function fmtWindow(w) {
   if (!w) return "—";
-  return w.replace(/\b(\d{2})(\d{2})\b/g, "$1:$2");
+  return esc(w).replace(/\b(\d{2})(\d{2})\b/g, "$1:$2");
 }
 function fmtWhen(iso) {
   if (!iso) return "—";
@@ -476,17 +478,19 @@ function renderMasthead(b) {
 
 function renderMission(b) {
   const m = b.mission;
+  /* Number() coercion: these are numbers in a legitimate briefing; a non-numeric payload
+     renders as "NaN" instead of reaching innerHTML as markup. */
   const domain = b.watershed?.area_sq_mi
-    ? `Upstream basin ≈ ${b.watershed.area_sq_mi} mi²` + (b.roc ? ` · RoC ${b.roc.radius_mi} mi` : "")
+    ? `Upstream basin ≈ ${Number(b.watershed.area_sq_mi)} mi²` + (b.roc ? ` · RoC ${Number(b.roc.radius_mi)} mi` : "")
     : "Point conditions";
   return `<div class="mission">
     <div>
       <h1 class="mission__title">${esc(m.name)}</h1>
-      <div class="mission__sub">${fmtWindowRange(b)} &nbsp;·&nbsp; ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)} &nbsp;·&nbsp; ${esc(domain)}</div>
+      <div class="mission__sub">${esc(fmtWindowRange(b))} &nbsp;·&nbsp; ${Number(m.lat).toFixed(4)}, ${Number(m.lon).toFixed(4)} &nbsp;·&nbsp; ${esc(domain)}</div>
     </div>
     <dl class="meta-grid">
       <div class="meta-row"><dt>Activity</dt><dd>${b.mission.activity === "cave" ? "Cave" : (b.mission.is_slot ? "Slot canyon" : "Canyon")}</dd></div>
-      <div class="meta-row"><dt>Generated</dt><dd>${fmtWhen(b.generated_at)} UTC</dd></div>
+      <div class="meta-row"><dt>Generated</dt><dd>${esc(fmtWhen(b.generated_at))} UTC</dd></div>
       <div class="meta-row"><dt>GEFS cycle</dt><dd class="mono">${esc(b.cache_cycle)}</dd></div>
       <div class="meta-row"><dt>UpstreamWX</dt><dd class="mono">${esc(appVersion(b))}</dd></div>
     </dl>
@@ -600,12 +604,14 @@ function renderForecast(b) {
 function renderSourceData(b) {
   const ri = b.risk_inputs || {};
   const ws = b.watershed || {};
+  /* Number() coercion mirrors renderMission: numeric risk inputs render as numbers (or
+     "NaN") even if the posted JSON carried strings; kv() escapes every value regardless. */
   const ensemble = [
-    ["GEFS P(precip/thunder)", ri.gefs_p_precip != null ? ri.gefs_p_precip + "%" : "—"],
-    ["GEFS P(thunderstorm)", ri.gefs_p_tstm != null ? ri.gefs_p_tstm + "%" : "—"],
-    ["CAPE", ri.cape_jkg != null ? ri.cape_jkg + " J/kg" : "—"],
-    ["REFS P(QPF)", ri.refs_in_range && ri.refs_p_precip != null ? ri.refs_p_precip + "%" : "n/a"],
-    ["REFS P(lightning)", ri.refs_in_range && ri.refs_p_lightning != null ? ri.refs_p_lightning + "%" : "n/a"],
+    ["GEFS P(precip/thunder)", ri.gefs_p_precip != null ? Number(ri.gefs_p_precip) + "%" : "—"],
+    ["GEFS P(thunderstorm)", ri.gefs_p_tstm != null ? Number(ri.gefs_p_tstm) + "%" : "—"],
+    ["CAPE", ri.cape_jkg != null ? Number(ri.cape_jkg) + " J/kg" : "—"],
+    ["REFS P(QPF)", ri.refs_in_range && ri.refs_p_precip != null ? Number(ri.refs_p_precip) + "%" : "n/a"],
+    ["REFS P(lightning)", ri.refs_in_range && ri.refs_p_lightning != null ? Number(ri.refs_p_lightning) + "%" : "n/a"],
     ["REFS cycle", ri.refs_cycle || "—"],
   ];
   const nws = [
@@ -613,7 +619,7 @@ function renderSourceData(b) {
     ["Flash Flood Watch", ri.flash_flood_watch ? "active" : "none"],
     ["Thunderstorm Warning", ri.thunderstorm_warning ? "ACTIVE" : "none"],
     ["SPC outlook", ri.spc_category || "—"],
-    ["Upstream basin", ws.area_sq_mi ? ws.area_sq_mi + " mi²" : "—"],
+    ["Upstream basin", ws.area_sq_mi ? Number(ws.area_sq_mi) + " mi²" : "—"],
   ];
   const kv = (rows) => rows.map(([k, v]) =>
     `<div class="kv__row"><span class="kv__k">${esc(k)}</span><span class="kv__v">${esc(v)}</span></div>`).join("");

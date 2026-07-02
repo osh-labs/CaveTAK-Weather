@@ -25,7 +25,9 @@ from .base import IngestBundle, to_hazard_inputs
 
 # Providers that don't need the watershed polygon; (name, module).
 _POINT_PROVIDERS = (nws, openmeteo, spc)
-MANDATORY = {"nws"}
+# "nws" is the active-alerts check (the authoritative product anchor); "nws_afd" the
+# forecaster-discussion chain. Both are FR-5 mandatory; they degrade independently.
+MANDATORY = {"nws", "nws_afd"}
 
 # Bundle fields that accumulate from more than one source and must be *combined* on merge
 # rather than copied. ``sources_ok`` keys are disjoint per source, so a plain update is exact.
@@ -55,7 +57,7 @@ def _run_point_provider(provider, mission: Mission) -> IngestBundle:
 
 
 def _run_gefs(
-    mission: Mission, polygon: BaseGeometry, lightning_polygon: BaseGeometry, cycle
+    mission: Mission, polygon: BaseGeometry | None, lightning_polygon: BaseGeometry, cycle
 ) -> IngestBundle:
     """Aggregate GEFS over the domain into a private bundle, degrading on failure (NFR-6).
 
@@ -74,7 +76,7 @@ def _run_gefs(
 
 
 def _run_refs(
-    mission: Mission, polygon: BaseGeometry, lightning_polygon: BaseGeometry
+    mission: Mission, polygon: BaseGeometry | None, lightning_polygon: BaseGeometry
 ) -> IngestBundle:
     """Aggregate REFS over the domain into a private bundle, degrading on failure (NFR-6).
 
@@ -148,10 +150,12 @@ def _run_watershed_and_ensembles(
     # Lightning Area of Concern (PRD §16.1, §13 principle 4): aggregate the lightning signal
     # over a disk around the activity rather than the upstream watershed. The disk is the raw
     # RoC circle — *not* intersected with the basin — because lightning is a local atmospheric
-    # hazard independent of flow routing. Defensive: a disk failure must never crash the
-    # briefing (NFR-6); fall back to the flash-flood domain. None radius -> same fallback.
+    # hazard independent of flow routing, and for the same reason it does not need the basin:
+    # a failed delineation must not silence the lightning ensemble (data quality first-class,
+    # NFR-6). Defensive: a disk failure must never crash the briefing; fall back to the
+    # flash-flood domain. None radius -> same fallback.
     lightning_polygon = polygon
-    if polygon is not None and mission.lightning_radius_km:
+    if mission.lightning_radius_km:
         try:
             laoc = roc_disk(mission.lat, mission.lon, mission.lightning_radius_km)
             lightning_polygon = laoc
@@ -167,8 +171,13 @@ def _run_watershed_and_ensembles(
                 f"lightning area of concern: disk failed ({type(exc).__name__}); "
                 "upstream domain used for lightning."
             )
+    if polygon is None and lightning_polygon is not None:
+        bundle.notes.append(
+            "watershed unavailable: flash-flood ensemble fields have no domain; "
+            "lightning still aggregates over the Lightning Area of Concern disk."
+        )
 
-    if polygon is not None:
+    if polygon is not None or lightning_polygon is not None:
         # GEFS and REFS are independent aggregations over the same domain; run them
         # concurrently into private bundles, then merge (GEFS first, then REFS) in a fixed
         # order. Both fetches contain their own failures (NFR-6), so neither task raises.

@@ -21,7 +21,9 @@ def evaluate(
     hi = inputs.heat_index_f
     if hi is None:
         category = HeatCategory.NONE
-        drivers.append("No heat-index data")
+        drivers.append(
+            "DATA GAP: heat-index data unavailable — heat category is unassessed, not absent"
+        )
     else:
         if hi >= cats["extreme_danger_min"]:
             category = HeatCategory.EXTREME_DANGER

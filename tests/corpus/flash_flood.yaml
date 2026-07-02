@@ -67,3 +67,41 @@ cases:
     is_slot: false
     inputs: {gefs_p_precip: 10, measurable_precip: true, convective_rate_in_per_hr: 0.9}
     expect: minimal
+  # ---- REFS same-day overlay cut points (refs_probability: high>=40, elevated>=10).
+  # REFS is authoritative in-window (FR-7a); these pin its bands and its raise paths,
+  # which previously had zero corpus coverage.
+  - id: refs_high_lower_edge
+    inputs: {gefs_p_precip: 5, measurable_precip: false, refs_p_precip: 40}
+    expect: high
+  - id: refs_just_below_high_is_elevated
+    inputs: {gefs_p_precip: 5, measurable_precip: false, refs_p_precip: 39}
+    expect: elevated
+  - id: refs_elevated_lower_edge
+    inputs: {gefs_p_precip: 5, measurable_precip: false, refs_p_precip: 10}
+    expect: elevated
+  - id: refs_just_below_elevated
+    inputs: {gefs_p_precip: 5, measurable_precip: false, refs_p_precip: 9}
+    expect: minimal
+  - id: refs_raises_over_gefs_band
+    # GEFS says Elevated; the 3 km same-day ensemble sees more -> High (FR-19 max).
+    inputs: {gefs_p_precip: 30, measurable_precip: true, refs_p_precip: 55}
+    expect: high
+  - id: refs_raises_over_product
+    # An active Flood Advisory (Elevated) must not suppress a strong REFS signal.
+    inputs: {flood_advisory: true, gefs_p_precip: 0, refs_p_precip: 45}
+    expect: high
+  # ---- Data-quality contract (v1.1): unknown is not dry, missing is not low-risk.
+  - id: band_with_unknown_precip_applies_conservatively
+    # Surface feed down (measurable_precip unknown): the Elevated band applies rather
+    # than letting the gap read as "dry" and gate it off. The genuinely-dry False case
+    # is pinned above (elevated_band_requires_measurable_precip).
+    inputs: {gefs_p_precip: 35, measurable_precip: null}
+    expect: elevated
+  - id: ensemble_missing_reads_unassessed_minimal
+    # No ensemble signal at all: tier floor is Minimal (never invent a hazard), but the
+    # driver marks it as a DATA GAP and confidence is floored Low (see confidence.yaml).
+    inputs: {}
+    expect: minimal
+  - id: antecedent_bump_saturates_at_extreme
+    inputs: {gefs_p_precip: 65, measurable_precip: true, antecedent_precip_24_72h: true}
+    expect: extreme

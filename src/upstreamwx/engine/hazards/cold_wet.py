@@ -21,7 +21,10 @@ def evaluate(
     at = inputs.apparent_temp_f
     if at is None:
         tier = Tier.MINIMAL
-        drivers.append("No apparent-temperature data")
+        drivers.append(
+            "DATA GAP: apparent-temperature data unavailable — cold/wet tier is "
+            "unassessed, not low"
+        )
     else:
         if at <= bands["extreme_max"]:
             tier = Tier.EXTREME

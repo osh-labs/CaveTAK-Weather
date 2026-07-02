@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from .. import gefs, refs
 from ..config import get_settings
@@ -29,6 +30,11 @@ from .cycles import cycle_key
 from .models import BriefingResponse, MissionSpec
 
 logger = logging.getLogger("upstreamwx.api.service")
+
+# How long a live-probe cycle token is reused before re-probing NOMADS (seconds). Keeps the
+# availability check off the per-request path while still noticing a newly published run
+# within minutes of it appearing.
+_TOKEN_TTL_S = 300.0
 
 
 class BriefingBusy(Exception):
@@ -73,6 +79,39 @@ class BriefingService:
         self._warm_pool: ThreadPoolExecutor | None = None
         self._warm_pending: set[str] = set()
         self._warm_lock = threading.Lock()
+        # TTL-cached availability token (see _cycle_token). (monotonic stamp, token).
+        self._token_lock = threading.Lock()
+        self._token_cached: tuple[float, str] | None = None
+
+    # -- cycle-validity token ---------------------------------------------------------
+    def _cycle_token(self, now: datetime) -> str:
+        """Cache-validity token from the newest ensemble cycle actually *available*.
+
+        The wall-clock boundary (``cycle_key``) ignored publication lag: at 12:10Z it
+        declared the token ``T12Z`` while the freshest data on NOMADS (and in the local
+        cache) was still the 06Z run — so a briefing built from 06Z data was keyed, and
+        advertised, as 12Z-fresh (data quality first-class: the token must track the data,
+        not the clock). Resolution order: a fresh-enough warmed cycle on disk (cheap,
+        hermetic — and exactly what the GEFS provider itself will read), else a live
+        NOMADS probe memoised for ``_TOKEN_TTL_S``, else the wall-clock boundary as the
+        last-resort fallback so caching still functions with the feed dark (NFR-6).
+        """
+        settings = get_settings()
+        max_age = timedelta(hours=settings.ensemble_max_age_h)
+        cached = gefs.cached_cycles(now=now, settings=settings)
+        if cached and now - cached[0].init_time <= max_age:
+            return cached[0].init_time.strftime("%Y-%m-%dT%HZ")
+        with self._token_lock:
+            if (
+                self._token_cached is not None
+                and time.monotonic() - self._token_cached[0] < _TOKEN_TTL_S
+            ):
+                return self._token_cached[1]
+        live = gefs.latest_available_cycle(now=now)
+        token = live.init_time.strftime("%Y-%m-%dT%HZ") if live is not None else cycle_key(now)
+        with self._token_lock:
+            self._token_cached = (time.monotonic(), token)
+        return token
 
     # -- request path ---------------------------------------------------------------
     def get_briefing(
@@ -84,8 +123,8 @@ class BriefingService:
         inputs = spec.to_inputs()
         key = mission_cache_key(mission, inputs)
         # Explicit inputs are deterministic -> never expire; live briefings are valid
-        # for the current SREF cycle only (FR-12).
-        token = STATIC_TOKEN if inputs is not None else cycle_key(now)
+        # for the newest *available* GEFS/REFS cycle (FR-12) — see _cycle_token.
+        token = STATIC_TOKEN if inputs is not None else self._cycle_token(now)
 
         cached = self.cache.get(key, token)
         if cached is not None:
@@ -164,7 +203,7 @@ class BriefingService:
         the unit the always-on scheduler calls each cycle (see ``scheduler.py``).
         """
         now = now or datetime.now(UTC)
-        token = cycle_key(now)
+        token = self._cycle_token(now)
         regenerated = 0
         for key, reg in list(self._active.items()):
             if now >= _as_utc(reg.mission.window_end):

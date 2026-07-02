@@ -1,33 +1,81 @@
 # Confidence qualifier boundary cases — PRD Appendix B §16.5.
 # Member-support edges: high>=0.75, moderate>=0.40; partial caps at Moderate;
-# material conflict forces Low; no ensemble info defaults to Moderate.
+# material conflict forces Low; no ensemble info (with the primary driver present)
+# defaults to Moderate.
+#
+# Every member-support case also sets the hazard's primary driver (gefs_p_precip /
+# gefs_p_tstm): confidence v1.1 floors the qualifier at Low when the primary input was
+# unavailable at ingest (data quality first-class, NFR-6) — member support in reality
+# always comes from the same ensemble that produced that probability, so a vector with
+# support but no driver was an artifact of the old corpus, not a reachable state.
 hazard: confidence
 cases:
   - id: high_lower_edge
     for_hazard: flash_flood
-    inputs: {member_support: {flash_flood: 0.75}, source_agreement: consistent}
+    inputs: {gefs_p_precip: 75, member_support: {flash_flood: 0.75}, source_agreement: consistent}
     expect: high
   - id: just_below_high
     for_hazard: flash_flood
-    inputs: {member_support: {flash_flood: 0.74}, source_agreement: consistent}
+    inputs: {gefs_p_precip: 74, member_support: {flash_flood: 0.74}, source_agreement: consistent}
     expect: moderate
   - id: moderate_lower_edge
     for_hazard: flash_flood
-    inputs: {member_support: {flash_flood: 0.40}, source_agreement: consistent}
+    inputs: {gefs_p_precip: 40, member_support: {flash_flood: 0.40}, source_agreement: consistent}
     expect: moderate
   - id: just_below_moderate
     for_hazard: flash_flood
-    inputs: {member_support: {flash_flood: 0.39}, source_agreement: consistent}
+    inputs: {gefs_p_precip: 39, member_support: {flash_flood: 0.39}, source_agreement: consistent}
     expect: low
   - id: partial_disagreement_caps_high_to_moderate
     for_hazard: lightning
-    inputs: {member_support: {lightning: 0.90}, source_agreement: partial}
+    inputs: {gefs_p_tstm: 90, member_support: {lightning: 0.90}, source_agreement: partial}
     expect: moderate
+  - id: partial_disagreement_leaves_low_at_low
+    # min(base, cap): partial disagreement must not RAISE a Low base to the Moderate cap.
+    for_hazard: lightning
+    inputs: {gefs_p_tstm: 20, member_support: {lightning: 0.20}, source_agreement: partial}
+    expect: low
   - id: material_conflict_forces_low
     for_hazard: lightning
-    inputs: {member_support: {lightning: 0.90}, source_agreement: conflict}
+    inputs: {gefs_p_tstm: 90, member_support: {lightning: 0.90}, source_agreement: conflict}
     expect: low
   - id: no_ensemble_defaults_moderate
+    # Primary driver present but no member-support entry (e.g. a REFS-only path miss):
+    # defaults Moderate rather than overclaiming High.
+    for_hazard: flash_flood
+    inputs: {gefs_p_precip: 50, member_support: {}, source_agreement: consistent}
+    expect: moderate
+  # ---- missing-primary floor (confidence v1.1, data quality first-class) -------------
+  - id: missing_primary_flood_forces_low
+    # Ensemble feed down over the domain: the Minimal tier is "unassessed", so the
+    # qualifier must not present as moderately confident.
     for_hazard: flash_flood
     inputs: {member_support: {}, source_agreement: consistent}
+    expect: low
+  - id: missing_primary_lightning_forces_low
+    for_hazard: lightning
+    inputs: {member_support: {}, source_agreement: consistent}
+    expect: low
+  - id: missing_primary_heat_forces_low
+    for_hazard: heat
+    inputs: {member_support: {}, source_agreement: consistent}
+    expect: low
+  - id: missing_primary_cold_wet_forces_low
+    for_hazard: cold_wet
+    inputs: {member_support: {}, source_agreement: consistent}
+    expect: low
+  - id: flood_product_anchors_confidence_without_ensemble
+    # A verified active product is a real primary basis even with the ensemble dark:
+    # the member-support default (Moderate) applies, not the missing-primary floor.
+    for_hazard: flash_flood
+    inputs: {flash_flood_warning: true, member_support: {}, source_agreement: consistent}
     expect: moderate
+  - id: unverified_products_do_not_anchor
+    # Same vector but the alerts check never ran: flags are unchecked, not clear.
+    for_hazard: flash_flood
+    inputs:
+      flash_flood_warning: false
+      nws_products_available: false
+      member_support: {}
+      source_agreement: consistent
+    expect: low

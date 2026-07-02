@@ -52,7 +52,10 @@ def _query(lat: float, lon: float, *, timeout: float = 30.0, attempts: int = _MA
         "wind_speed_unit": "mph",
         "precipitation_unit": "inch",
         "past_days": 3,
-        "forecast_days": 3,
+        # Cover the full planning horizon the ensembles serve (GEFS 0.25° reaches f240 =
+        # 10 days). At 3 days, a day-4 mission silently read as "dry"/no-thermal-data and
+        # the missing `measurable_precip` gated the GEFS Elevated flood band off.
+        "forecast_days": 16,
     }
     last_exc: requests.exceptions.RequestException | None = None
     for attempt in range(attempts):
@@ -145,29 +148,79 @@ def _build_forecast_hourly(mission: Mission, hourly: dict, window: list[int]) ->
 
 
 def fetch(mission: Mission, bundle: IngestBundle) -> None:
-    """Populate derived thermal / precip fields on the bundle for the window."""
+    """Populate derived thermal / precip / convective fields on the bundle for the window.
+
+    Coverage is first-class: the fields are only set from hours the fetched series actually
+    covers, and a window the series does not (fully) cover leaves the precip booleans ``None``
+    ("unknown") instead of a ``False`` that downstream reads as "dry" — a missing value must
+    never present as a benign one (NFR-6).
+    """
     data = _query(mission.lat, mission.lon)
     hourly = data.get("hourly", {})
     times = hourly.get("time", [])
     apparent = hourly.get("apparent_temperature", [])
     precip = hourly.get("precipitation", [])
+    cape = hourly.get("cape", [])
+    wind = hourly.get("wind_speed_10m", [])
 
     window = _in_window(times, mission.window_start, mission.window_end)
+    covered = _window_covered(times, mission.window_start, mission.window_end)
     if window:
-        app_vals = [apparent[i] for i in window if apparent[i] is not None]
+        app_vals = [apparent[i] for i in window if i < len(apparent) and apparent[i] is not None]
         if app_vals:
             # Heat uses the hottest hour; cold/wet uses the coldest (egress-relevant).
             bundle.heat_index_f = max(app_vals)
             bundle.apparent_temp_f = min(app_vals)
-        win_precip = sum(precip[i] for i in window if precip[i] is not None)
-        bundle.measurable_precip = win_precip >= _MEASURABLE_IN
+        cape_vals = [cape[i] for i in window if i < len(cape) and cape[i] is not None]
+        if cape_vals:
+            bundle.cape_jkg = max(cape_vals)  # lightning instability context (§16.2)
+        wind_vals = [wind[i] for i in window if i < len(wind) and wind[i] is not None]
+        if wind_vals:
+            bundle.wind_mph = max(wind_vals)
+        precip_vals = [precip[i] for i in window if i < len(precip) and precip[i] is not None]
+        # Hourly QPF is inch over one hour, i.e. an in/hr rate: its window max is the
+        # forecast convective rate the slot-canyon fallback reads (§16.1 slot modifier).
+        if precip_vals:
+            bundle.convective_rate_in_per_hr = max(precip_vals)
+        win_precip = sum(precip_vals)
+        if win_precip >= _MEASURABLE_IN:
+            bundle.measurable_precip = True
+        else:
+            # A dry *covered* window is a real False; a partially covered one is unknown —
+            # the uncovered remainder could hold the precip the Elevated flood band gates on.
+            bundle.measurable_precip = False if covered else None
         # Display series for the PWA Forecast view (does not feed the engine).
         bundle.forecast_hourly = _build_forecast_hourly(mission, hourly, window)
+    else:
+        bundle.measurable_precip = None
+        bundle.notes.append(
+            "open_meteo: mission window outside the fetched forecast range; "
+            "thermal/precip fields unavailable."
+        )
+    if window and not covered:
+        bundle.notes.append(
+            "open_meteo: forecast series only partially covers the mission window; "
+            "thermal/precip fields reflect the covered hours only."
+        )
 
-    # Antecedent wetness: significant precip in the hours before the window.
+    # Antecedent wetness: significant precip in the hours before the window. Same asymmetry:
+    # observed wetness is a real True; "no wetness seen" is only a real False when the prior
+    # hours were actually in the fetched series.
     start_cmp = _to_utc_naive(mission.window_start)
     prior = [i for i, t in enumerate(times) if datetime.fromisoformat(t) < start_cmp]
-    prior_precip = sum(precip[i] for i in prior[-72:] if precip[i] is not None)
-    bundle.antecedent_precip_24_72h = prior_precip >= _ANTECEDENT_IN
+    prior_precip = sum(precip[i] for i in prior[-72:] if i < len(precip) and precip[i] is not None)
+    if prior_precip >= _ANTECEDENT_IN:
+        bundle.antecedent_precip_24_72h = True
+    else:
+        bundle.antecedent_precip_24_72h = False if prior else None
 
     bundle.sources_ok[NAME] = True
+
+
+def _window_covered(times: list[str], start: datetime, end: datetime) -> bool:
+    """True when the fetched hourly series spans the whole mission window."""
+    if not times:
+        return False
+    first = datetime.fromisoformat(times[0])
+    last = datetime.fromisoformat(times[-1])
+    return first <= _to_utc_naive(start) and _to_utc_naive(end) <= last

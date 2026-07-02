@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import requests
 from shapely.geometry.base import BaseGeometry
@@ -53,6 +53,12 @@ PROXY_PRECIP_MM = 2.5
 GEFS_STEP_H = 6
 MAX_FHOURS = 8
 MAX_WORKERS = 16
+# The 0.25° "select" set is published to f240; requesting beyond it guarantees 404s.
+MAX_FHOUR_0P25 = 240
+# Member-exceedance quorum: below this many members at a forecast hour the fraction is
+# too noisy to publish as a probability (2 members -> "50%"); the hour is skipped and the
+# short-count surfaced as provenance instead (data quality first-class, NFR-6).
+MIN_MEMBERS = 8
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -63,14 +69,21 @@ def _select_fhours(cycle: GefsCycle, window_start: datetime, window_end: datetim
     """GEFS forecast hours (6-hourly) whose 6 h APCP bucket overlaps the mission window.
 
     A bucket ending at ``f`` covers [f-6, f] in hours from cycle init; it overlaps [t0, t1] when
-    ``f > t0`` and ``f - 6 < t1``. Bounded to :data:`MAX_FHOURS` by even subsampling. Falls back
-    to the single nearest in-range hour if the window lands between steps or outside the horizon.
+    ``f > t0`` and ``f - 6 < t1``. Bounded to :data:`MAX_FHOURS` by even subsampling. A window
+    that merely lands between steps falls back to the nearest in-range hour; a window wholly
+    beyond the product horizon returns ``[]`` — off-horizon data must not masquerade as the
+    window's signal (data quality first-class, NFR-6).
     """
     t0 = (_as_utc(window_start) - cycle.init_time).total_seconds() / 3600.0
     t1 = (_as_utc(window_end) - cycle.init_time).total_seconds() / 3600.0
-    hours = [f for f in range(GEFS_STEP_H, 384 + 1, GEFS_STEP_H) if f > t0 and f - GEFS_STEP_H < t1]
+    horizon = MAX_FHOUR_0P25  # the 0.25° select set ends at f240; beyond it is a certain 404
+    if t0 >= horizon:
+        return []
+    hours = [
+        f for f in range(GEFS_STEP_H, horizon + 1, GEFS_STEP_H) if f > t0 and f - GEFS_STEP_H < t1
+    ]
     if not hours:
-        mid = max(GEFS_STEP_H, min(384, round((t0 + t1) / 2 / GEFS_STEP_H) * GEFS_STEP_H))
+        mid = max(GEFS_STEP_H, min(horizon, round((t0 + t1) / 2 / GEFS_STEP_H) * GEFS_STEP_H))
         return [mid]
     if len(hours) > MAX_FHOURS:
         step = (len(hours) - 1) / (MAX_FHOURS - 1)
@@ -109,7 +122,7 @@ def _member_sample(
     cycle: GefsCycle,
     member: str,
     fhour: int,
-    polygon: BaseGeometry,
+    polygon: BaseGeometry | None,
     ltng_polygon: BaseGeometry,
     *,
     settings: Settings,
@@ -120,7 +133,9 @@ def _member_sample(
 
     Each field is fetched once (cache-through) and reduced per domain. Missing fields -> None so
     a partially-published member degrades gracefully (NFR-6). The apcp-over-LAoC reuses the
-    watershed value when the two domains coincide (no Lightning Area of Concern set).
+    watershed value when the two domains coincide (no Lightning Area of Concern set). A ``None``
+    flood ``polygon`` (watershed delineation failed but the LAoC disk stands) skips the flood
+    reduction and still feeds the lightning proxy.
 
     When ``crop_bbox`` is set the decode crops to it (in the pool worker if ``use_pool`` and a pool
     is installed, else in-process), so the field comes back already in the polygon frame and is
@@ -134,15 +149,22 @@ def _member_sample(
     same_domain = ltng_polygon is polygon
     pmax = _poly_max_precropped if crop_bbox is not None else _poly_max
 
+    # A single member's transient miss (unpublished hour mid-cycle-publish, a NOMADS
+    # hiccup, an off-grid domain) degrades to None for that member instead of sinking the
+    # whole ensemble — the quorum below decides whether enough members remain (NFR-6).
+    member_errors = (LookupError, ValueError, TimeoutError, requests.RequestException, OSError)
     apcp_flood = apcp_ltng = cape_ltng = None
     try:
         af = load_member_field_cached(
             cycle, member, fhour, PRECIP_VAR, apcp_fcst, PRECIP_LEVEL,
             settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
         )
-        apcp_flood = pmax(af, polygon, PRECIP_VAR)
-        apcp_ltng = apcp_flood if same_domain else pmax(af, ltng_polygon, PRECIP_VAR)
-    except LookupError:
+        if polygon is not None:
+            apcp_flood = pmax(af, polygon, PRECIP_VAR)
+        apcp_ltng = (
+            apcp_flood if same_domain else pmax(af, ltng_polygon, PRECIP_VAR)
+        )
+    except member_errors:
         pass
     try:
         cf = load_member_field_cached(
@@ -150,25 +172,33 @@ def _member_sample(
             settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
         )
         cape_ltng = pmax(cf, ltng_polygon, CAPE_VAR)
-    except LookupError:
+    except member_errors:
         pass
     return apcp_flood, apcp_ltng, cape_ltng
 
 
-def _resolve_cycle(cycle, *, settings=None):
-    """Pick the GEFS cycle to read: freshest warmed-in-cache, else a live NOMADS probe."""
+def _resolve_cycle(cycle, *, settings: Settings, now: datetime | None = None):
+    """Pick the GEFS cycle to read: freshest *fresh-enough* warmed cycle, else a live probe.
+
+    A cached cycle older than ``settings.ensemble_max_age_h`` is never served as current —
+    a stalled scheduler or a long-idle CLI ``data_dir`` must fall through to the live NOMADS
+    probe rather than quietly masquerade days-old members as the current ensemble (data
+    quality first-class; the age gate is the freshness contract, not ops behavior).
+    """
     if cycle is not None:
         return cycle
-    cached = cached_cycles(settings=settings)
-    if cached:
+    now = now or datetime.now(UTC)
+    max_age = timedelta(hours=settings.ensemble_max_age_h)
+    cached = cached_cycles(now=now, settings=settings)
+    if cached and now - cached[0].init_time <= max_age:
         return cached[0]
-    return latest_available_cycle()
+    return latest_available_cycle(now=now)
 
 
 def fetch(
     mission: Mission,
     bundle: IngestBundle,
-    polygon: BaseGeometry,
+    polygon: BaseGeometry | None,
     *,
     lightning_polygon: BaseGeometry | None = None,
     cycle=None,
@@ -178,9 +208,10 @@ def fetch(
 
     Flash-flood precip exceedance aggregates over ``polygon`` (the upstream watershed/RoC); the
     lightning proxy aggregates over ``lightning_polygon`` (the Lightning Area of Concern), which
-    defaults to ``polygon``. Member fetches for every (fhour, member) are fanned across a thread
-    pool; the conservative max exceedance across the window's forecast hours is taken (the worst
-    case any covered hour shows), mirroring the REFS aggregation.
+    defaults to ``polygon``. A ``None`` flood polygon (delineation failed) skips the flood signal
+    but still serves lightning over the LAoC. Member fetches for every (fhour, member) are fanned
+    across a thread pool; the conservative max exceedance across the window's forecast hours is
+    taken (the worst case any covered hour shows), mirroring the REFS aggregation.
     """
     settings = settings or get_settings()
     cycle = _resolve_cycle(cycle, settings=settings)
@@ -189,15 +220,26 @@ def fetch(
         bundle.notes.append("GEFS: no available cycle on NOMADS (retention/lag).")
         return
     ltng_polygon = lightning_polygon if lightning_polygon is not None else polygon
+    if ltng_polygon is None:
+        bundle.sources_ok[NAME] = False
+        bundle.notes.append("GEFS: no aggregation domain available (watershed and LAoC unset).")
+        return
 
     fhours = _select_fhours(cycle, mission.window_start, mission.window_end)
+    if not fhours:
+        bundle.sources_ok[NAME] = False
+        bundle.notes.append(
+            f"GEFS: mission window is beyond the 0.25° product horizon "
+            f"(f{MAX_FHOUR_0P25}, ~{MAX_FHOUR_0P25 // 24} days); no ensemble signal."
+        )
+        return
 
     # Always crop each member decode to the union of the watershed + LAoC bboxes — this keeps the
     # retained/in-flight arrays ~KB instead of the 16.5 MB global grid (the in-process full-grid
     # retention is what OOM-killed the 2 GB host). The crop runs in a worker process when a decode
     # pool is installed (API, opt-in), else in-process (the default everywhere).
     use_pool = decode_pool_enabled()
-    crop_bbox = _union_bounds(polygon, ltng_polygon)
+    crop_bbox = _union_bounds(ltng_polygon, polygon)
 
     # Fan (fhour, member) member fetches across a thread pool; network + aggregation run
     # concurrently (Spike F: keeps the 31-member fetch in budget), decode runs in the pool above
@@ -205,45 +247,52 @@ def fetch(
     tasks = [(f, m) for f in fhours for m in MEMBERS]
     sample_t = tuple[float | None, float | None, float | None]
     samples: dict[int, list[sample_t]] = {f: [] for f in fhours}
-    try:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {
-                pool.submit(
-                    _member_sample, cycle, m, f, polygon, ltng_polygon,
-                    settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
-                ): f
-                for f, m in tasks
-            }
-            for fut, f in futures.items():
-                samples[f].append(fut.result())
-    except (TimeoutError, requests.RequestException, OSError) as exc:
-        bundle.sources_ok[NAME] = False
-        bundle.notes.append(f"GEFS: member fetch failed ({exc}); ensemble unavailable.")
-        return
+    # Per-member failures degrade to None inside _member_sample, so one flaky fetch out of
+    # ~250 tasks can no longer discard the whole ensemble; the quorum below is the arbiter.
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(
+                _member_sample, cycle, m, f, polygon, ltng_polygon,
+                settings=settings, crop_bbox=crop_bbox, use_pool=use_pool,
+            ): f
+            for f, m in tasks
+        }
+        for fut, f in futures.items():
+            samples[f].append(fut.result())
 
-    # Per forecast hour: member-exceedance fraction (percent). Conservative max across the window.
+    # Per forecast hour: member-exceedance fraction (percent), only when a quorum of members
+    # answered — a 2-member "50%" is noise, not a probability. Conservative max across the
+    # window; the smallest contributing member count is surfaced as provenance.
     precip_pcts: list[float] = []
     proxy_pcts: list[float] = []
+    min_members_used: int | None = None
     for f in fhours:
         rows = samples[f]
         apcp_flood = [a for a, _, _ in rows if a is not None]
         paired = [(al, c) for _, al, c in rows if al is not None and c is not None]
-        if apcp_flood:
+        if len(apcp_flood) >= MIN_MEMBERS:
             precip_pcts.append(
                 100.0 * sum(a > PRECIP_THRESH_MM for a in apcp_flood) / len(apcp_flood)
             )
-        if paired:
+            n = len(apcp_flood)
+            min_members_used = n if min_members_used is None else min(min_members_used, n)
+        if len(paired) >= MIN_MEMBERS:
             proxy_pcts.append(
                 100.0
                 * sum(a > PROXY_PRECIP_MM and c > PROXY_CAPE_JKG for a, c in paired)
                 / len(paired)
             )
+            n = len(paired)
+            min_members_used = n if min_members_used is None else min(min_members_used, n)
 
     gefs_precip = max(precip_pcts, default=None)
     gefs_tstm = max(proxy_pcts, default=None)
     if gefs_precip is None and gefs_tstm is None:
         bundle.sources_ok[NAME] = False
-        bundle.notes.append("GEFS: no member fields available over the domain for this window.")
+        bundle.notes.append(
+            f"GEFS: fewer than {MIN_MEMBERS} members answered over the domain for this "
+            "window (cycle mid-publish or feed trouble); ensemble unavailable."
+        )
         return
 
     bundle.gefs_p_precip = gefs_precip
@@ -256,8 +305,15 @@ def fetch(
         bundle.member_support["lightning"] = gefs_tstm / 100.0
 
     fh = f"f{min(fhours):03d}" if len(fhours) == 1 else f"f{min(fhours):03d}-f{max(fhours):03d}"
+    bundle.gefs_cycle = f"{cycle.date}/{cycle.hh}Z"
     bundle.notes.append(
         f"GEFS cycle {cycle.date}/{cycle.hh}Z {fh}; member-exceedance P(precip) and a "
         "CAPE×precip lightning proxy over the upstream domain (~0.25° global ensemble)."
     )
+    if min_members_used is not None and min_members_used < len(MEMBERS):
+        bundle.notes.append(
+            f"GEFS: partial ensemble — as few as {min_members_used}/{len(MEMBERS)} members "
+            "contributed at some forecast hours (cycle mid-publish); probabilities computed "
+            "over the members that answered."
+        )
     bundle.sources_ok[NAME] = True

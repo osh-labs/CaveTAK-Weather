@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # 4 covers ~1 day of GEFS's four daily cycles (00/06/12/18Z).
     gefs_cache_keep_cycles: int = 4
 
+    # Freshness bound (hours since run init) for serving a cached ensemble cycle as "current".
+    # Both ensembles run 6-hourly with a ~4-8 h publication lag, so a healthy system serves runs
+    # <= ~14 h old; 24 h tolerates a missed warm without letting a stalled scheduler or a
+    # long-idle CLI data_dir quietly present days-old members as the live ensemble. Past the
+    # bound GEFS falls through to a live NOMADS probe and REFS degrades to "unavailable" with
+    # an explicit note (data quality first-class, NFR-6).
+    ensemble_max_age_h: float = 24.0
+
     # Number of recent REFS *runs* (00/06/12/18Z) to retain in the on-disk grid cache. 3
     # guarantees the previous run is present to backfill the current run's spin-up hours
     # even on a missed scheduler tick or a late publish.

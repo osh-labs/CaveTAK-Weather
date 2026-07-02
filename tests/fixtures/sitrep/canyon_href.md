@@ -36,6 +36,7 @@
 ### Flash flood
 - GEFS P(precip/thunder) 65% ≥ 60% over upstream domain
 - REFS neighborhood P(QPF) 45% concurs at High
+- DATA GAP: forecast convective rate unavailable — the conservative slot-canyon fallback could not be evaluated.
 
 ### Lightning
 - GEFS P(tstm) 50% ≥ 40%
@@ -58,7 +59,7 @@ Flash-flood assessment aggregates over the upstream contributing watershed of HU
 
 ## SOURCE DATA
 
-Threshold config: flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.0.0
+Threshold config: flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.1.0
 
 Active NWS products:
 - Flash Flood Warning: no
@@ -71,7 +72,7 @@ Active NWS products:
 - AFD excessive-rain / flood mention: no
 - SPC outlook: slight
 
-GEFS ensemble (upstream domain):
+GEFS ensemble (upstream domain, cycle n/a):
 - P(precip/thunder): 65%
 - P(thunderstorm): 50%
 - Convective rate: n/a
@@ -87,7 +88,8 @@ Derived fields (Open-Meteo):
 - Heat index: 95 °F
 - Apparent temp: 92 °F
 - Wind: 8 mph
-- Antecedent precip (24–72 h): no
+- Measurable window precip: yes
+- Antecedent precip (24–72 h): unknown (data unavailable)
 
 Source availability:
 - openmeteo: ok

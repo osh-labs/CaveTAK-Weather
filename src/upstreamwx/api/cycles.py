@@ -1,11 +1,12 @@
 """Refresh-cycle arithmetic aligned to the GEFS/REFS + AFD update cadence (PRD FR-12).
 
 Briefings are cached and regenerated on the model cycle, not per request, so reopening
-the app costs nothing (PRD §7, §11). The SREF ensemble runs every six hours at
-03/09/15/21Z (roadmap §M0.1.1); AFDs are issued roughly twice daily and updated as
-needed, comfortably inside that cadence. We therefore key cache validity and the
-scheduler to the SREF boundary: a briefing generated for cycle *C* is current until the
-next boundary, when the scheduler regenerates it (FR-12).
+the app costs nothing (PRD §7, §11). GEFS and REFS both run every six hours at
+00/06/12/18Z; AFDs are issued roughly twice daily and updated as needed, comfortably
+inside that cadence. The scheduler anchors to these boundaries. Note that cache
+*validity* is keyed to the newest cycle actually **available** (publication lags the
+boundary by hours — see ``BriefingService._cycle_token``); the wall-clock ``cycle_key``
+here is only its last-resort fallback and the scheduler's timing source.
 
 Pure datetime math — no I/O — so it is deterministic and unit-testable. The always-on
 scheduler that *acts* on these boundaries is host-dependent (EC2) and lives in

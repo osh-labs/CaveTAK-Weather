@@ -303,6 +303,25 @@ GEFS cropped at decode time this mainly bounds the larger REFS native grids) wit
 instead of a flat 48-entry cap. Engine output is unchanged — the union-crop-then-mask is
 bit-identical to decode-full-then-crop-per-domain (NFR-4).
 
+**Data-quality hardening (2026-07-02).** Following the pre-launch review
+(`docs/code-review-2026-07-02.md`; changelog `docs/changelog-2026-07-02-data-quality.md`),
+**data quality is a first-class value** end to end: a missing/stale/NaN/partial input is never
+allowed to read as benign. Concretely: zonal aggregates return `None` (never NaN) and refuse
+off-grid nearest-cell fallbacks; GEFS tolerates per-member failures behind a member quorum and
+is clamped to the real f240 horizon; REFS selection covers between-output hours by accumulation
+bucket and both ensembles enforce a freshness bound (`ensemble_max_age_h`, default 24 h) — the
+API cache token tracks the newest *available* cycle, not the wall clock; Open-Meteo fetches 16
+days, populates `convective_rate_in_per_hr`/`cape_jkg`/`wind_mph` (the slot fallback is live),
+and the precip booleans are tri-state (`None` = unknown ≠ dry — an unknown applies the GEFS
+Elevated band conservatively); NWS alerts/AFD degrade independently (`sources_ok["nws_afd"]`);
+the LAoC no longer needs the basin (a watershed failure doesn't silence lightning); the engine
+emits explicit "DATA GAP … unassessed, not low" drivers and `confidence.yaml` v1.1 floors
+confidence at Low when a hazard's primary driver was unavailable (`missing_primary_confidence`).
+`bundle_data_gaps()` (ingest/base.py) is the single gap-derivation source rendered as the
+SITREP "DATA GAPS" section and the structured contract's `data_quality` block. The PDF endpoint
+is hardened (typed sub-models in `api/models.py`, template escaping, a Playwright request gate,
+size/concurrency caps) and the refresh scheduler runs off the event loop (`asyncio.to_thread`).
+
 **Briefing tab.** The PWA now has six primary tabs in this order: Overview, Map, Hazards,
 **Briefing**, Forecast, Resources. The Briefing tab renders the full Markdown SITREP
 (`BriefingResponse.markdown`) as formatted HTML using a zero-dependency in-browser converter

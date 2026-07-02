@@ -21,7 +21,7 @@ from ..engine.models import (
     Phase,
     PhaseAssessment,
 )
-from ..ingest.base import IngestBundle
+from ..ingest.base import IngestBundle, bundle_data_gaps
 from ..watershed import PourpointBasin, UpstreamTrace
 from .sources import build_source_links
 
@@ -72,6 +72,13 @@ def _num(value: float | None, unit: str) -> str:
 
 
 def _yn(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def _ynu(value: bool | None) -> str:
+    """Tri-state yes/no/unknown — an unknown must never render as a reassuring "no"."""
+    if value is None:
+        return "unknown (data unavailable)"
     return "yes" if value else "no"
 
 
@@ -273,7 +280,7 @@ def _render_source_data(lines: list[str], bundle: IngestBundle | None) -> None:
     lines.append(f"- SPC outlook: {bundle.spc_category or 'n/a'}")
 
     lines.append("")
-    lines.append("GEFS ensemble (upstream domain):")
+    lines.append(f"GEFS ensemble (upstream domain, cycle {bundle.gefs_cycle or 'n/a'}):")
     lines.append(f"- P(precip/thunder): {_pct(bundle.gefs_p_precip)}")
     lines.append(f"- P(thunderstorm): {_pct(bundle.gefs_p_tstm)}")
     lines.append(f"- Convective rate: {_num(bundle.convective_rate_in_per_hr, 'in/hr')}")
@@ -293,7 +300,16 @@ def _render_source_data(lines: list[str], bundle: IngestBundle | None) -> None:
     lines.append(f"- Heat index: {_num(bundle.heat_index_f, '°F')}")
     lines.append(f"- Apparent temp: {_num(bundle.apparent_temp_f, '°F')}")
     lines.append(f"- Wind: {_num(bundle.wind_mph, 'mph')}")
-    lines.append(f"- Antecedent precip (24–72 h): {_yn(bundle.antecedent_precip_24_72h)}")
+    lines.append(f"- Measurable window precip: {_ynu(bundle.measurable_precip)}")
+    lines.append(f"- Antecedent precip (24–72 h): {_ynu(bundle.antecedent_precip_24_72h)}")
+
+    # Data gaps lead the availability section: a hazard assessed without its primary
+    # input must be visibly "unassessed" in the artifact itself (NFR-6).
+    gaps = bundle_data_gaps(bundle)
+    if gaps:
+        lines.append("")
+        lines.append("DATA GAPS affecting this briefing:")
+        lines.extend(f"- {gap}" for gap in gaps)
 
     if bundle.notes:
         lines.append("")

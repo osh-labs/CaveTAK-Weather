@@ -94,3 +94,17 @@ cases:
   - id: cape_does_not_set_tier
     inputs: {gefs_p_tstm: 5, cape_jkg: 3000}
     expect: minimal
+  # Ceiling-override boundary: the configured contract is REFS >= 60 bypasses (the code
+  # previously used strict >, contradicting both the YAML comment and the user-facing note).
+  - id: refs_override_at_exact_threshold
+    inputs: {gefs_p_tstm: 82, refs_p_lightning: 60, afd_storm_mode: scattered}
+    expect: extreme
+  - id: refs_just_below_override_stays_capped
+    # REFS 59: an Extreme REFS candidate (>=45) but below the ceiling override -> capped High.
+    inputs: {gefs_p_tstm: 82, refs_p_lightning: 59, afd_storm_mode: scattered}
+    expect: high
+  # Data-quality contract (v1.1): no ensemble signal at all is an "unassessed" Minimal
+  # (DATA GAP driver; confidence floored Low), never a claim that probabilities were low.
+  - id: no_signal_reads_unassessed_minimal
+    inputs: {}
+    expect: minimal

@@ -1,9 +1,11 @@
 """REFS multi-run valid-time selection over a mission window (FR-7a).
 
 The REFS analogue of the old HREF selection tests. REFS runs 00/06/12/18Z on a 3-hourly
-forecast cadence (f03-f48 step 3, then 54/60), so selection must (a) only pick valid times that
-land on a published REFS forecast hour, and (b) backfill a current run's spin-up hours from the
-previous run's mature forecast. Pure datetime arithmetic — no network.
+forecast cadence (f03-f48 step 3, then 54/60), so selection must (a) resolve every valid hour
+to a published forecast hour — exact when the hour lands on the 3-hourly outputs, else the
+fhour whose 3 h accumulation bucket covers it (a short window between outputs must not lose
+REFS entirely; data quality first-class) — and (b) backfill a current run's spin-up hours from
+the previous run's mature forecast. Pure datetime arithmetic — no network.
 """
 
 from __future__ import annotations
@@ -30,10 +32,25 @@ def test_picks_freshest_run_and_only_published_fhours():
     assert by_vt[15] == (12, 3)
     assert by_vt[18] == (12, 6)
     assert by_vt[21] == (12, 9)
-    # 13Z/14Z fall between REFS's 3-hourly outputs for both runs -> no source.
-    assert 13 not in by_vt and 14 not in by_vt
+    # 13Z/14Z fall between the 3-hourly outputs: covered by the 12Z run's f03 bucket
+    # (12-15Z) rather than dropped — a short window must not lose REFS entirely.
+    assert by_vt[13] == (12, 3)
+    assert by_vt[14] == (12, 3)
     # Every chosen forecast hour is actually published by REFS.
     assert all(s.fhour in set(REFS_FHOURS) for s in out)
+
+
+def test_short_window_between_outputs_still_covered():
+    # A 12:10-14:50Z slot window sits entirely between 3-hourly valid times; it previously
+    # resolved to zero sources and was mislabeled "outside the same-day range".
+    now = _utc(2026, 6, 20, 12)
+    cycles = [RefsCycle("20260620", 6)]
+    out = resolve_valid_time_sources(
+        _utc(2026, 6, 20, 12, 10), _utc(2026, 6, 20, 14, 50), now=now, cycles=cycles
+    )
+    assert out, "short in-range window must resolve to covering fhours"
+    # 13Z/14Z lie inside the 06Z run's f09 bucket (12-15Z).
+    assert {(s.cycle.hour, s.fhour) for s in out} == {(6, 9)}
 
 
 def test_spinup_backfilled_from_previous_run():

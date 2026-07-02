@@ -126,33 +126,53 @@ def fetch(mission: Mission, bundle: IngestBundle) -> None:
     The active-alerts query and the AFD chain are independent, so they run concurrently —
     NWS is the slowest point provider (four serial round-trips), and it is never response-
     cached, so overlapping the two chains shaves the alerts round-trip off the critical path.
+
+    The two chains also *degrade* independently (data quality first-class, NFR-6): a failed
+    AFD listing must not discard successfully fetched alert flags — the authoritative flood/
+    thunderstorm anchor — and vice versa. ``sources_ok["nws"]`` tracks the alerts check (the
+    engine reads it as "were active products actually verified?"); ``sources_ok["nws_afd"]``
+    tracks the discussion chain.
     """
     with ThreadPoolExecutor(max_workers=2) as executor:
         alerts_future = executor.submit(active_alerts, mission.lat, mission.lon)
         afd_future = executor.submit(latest_afd, mission.lat, mission.lon)
-        events = alerts_future.result()
-        afd = afd_future.result()
-    lowered = [e.lower() for e in events]
-    bundle.flash_flood_warning = any("flash flood warning" in e for e in lowered)
-    bundle.flash_flood_watch = any("flash flood watch" in e for e in lowered)
-    bundle.thunderstorm_warning = any("thunderstorm warning" in e for e in lowered)
+        events: list[str] | None
+        try:
+            events = alerts_future.result()
+        except Exception as exc:  # noqa: BLE001 — degrade per chain (NFR-6)
+            events = None
+            bundle.sources_ok[NAME] = False
+            bundle.notes.append(f"nws: active-alerts check unavailable ({type(exc).__name__}).")
+        try:
+            afd = afd_future.result()
+            bundle.sources_ok["nws_afd"] = True
+        except Exception as exc:  # noqa: BLE001
+            afd = None
+            bundle.sources_ok["nws_afd"] = False
+            bundle.notes.append(f"nws: AFD unavailable ({type(exc).__name__}).")
 
-    # Areal/river flood products. Match the generic "Flood ..." events but exclude
-    # the flash-flood family (handled above) and coastal flooding (not an upstream
-    # drainage hazard) so neither double-counts nor falsely fires.
-    def _flood_event(kind: str) -> bool:
-        return any(
-            f"flood {kind}" in e and "flash" not in e and "coastal" not in e
-            for e in lowered
-        )
+    if events is not None:
+        lowered = [e.lower() for e in events]
+        bundle.flash_flood_warning = any("flash flood warning" in e for e in lowered)
+        bundle.flash_flood_watch = any("flash flood watch" in e for e in lowered)
+        bundle.thunderstorm_warning = any("thunderstorm warning" in e for e in lowered)
 
-    bundle.flood_warning = _flood_event("warning")
-    bundle.flood_advisory = _flood_event("advisory")
-    bundle.flood_watch = _flood_event("watch")
+        # Areal/river flood products. Match the generic "Flood ..." events but exclude
+        # the flash-flood family (handled above) and coastal flooding (not an upstream
+        # drainage hazard) so neither double-counts nor falsely fires.
+        def _flood_event(kind: str) -> bool:
+            return any(
+                f"flood {kind}" in e and "flash" not in e and "coastal" not in e
+                for e in lowered
+            )
+
+        bundle.flood_warning = _flood_event("warning")
+        bundle.flood_advisory = _flood_event("advisory")
+        bundle.flood_watch = _flood_event("watch")
+        bundle.sources_ok[NAME] = True
 
     storm_mode = _afd_storm_mode(afd)
     bundle.afd_text = afd
     bundle.afd_storm_mode = storm_mode
     bundle.afd_convective_mention = storm_mode is not None   # backward compat / display
     bundle.afd_flood_mention = bool(afd and _FLOOD_RE.search(afd))
-    bundle.sources_ok[NAME] = True
