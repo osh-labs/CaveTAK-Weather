@@ -24,7 +24,7 @@ const esc = (s) =>
 // Only rewrites bare HHMM tokens, so years/HUC codes are left alone.
 const fmtClock = (s) => String(s).replace(/\b(\d{2})(\d{2})\b/g, "$1:$2");
 
-let state = { briefing: null, fromCache: false, tab: "overview", mapInitialized: false, appVersion: null };
+let state = { briefing: null, fromCache: false, cachedRestore: null, tab: "overview", mapInitialized: false, appVersion: null };
 
 /* ── Mission spec (the POST /v1/briefing request) ──────────────────────
  * The PWA holds a mission spec, persists it locally, and re-fetches a live
@@ -129,6 +129,113 @@ function specFromBriefing(b) {
     radius_km: m.radius_km ?? null,
     tz_name: m.tz_name ?? null,
   };
+}
+
+/* ── Offline briefing persistence (FR-26, FR-28, FR-41) ────────────────
+ * The service worker cannot cache POST /v1/briefing (the Cache API is
+ * GET-only), so the last successful briefing is persisted here instead: a
+ * single most-recent copy in localStorage, stored with the request spec and a
+ * stored-at stamp so an offline restore can label its age and detect a
+ * mission mismatch — stale data must never masquerade as fresh. Production
+ * never falls back to sample data; this path only ever replays a real,
+ * clearly labeled briefing. */
+const BRIEFING_KEY = "uwx.briefing.v1";
+let _hasStored = null; // memoized "a persisted briefing exists" (drives the offline badge)
+
+function persistBriefing(spec, briefing) {
+  const record = JSON.stringify({ v: 1, stored_at: new Date().toISOString(), spec, briefing });
+  try {
+    localStorage.setItem(BRIEFING_KEY, record);
+    _hasStored = true;
+  } catch (e) {
+    // Quota (a briefing is ~100–300 KB) or private mode: clear the slot and retry
+    // once — only the single most recent briefing is ever kept — then degrade
+    // silently. Offline review is best-effort; it must never fail the live render.
+    try {
+      localStorage.removeItem(BRIEFING_KEY);
+      localStorage.setItem(BRIEFING_KEY, record);
+      _hasStored = true;
+    } catch (_) {
+      _hasStored = false;
+    }
+  }
+}
+
+// The persisted record ({v, stored_at, spec, briefing}) or null. Corrupt or
+// foreign-shaped JSON is discarded on read — it is never rendered.
+function loadStoredBriefing() {
+  let raw = null;
+  try { raw = localStorage.getItem(BRIEFING_KEY); } catch (_) { /* storage blocked */ }
+  if (raw) {
+    try {
+      const rec = JSON.parse(raw);
+      if (rec && rec.v === 1 && rec.stored_at && rec.briefing && rec.briefing.mission) {
+        _hasStored = true;
+        return rec;
+      }
+    } catch (_) { /* corrupt JSON — discard below */ }
+    try { localStorage.removeItem(BRIEFING_KEY); } catch (_) {}
+  }
+  _hasStored = false;
+  return null;
+}
+
+function hasStoredBriefing() {
+  if (_hasStored === null) loadStoredBriefing();
+  return !!_hasStored;
+}
+
+// True when the persisted briefing was generated for the same mission the app is
+// about to request — compared on the fields that change the product (point, window,
+// activity, slot, RoC). A mismatch is surfaced in the status, never silently shown.
+function storedSpecMatches(stored, spec) {
+  const a = stored && stored.spec, b = spec;
+  if (!a || !b) return false;
+  const near = (x, y) => Number.isFinite(x) && Number.isFinite(y) && Math.abs(x - y) < 1e-6;
+  const roc = (s) => (Number.isFinite(s.radius_km) ? s.radius_km : ROC_DEFAULT_MI * MI_TO_KM);
+  return (
+    near(a.lat, b.lat) && near(a.lon, b.lon) &&
+    a.activity === b.activity && !!a.slot === !!b.slot &&
+    String(a.start) === String(b.start) && String(a.end) === String(b.end) &&
+    near(roc(a), roc(b))
+  );
+}
+
+// Human age of an ISO timestamp: "just now", "12 min ago", "3 h ago", "2 d ago".
+function fmtAge(iso) {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (!Number.isFinite(mins) || mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs} h ago`;
+  return `${Math.floor(hrs / 24)} d ago`;
+}
+
+// Render the persisted briefing when a live fetch fails (offline / transient
+// outage). Sets state.cachedRestore so renderStatus shows the non-dismissible
+// cached-briefing notice with its stored-at age; the retry banner stays up so
+// the user can re-fetch when connectivity returns. Returns true when rendered.
+function restoreStoredBriefing(spec) {
+  if (DEMO_MODE) return false; // demo renders the bundled sample; keep the paths separate
+  const stored = loadStoredBriefing();
+  if (!stored) return false;
+  state.fromCache = true;
+  state.cachedRestore = {
+    stored_at: stored.stored_at,
+    name: (stored.briefing.mission && stored.briefing.mission.name) || stored.spec?.name || "expedition",
+    mismatch: !storedSpecMatches(stored, spec),
+  };
+  try {
+    renderAll(stored.briefing);
+  } catch (e) {
+    // Stored under an older contract this render code no longer understands —
+    // discard it and let the caller fall through to the error card.
+    state.cachedRestore = null;
+    try { localStorage.removeItem(BRIEFING_KEY); } catch (_) {}
+    _hasStored = false;
+    return false;
+  }
+  return true;
 }
 
 // ── Tier display-label config ────────────────────────────────────────
@@ -345,7 +452,12 @@ async function postBriefing(spec) {
     throw err;
   }
   state.fromCache = !navigator.onLine;
-  return await res.json();
+  const briefing = await res.json();
+  // Persist the last successful briefing for offline review (FR-26/FR-28) and
+  // clear any cached-restore labeling — this response is fresh.
+  persistBriefing(spec, briefing);
+  state.cachedRestore = null;
+  return briefing;
 }
 
 // Fire-and-forget watershed cache warm: kick off the slow upstream delineation the moment
@@ -485,10 +597,17 @@ async function refresh(spec) {
     const transient = !!e && (e.retryable || e instanceof TypeError);
     if (transient) {
       showBusyBanner(spec);
-      if (status) {
+      // Nothing on screen to keep (boot never rendered): restore the persisted last
+      // briefing, clearly labeled with its age, instead of leaving the skeleton up.
+      if (!state.briefing && restoreStoredBriefing(spec)) return;
+      if (state.cachedRestore) {
+        renderStatus(state.briefing); // keep the mandatory cached-briefing age notice up
+      } else if (status) {
         status.innerHTML =
           `<span class="status-line__currency">Showing the previous briefing.</span>`;
       }
+    } else if (state.cachedRestore) {
+      renderStatus(state.briefing); // ditto — the age label must not be overwritten
     } else if (status) {
       status.innerHTML =
         `<span class="status-line__currency">Could not update briefing (${esc(String(e.message || e))}). ` +
@@ -1622,6 +1741,15 @@ function renderBriefing(b) {
   const framedNote = b.framed
     ? `<div class="briefing-framed-note">Summary wording only (top section) generated by LLM — all hazard postures and severity tiers are deterministic engine output, not model-derived.</div>`
     : "";
+  // Honest offline-copy note: tied to the persisted localStorage briefing (the SW
+  // can't cache POST /v1/briefing), never to the dead SW data-cache path (FR-26).
+  const offlineNote = DEMO_MODE
+    ? (b.cached || state.fromCache ? "Currently showing a cached demo copy." : "Demo preview — sample briefing.")
+    : state.cachedRestore
+      ? `Currently showing the saved offline copy (stored ${fmtAge(state.cachedRestore.stored_at)}).`
+      : hasStoredBriefing()
+        ? "The most recent briefing is saved on this device for offline review."
+        : "Offline copy unavailable — this briefing could not be saved on this device.";
   document.getElementById("view-briefing").innerHTML =
     `${framedNote}<div class="briefing-md">${renderMarkdown(b.markdown)}</div>
     <section class="card" style="margin-top:var(--space-4)">
@@ -1629,7 +1757,7 @@ function renderBriefing(b) {
       <button class="btn-primary" id="export-pdf">Export briefing to PDF</button>
       <p id="export-pdf-error" hidden style="font-size:var(--text-caption);color:var(--color-extreme);margin-top:var(--space-2)"></p>
       <p style="font-size:var(--text-caption);color:var(--color-text-muted);margin-top:var(--space-3);overflow-wrap:anywhere">
-        The most recent briefing is cached for offline review. ${b.cached || state.fromCache ? "Currently showing a cached copy." : "Online — showing the latest cycle."}
+        ${esc(offlineNote)}
         Threshold matrix version <span class="mono">${esc(b.threshold_version)}</span>.
       </p>
     </section>`;
@@ -1695,7 +1823,30 @@ function renderResources(b) {
  * POST /v1/briefing/pdf renders briefing-pdf.html server-side via headless
  * Chromium and returns a clean application/pdf blob.  The browser saves it as
  * a file — no window.print(), no browser resize, no URL chrome in the output.
- * The user can then print or share the saved file however they like. */
+ * The user can then print or share the saved file however they like.
+ *
+ * Offline / server-failure fallback: hand the briefing to the precached client
+ * print template via its one-shot localStorage key and open it with ?print=1
+ * (the path documented in CLAUDE.md; the template's Save-as-PDF drives export). */
+const PDF_HANDOFF_KEY = "uwx.pdf.briefing"; // must match briefing-pdf.html's reader
+
+// Returns false when the handoff can't be written (quota / private mode) — the
+// template must never silently render sample data in the real briefing's place.
+function openPdfPrintFallback(briefing) {
+  try {
+    localStorage.setItem(PDF_HANDOFF_KEY, JSON.stringify(briefing));
+  } catch (e) {
+    return false;
+  }
+  const url = "pdf/briefing-pdf.html?print=1";
+  // Prefer a new tab so the app stays put; if the popup is blocked (the user
+  // gesture may be spent by the failed fetch above), navigate same-tab — the
+  // template's Back button returns via history/bfcache.
+  const win = window.open(url, "_blank");
+  if (!win) window.location.assign(url);
+  return true;
+}
+
 async function exportBriefingPdf(b) {
   const briefing = b || state.briefing;
   if (!briefing) return;
@@ -1706,6 +1857,7 @@ async function exportBriefingPdf(b) {
   if (errEl) errEl.hidden = true;
 
   try {
+    if (!navigator.onLine) throw new Error("offline — using the on-device template");
     const res = await fetch("/v1/briefing/pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1727,6 +1879,10 @@ async function exportBriefingPdf(b) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   } catch (e) {
+    // Server-side render unavailable (offline, network error, or endpoint failure):
+    // fall back to the client print template. sw.js precaches pdf/briefing-pdf.html,
+    // so this path works with zero connectivity (FR-27).
+    if (openPdfPrintFallback(briefing)) return;
     if (errEl) {
       errEl.textContent = `PDF export failed: ${e.message}`;
       errEl.hidden = false;
@@ -2002,13 +2158,38 @@ function completeProgress() {
 
 /* ── Status / currency line (FR-39, FR-41) ─────────────────────────── */
 function renderStatus(b) {
+  const statusEl = document.getElementById("status");
+  if (!statusEl) return;
+  // Restored-from-storage briefing: a mandatory, non-dismissible currency notice.
+  // Stale data must never masquerade as fresh (FR-41) — the stored-at age and the
+  // mission it belongs to are always shown, plus an explicit note when the saved
+  // briefing was generated for a different plan than the one currently held.
+  // Cleared only by the next successful live fetch (postBriefing).
+  if (state.cachedRestore) {
+    const c = state.cachedRestore;
+    const when = new Date(c.stored_at).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+    const note = c.mismatch
+      ? "Saved for a different expedition than your current plan."
+      : "Not live — retry when back online for a current briefing.";
+    statusEl.innerHTML = `
+      <span class="cached-badge">${icon("wifi_off", "")} <span>Cached<br>briefing</span></span>
+      <span class="status-line__currency">Saved briefing from ${esc(when)} (${esc(fmtAge(c.stored_at))}) — “${esc(c.name)}”.<br>${esc(note)}</span>`;
+    return;
+  }
+  if (!b) return;
   const gen = new Date(b.generated_at);
   // Show currency in the mission's local zone to match the window/label (FR-9, FR-41).
   const tz = b.mission.tz_name || undefined;
   const t = gen.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz });
-  const cached = b.cached || state.fromCache;
-  document.getElementById("status").innerHTML = `
-    ${cached ? `<span class="cached-badge">${icon("wifi_off", "")} <span>Available<br>offline</span></span>` : ""}
+  // "Available offline" is honest only when a persisted copy of the last briefing
+  // actually exists (localStorage) — POST /v1/briefing was never cacheable in the
+  // SW, so the old badge advertised offline review it couldn't deliver. Demo builds
+  // keep the SW-cached sample as their offline source.
+  const offlineReady = DEMO_MODE ? (b.cached || state.fromCache) : hasStoredBriefing();
+  statusEl.innerHTML = `
+    ${offlineReady ? `<span class="cached-badge">${icon("wifi_off", "")} <span>Available<br>offline</span></span>` : ""}
     <span class="status-line__currency">Briefing current as of:<br>${esc(t)} ${esc(b.mission.timezone)}</span>
     ${b.degraded ? `<span class="degraded-note">· one source degraded</span>` : ""}`;
 }
@@ -2657,6 +2838,10 @@ async function main() {
     openMissionPlanner(state.briefing ? specFromBriefing(state.briefing) : DEFAULT_SPEC);
   };
   const ackShown = maybeShowAck(promptFirstRun);
+  // Registered before the first fetch so connectivity flips re-render the status
+  // line even when boot ends on the offline-restore or error path.
+  window.addEventListener("online", () => renderStatus(state.briefing));
+  window.addEventListener("offline", () => { state.fromCache = true; renderStatus(state.briefing); });
   let b;
   startProgress();
   try {
@@ -2667,6 +2852,13 @@ async function main() {
     completeProgress();
     if (e && (e.retryable || e instanceof TypeError)) {
       showBusyBanner(savedSpec() || DEFAULT_SPEC);
+      // Offline (or transient outage) at boot: render the persisted last briefing,
+      // clearly labeled with its stored-at age, instead of a dead-end retry banner
+      // (FR-26/FR-28 — the last briefing stays reviewable at a no-signal trailhead).
+      if (restoreStoredBriefing(savedSpec() || DEFAULT_SPEC)) {
+        if (!ackShown) promptFirstRun();
+        return;
+      }
     }
     document.getElementById("view-overview").innerHTML =
       `<section class="card"><p class="summary">Could not generate a briefing ` +
@@ -2679,9 +2871,6 @@ async function main() {
   renderAll(b);
   streamSummary(initialSpec);
   if (!ackShown) promptFirstRun();
-
-  window.addEventListener("online", () => renderStatus(state.briefing));
-  window.addEventListener("offline", () => { state.fromCache = true; renderStatus(state.briefing); });
 }
 
 // ── Release / stale-client detection ──────────────────────────────────

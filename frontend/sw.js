@@ -6,8 +6,11 @@
  *     reload needed) and fall back to the cached copy offline (FR-26). The previous
  *     stale-while-revalidate strategy served the cached shell first, so a deploy was
  *     invisible until a second reload — surprising during active iteration.
- *   - Briefing data: network-first, fall back to the cached copy when offline so
- *     the most recent fully generated briefing is reviewable with zero connectivity.
+ *   - Briefing data: live briefings are POST /v1/briefing, which the Cache API
+ *     cannot store (GET-only) — so app.js persists the last successful briefing to
+ *     localStorage ("uwx.briefing.v1") and restores it when the POST fails offline.
+ *     This worker only caches the GET-able demo sample (network-first, cache
+ *     fallback) for the static demo build.
  * New briefing generation requires connectivity (FR-28); offline is review-only.
  */
 
@@ -75,8 +78,10 @@ self.addEventListener("fetch", (event) => {
   // new deploy, so a cached copy would mask the update (docs/deployment-workflow.md).
   if (url.pathname.endsWith("version.json")) return;
 
-  // Briefing data: network-first, cache fallback (FR-26).
-  if (url.pathname.endsWith("sample-briefing.json") || url.pathname.includes("/v1/briefing")) {
+  // Demo sample briefing: network-first, cache fallback so the static demo build
+  // (?demo / GitHub Pages) still renders offline. Live briefings are POSTs and are
+  // never handled here — the last one is persisted via localStorage in app.js (FR-26).
+  if (url.pathname.endsWith("sample-briefing.json")) {
     event.respondWith(
       fetch(request)
         .then((res) => {
