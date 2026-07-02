@@ -46,6 +46,15 @@ class BriefingBusy(Exception):
     """
 
 
+class WarmQueueFull(Exception):
+    """Raised when the watershed warm queue is saturated (maps to HTTP 503 + Retry-After, H-8).
+
+    Each pending warm is a 3-15 s USGS delineation; refusing past the cap is backpressure the
+    fire-and-forget endpoint previously lacked. A refused warm costs nothing but the latency
+    win — the next briefing simply pays the cold trace itself (NFR-6).
+    """
+
+
 @dataclass
 class _Registered:
     """A live mission tracked for scheduled refresh while its window is in range."""
@@ -67,7 +76,11 @@ class BriefingService:
         self._gen_busy_timeout = settings.briefing_busy_timeout_s
         n = settings.briefing_max_concurrency
         self._gen_sem = threading.BoundedSemaphore(n) if n and n > 0 else None
+        # Refresh registry, bounded (H-8): refresh_active re-ingests every entry each cycle,
+        # so its cost scales linearly with this dict — which previously grew without bound.
         self._active: dict[str, _Registered] = {}
+        self._active_max = max(1, settings.api_active_missions_max)
+        self._warm_pending_max = max(1, settings.api_warm_pending_max)
         # Stores the engine BriefingResult alongside its cache key so the streaming
         # framing endpoint can call Haiku without re-running ingest. LRU-bounded like the
         # briefing cache so it cannot grow unbounded on an always-on host; an evicted result
@@ -117,8 +130,14 @@ class BriefingService:
     def get_briefing(
         self, spec: MissionSpec, *, now: datetime | None = None
     ) -> BriefingResponse:
-        """Return a briefing for ``spec``, from cache when valid or freshly generated."""
+        """Return a briefing for ``spec``, from cache when valid or freshly generated.
+
+        Raises :class:`~upstreamwx.api.models.MissionWindowError` (→ 422) for a live window
+        outside the serviceable horizon, before any ingest cost is spent (H-8); offline
+        ``inputs`` replays are exempt (FR-25).
+        """
         now = now or datetime.now(UTC)
+        spec.ensure_current(now)
         mission = spec.to_mission()
         inputs = spec.to_inputs()
         key = mission_cache_key(mission, inputs)
@@ -153,11 +172,27 @@ class BriefingService:
             # Track live, still-in-range missions for the scheduler (FR-12). Deterministic
             # offline briefings need no refresh, so they are not registered.
             if inputs is None and now < _as_utc(mission.window_end):
-                self._active[key] = _Registered(mission=mission, frame=False, key=key)
+                self._register_active(key, mission)
             return self._response(briefing, token, cached=False)
         finally:
             if self._gen_sem is not None:
                 self._gen_sem.release()
+
+    def _register_active(self, key: str, mission: Mission) -> None:
+        """Register a live mission for scheduled refresh, capped (FR-12, H-8).
+
+        Refresh cost scales linearly with ``_active`` and it previously grew unboundedly
+        (entries only dropped once their window ended). At the cap, evict the entry whose
+        window ends soonest: it expires — and would be pruned by ``refresh_active`` —
+        first, so it loses the least scheduled-refresh coverage; an evicted mission still
+        briefs normally on demand (NFR-6).
+        """
+        if key not in self._active and len(self._active) >= self._active_max:
+            soonest = min(
+                self._active, key=lambda k: _as_utc(self._active[k].mission.window_end)
+            )
+            del self._active[soonest]
+        self._active[key] = _Registered(mission=mission, frame=False, key=key)
 
     def get_result(self, key: str) -> BriefingResult | None:
         """Return the cached engine result for ``key``, or None on miss.
@@ -237,9 +272,11 @@ class BriefingService:
         """Fire a background pour-point delineation for ``(lat, lon)`` (FR-3).
 
         Returns True if a warm was submitted, False if warming is disabled or an
-        identical point is already in flight. ``radius_km`` is intentionally not a
-        parameter: delineation depends only on the pour point, and the Radius-of-Concern
-        clip is cheap post-processing the briefing applies later.
+        identical point is already in flight; raises :class:`WarmQueueFull` when the
+        pending set is at ``api_warm_pending_max`` (H-8 backpressure — the endpoint maps
+        it to 503 + Retry-After). ``radius_km`` is intentionally not a parameter:
+        delineation depends only on the pour point, and the Radius-of-Concern clip is
+        cheap post-processing the briefing applies later.
         """
         if self._warm_pool is None:
             return False
@@ -247,6 +284,10 @@ class BriefingService:
         with self._warm_lock:
             if key in self._warm_pending:
                 return False
+            # _warm_pending doubles as the executor's queue depth: past the cap, refuse
+            # rather than queue unboundedly (each entry is a 3-15 s USGS delineation).
+            if len(self._warm_pending) >= self._warm_pending_max:
+                raise WarmQueueFull()
             self._warm_pending.add(key)
         self._warm_pool.submit(self._warm_job, lat, lon, key)
         return True

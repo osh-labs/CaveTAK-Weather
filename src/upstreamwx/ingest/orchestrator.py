@@ -35,10 +35,15 @@ MANDATORY = {"nws", "nws_afd"}
 # merge per-key by max (commutative, hence order- and timing-independent, NFR-4). When REFS is
 # in range it is then made authoritative in-window by the ensemble branch (see below), since
 # the 3 km convection-allowing ensemble should drive same-day confidence over coarse GEFS.
-# ``notes`` accumulate as a list.
+# ``notes`` accumulate as a list. The flood-product flags merge by OR: the point provider and
+# the upstream-basin alert check (FR-5 + FR-3) both contribute, and an active product from
+# either must never be erased by the other's False (raise-only, order-independent).
 _MERGE_UPDATE_DICT_FIELDS = frozenset({"sources_ok"})
 _MERGE_MAX_DICT_FIELDS = frozenset({"member_support"})
 _MERGE_LIST_FIELDS = frozenset({"notes"})
+_MERGE_OR_FIELDS = frozenset(
+    {"flash_flood_warning", "flash_flood_watch", "flood_warning", "flood_advisory", "flood_watch"}
+)
 
 
 def _run_point_provider(provider, mission: Mission) -> IngestBundle:
@@ -121,6 +126,13 @@ def _run_watershed_and_ensembles(
             bundle.notes.append(
                 f"watershed: {basin.area_km2:.0f} km² to {domain} via {basin.method}."
             )
+            # Trace completeness is first-class (data quality): a basin that may be
+            # missing upstream area caps flash-flood confidence and is named in the
+            # DATA GAPS section rather than silently presenting as the full watershed.
+            if not getattr(basin, "complete", True):
+                bundle.watershed_complete = False
+                for reason in getattr(basin, "completeness_notes", []):
+                    bundle.notes.append(f"watershed completeness: {reason}")
         except Exception as exc:  # noqa: BLE001
             bundle.sources_ok["watershed"] = False
             bundle.notes.append(f"watershed: delineation failed ({type(exc).__name__}).")
@@ -181,11 +193,28 @@ def _run_watershed_and_ensembles(
         # GEFS and REFS are independent aggregations over the same domain; run them
         # concurrently into private bundles, then merge (GEFS first, then REFS) in a fixed
         # order. Both fetches contain their own failures (NFR-6), so neither task raises.
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        # The basin-wide alert check (FR-5 + FR-3) rides the same pool: a Flash Flood
+        # Warning polygon over the upper watershed — where the storm is — may not cover
+        # the canyon mouth, so the point check alone misses it. Raise-only (ORed into the
+        # point provider's flags at merge); its failure can only miss a raise (NFR-6).
+        with ThreadPoolExecutor(max_workers=3) as executor:
             gefs_future = executor.submit(_run_gefs, mission, polygon, lightning_polygon, cycle)
             refs_future = executor.submit(_run_refs, mission, polygon, lightning_polygon)
+            alerts_future = (
+                executor.submit(nws.basin_flood_flags, polygon) if polygon is not None else None
+            )
             gefs_bundle = gefs_future.result()
             refs_bundle = refs_future.result()
+            if alerts_future is not None:
+                try:
+                    for flag, value in alerts_future.result().items():
+                        if value:
+                            setattr(bundle, flag, True)
+                except Exception as exc:  # noqa: BLE001
+                    bundle.notes.append(
+                        f"nws: basin-wide alert check unavailable ({type(exc).__name__}); "
+                        "flood products verified at the mission point only."
+                    )
         _merge_into(bundle, gefs_bundle)
         _merge_into(bundle, refs_bundle)
 
@@ -220,7 +249,9 @@ def _merge_into(dest: IngestBundle, src: IngestBundle) -> None:
     """
     for f in fields(IngestBundle):
         name = f.name
-        if name in _MERGE_UPDATE_DICT_FIELDS:
+        if name in _MERGE_OR_FIELDS:
+            setattr(dest, name, getattr(dest, name) or getattr(src, name))
+        elif name in _MERGE_UPDATE_DICT_FIELDS:
             getattr(dest, name).update(getattr(src, name))
         elif name in _MERGE_MAX_DICT_FIELDS:
             dest_dict = getattr(dest, name)

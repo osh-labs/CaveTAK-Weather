@@ -59,7 +59,7 @@ Flash-flood assessment aggregates over the upstream contributing watershed of HU
 
 ## SOURCE DATA
 
-Threshold config: flash_flood=1.3.0;lightning=1.4.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.1.0
+Threshold config: flash_flood=1.3.0;lightning=1.5.0;heat=1.0.0;cold_wet=1.0.0;confidence=1.2.0
 
 Active NWS products:
 - Flash Flood Warning: no

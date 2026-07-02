@@ -76,6 +76,9 @@ def test_health(client):
         "briefing_max_concurrency",
         "briefing_busy_timeout_s",
         "gefs_warm_fhours",
+        "active_missions_max",
+        "warm_pending_max",
+        "rate_limits_enabled",
     }
     assert isinstance(limits["decode_pool"], bool)
     assert isinstance(limits["decode_cache_max_bytes"], int)

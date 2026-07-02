@@ -23,11 +23,12 @@ from .pourpoint import (
     raindrop_snap,
 )
 from .roc import ClipResult, clip_watershed, roc_disk
-from .upstream import UpstreamTrace, trace_upstream
+from .upstream import UpstreamGraphError, UpstreamTrace, trace_upstream
 
 __all__ = [
     "HucResult",
     "resolve_huc12",
+    "UpstreamGraphError",
     "UpstreamTrace",
     "trace_upstream",
     "resolve_and_trace_cached",

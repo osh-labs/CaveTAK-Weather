@@ -117,6 +117,25 @@ class Settings(BaseSettings):
     # 512 distinct missions is generous for a single-host beta; raise where RAM allows.
     api_cache_max_entries: int = 512
 
+    # Cap the active-mission refresh registry (H-8). refresh_active re-ingests every registered
+    # mission each cycle, so scheduler cost scales linearly with the registry — which previously
+    # grew without bound (entries only dropped when their window ended). At the cap the service
+    # evicts the mission whose window ends soonest; an evicted mission still briefs on demand,
+    # it just loses scheduled refresh (NFR-6). 256 in-range missions is generous for one host.
+    api_active_missions_max: int = 256
+
+    # Cap the watershed warm queue (H-8): each pending warm is a 3-15 s USGS delineation, and the
+    # pending set previously grew (and queued executor work) without bound. At the cap the service
+    # refuses new warms (endpoint -> 503 + Retry-After); the briefing then just pays the cold
+    # trace itself (NFR-6). 32 pending points is far beyond any legitimate planner burst.
+    api_warm_pending_max: int = 32
+
+    # Per-IP token-bucket rate limiting on the expensive/billable endpoints (frame/pdf/warm),
+    # H-8. In-process and dependency-free; nginx's edge limit_req still applies in front
+    # (deploy/nginx/upstreamwx.conf) — this is the app's own defence when reached directly.
+    # Set UPSTREAMWX_API_RATE_LIMITS_ENABLED=0 to disable (e.g. load tests).
+    api_rate_limits_enabled: bool = True
+
     # Cap concurrent live briefing GENERATIONS (the cold, memory/CPU-heavy ingest path) so a burst
     # of simultaneous distinct missions can't OOM/thrash a small host — excess requests wait briefly
     # for a slot, then return a fast 503 "busy, retry" (the PWA shows a retry banner) instead of all

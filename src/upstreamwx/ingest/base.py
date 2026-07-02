@@ -100,6 +100,10 @@ class IngestBundle:
     # by the orchestrator unless an explicit polygon override is passed; carries the
     # provenance (method, area, snapped point, flowline) the SITREP header renders.
     upstream: PourpointBasin | None = None
+    # False when the upstream trace may be missing area (external inflow at the widest
+    # WBD fetch, a failed completeness probe): flash-flood confidence is capped and the
+    # gap is named — a possibly-truncated basin must not present as the full watershed.
+    watershed_complete: bool = True
 
     # Radius of Concern (RoC, FR-3): the upstream watershed clipped to a user-set disk
     # around the mission origin. ``aggregation_polygon`` is the polygon the GEFS/REFS
@@ -148,6 +152,10 @@ def bundle_data_gaps(bundle: IngestBundle) -> list[str]:
         gaps.append("NWS forecast discussion unavailable")
     if bundle.sources_ok.get("watershed") is False:
         gaps.append("upstream watershed delineation unavailable")
+    if not bundle.watershed_complete:
+        gaps.append(
+            "upstream watershed trace may be incomplete (basin possibly larger than mapped)"
+        )
     return gaps
 
 
@@ -192,5 +200,6 @@ def to_hazard_inputs(bundle: IngestBundle, *, dry_party: bool = False) -> Hazard
         wind_mph=bundle.wind_mph,
         antecedent_precip_24_72h=bundle.antecedent_precip_24_72h,
         nws_products_available=bundle.sources_ok.get("nws") is not False,
+        domain_complete=bundle.watershed_complete,
         dry_party=dry_party,
     )

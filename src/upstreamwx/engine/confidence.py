@@ -72,8 +72,14 @@ def confidence_for(
     agreement = (inputs.source_agreement or "consistent").strip().lower()
     sa = cfg["source_agreement"]
     if agreement in ("conflict", "material_conflict"):
-        return _NAME_TO_CONFIDENCE[sa["material_conflict_tier"]]
-    if agreement in ("partial", "partial_disagreement"):
+        base = _NAME_TO_CONFIDENCE[sa["material_conflict_tier"]]
+    elif agreement in ("partial", "partial_disagreement"):
         cap = _NAME_TO_CONFIDENCE[sa["partial_disagreement_max"]]
-        return Confidence(min(base, cap))
+        base = Confidence(min(base, cap))
+
+    # A possibly-truncated upstream trace caps flash-flood confidence: the basin the
+    # ensemble aggregated over may be missing contributing area (data quality, v1.2).
+    if hazard is Hazard.FLASH_FLOOD and not inputs.domain_complete:
+        cap = _NAME_TO_CONFIDENCE[cfg["incomplete_domain_max"]]
+        base = Confidence(min(base, cap))
     return base

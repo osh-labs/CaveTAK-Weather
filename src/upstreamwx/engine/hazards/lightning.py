@@ -95,9 +95,14 @@ def evaluate(inputs: HazardInputs, cfg: HazardThresholds) -> tuple[Tier, list[st
     # Contextual ceiling: when the AFD describes routine coverage (isolated/scattered),
     # cap the final tier unless REFS P(lightning) exceeds the override threshold — the
     # same-day high-res ensemble can see more than an AFD written hours earlier (§16.2).
+    # The ceiling applies ONLY while REFS is in-window: the AFD scan is window-blind
+    # (the coverage word may describe a different day entirely), and beyond REFS range
+    # the override that keeps the cap honest can never fire — a text signal must not
+    # lower a live multi-day ensemble posture it cannot be checked against (v1.5;
+    # a lowering signal is held to a stricter standard than a raising one).
     ceiling_cfg = cfg.get("afd_ceiling", {})
     ceiling_key = ceiling_cfg.get(afd_mode) if afd_mode else None
-    if ceiling_key:
+    if ceiling_key and refs_in_window:
         ceiling = Tier.from_name(ceiling_key)
         href_min: float = ceiling_cfg["refs_override_min"]
         # >= to match the configured contract ("REFS >= 60% bypasses") and the note below.

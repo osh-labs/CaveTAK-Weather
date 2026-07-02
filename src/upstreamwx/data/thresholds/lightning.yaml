@@ -2,7 +2,7 @@
 # Applies to exposed phases only (approach, egress); excluded from the technical
 # span by FR-14c. Externalized, versioned config (FR-20a).
 hazard: lightning
-version: "1.4.0"
+version: "1.5.0"
 provenance:
   effective_date: "2026-06-29"
   rationale: >-
@@ -13,7 +13,11 @@ provenance:
     the contextual ceiling. v1.4 transitions the ensembles for the SREF+HREF EOL (NWS SCN
     26-47, 2026-08-31): the global ensemble is now **GEFS** (was SREF) and the same-day
     overlay is now **REFS** (was HREF). Cut points carry over unchanged as the baseline.
-    IMPORTANT: GEFS has no native thunderstorm-probability field, so `gefs_ptstm` is fed by
+    v1.5 scopes the contextual ceiling to the REFS window: the AFD storm-mode scan is
+    window-blind (the coverage word may describe a different day), and beyond REFS range the
+    REFS override that keeps the cap honest can never fire — so the posture-LOWERING ceiling
+    now applies only while the same-day ensemble is in range; the raise-only storm-mode floor
+    is unchanged. IMPORTANT: GEFS has no native thunderstorm-probability field, so `gefs_ptstm` is fed by
     a derived CAPE×precip member-exceedance **proxy** (ingest.gefs_provider) — coarser and
     less direct than SREF's P(tstm); its cut points are pending calibration and its confidence
     should be read conservatively. In-window, REFS `LTNG` (3 km, explicit) is the dominant
@@ -64,9 +68,12 @@ afd_storm_mode:
   scattered: elevated
   numerous: high
 
-# Contextual ceiling when AFD describes routine convection. Cap the final tier unless
-# REFS P(lightning) exceeds refs_override_min: the same-day high-res ensemble
-# may see more than an AFD discussion written hours earlier. No ceiling for "numerous".
+# Contextual ceiling when AFD describes routine convection. Applies ONLY while REFS is
+# in-window (v1.5): the AFD scan is window-blind, and without REFS the override below can
+# never fire, so the cap would lower a live multi-day ensemble posture unchecked. Cap the
+# final tier unless REFS P(lightning) meets refs_override_min (>=): the same-day high-res
+# ensemble may see more than an AFD discussion written hours earlier. No ceiling for
+# "numerous".
 afd_ceiling:
   isolated: elevated    # isolated -> cap final tier at Elevated
   scattered: high       # scattered -> cap final tier at High

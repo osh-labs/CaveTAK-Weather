@@ -8,13 +8,46 @@ source-availability provenance the PWA (M0.4) needs to show currency and degrada
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from ..engine.models import ActivityType, HazardInputs, Mission
 from ..timezones import localize_window
+
+# ---------------------------------------------------------------------------------------
+# Request-validation bounds (H-8): the public API must reject requests it could never
+# brief *before* burning ingest cost (watershed delineation, GEFS/REFS decode).
+# ---------------------------------------------------------------------------------------
+# CONUS bounding box: the product is contiguous-US-only (PRD §2) — NWS coverage, HUC-12
+# watersheds, and the REFS 3 km domain all end at these edges, so a point outside them can
+# only produce a degraded briefing at full ingest cost.
+CONUS_LAT_MIN, CONUS_LAT_MAX = 24.0, 50.0
+CONUS_LON_MIN, CONUS_LON_MAX = -125.0, -66.0
+# Max mission window length. Multi-day expeditions are real; beyond a week the GEFS/REFS
+# ensemble horizon can't cover the window anyway, so a longer window is a malformed request.
+MAX_WINDOW_DAYS = 7
+# The window must START within the GEFS horizon: the 0.25° product ends at f240 (10 days).
+MAX_START_LEAD_DAYS = 10
+# A live window fully ended more than this long ago is a stale briefing request, not a plan.
+MAX_ENDED_AGE_H = 24
+# Upper bound for both radii: 322 km ≈ 200 mi, the PRD's documented max slider stop (FR-3).
+MAX_RADIUS_KM = 322.0
+
+
+class MissionWindowError(ValueError):
+    """A live mission window falls outside the serviceable horizon (maps to HTTP 422, H-8)."""
+
+
+def _cmp_utc(value: datetime) -> datetime:
+    """Normalize to a naive-UTC datetime for window arithmetic.
+
+    Mission windows are entered as *local wall-clock* naive datetimes (FR-9); the checks
+    below are coarse abuse bounds (days/hours), so treating naive values as UTC — at most
+    ~8 h of CONUS skew — is deliberately good enough and keeps validation zone-free.
+    """
+    return value if value.tzinfo is None else value.astimezone(UTC).replace(tzinfo=None)
 
 
 def _reject_markup(v: str) -> str:
@@ -37,10 +70,20 @@ ShortToken = Annotated[str, Field(max_length=32), AfterValidator(_reject_markup)
 
 
 class MissionSpec(BaseModel):
-    """A mission briefing request (mirrors the `upstreamwx` CLI flags)."""
+    """A mission briefing request (mirrors the `upstreamwx` CLI flags).
 
-    lat: float = Field(ge=-90, le=90)
-    lon: float = Field(ge=-180, le=180)
+    Structural validity (window ordering/length, CONUS bounds, radius caps) is enforced at
+    the model boundary (H-8). Wall-clock currency checks live in :meth:`ensure_current` —
+    called by the service with its injectable ``now`` — so deterministic offline replays
+    (``inputs`` supplied, FR-25) never expire as real time passes.
+    """
+
+    lat: float = Field(
+        ge=CONUS_LAT_MIN, le=CONUS_LAT_MAX, description="contiguous-US only (PRD §2)"
+    )
+    lon: float = Field(
+        ge=CONUS_LON_MIN, le=CONUS_LON_MAX, description="contiguous-US only (PRD §2)"
+    )
     activity: ActivityType
     start: datetime = Field(description="window start (ISO 8601)")
     end: datetime = Field(description="window end (ISO 8601)")
@@ -53,11 +96,13 @@ class MissionSpec(BaseModel):
     radius_km: float | None = Field(
         default=None,
         ge=1,
+        le=MAX_RADIUS_KM,
         description="Radius of Concern (km): caps the upstream watershed; null = unbounded (FR-3)",
     )
     lightning_radius_km: float | None = Field(
         default=None,
         ge=1,
+        le=MAX_RADIUS_KM,
         description=(
             "Lightning Area of Concern radius (km): aggregate the lightning signal over a disk "
             "around the activity instead of the watershed; null = upstream domain (PRD §16.1)"
@@ -71,6 +116,46 @@ class MissionSpec(BaseModel):
         default=None,
         description="optional saved HazardInputs feature vector; skips live ingest (offline)",
     )
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> MissionSpec:
+        """Reject malformed windows before any work is spent on them (H-8).
+
+        Deterministic checks only (no wall clock), so an offline replay spec with pinned
+        dates validates identically forever (NFR-4).
+        """
+        start, end = _cmp_utc(self.start), _cmp_utc(self.end)
+        if end <= start:
+            raise ValueError("mission window end must be after its start")
+        if end - start > timedelta(days=MAX_WINDOW_DAYS):
+            raise ValueError(
+                f"mission window exceeds {MAX_WINDOW_DAYS} days — beyond a week the "
+                "GEFS/REFS ensemble horizon cannot cover the window"
+            )
+        return self
+
+    def ensure_current(self, now: datetime | None = None) -> None:
+        """Reject live windows outside the serviceable forecast horizon (H-8).
+
+        Raises :class:`MissionWindowError` (→ HTTP 422) when the window starts beyond the
+        GEFS f240 horizon or ended more than :data:`MAX_ENDED_AGE_H` ago. Windows already
+        underway are fine. Skipped entirely for ``inputs``-supplied specs: those are
+        deterministic replays of a saved feature vector (FR-25), and a wall-clock check
+        would invalidate them as real time passes.
+        """
+        if self.inputs is not None:
+            return
+        now_utc = _cmp_utc(now if now is not None else datetime.now(UTC))
+        if _cmp_utc(self.start) > now_utc + timedelta(days=MAX_START_LEAD_DAYS):
+            raise MissionWindowError(
+                f"mission window starts more than {MAX_START_LEAD_DAYS} days out — beyond "
+                "the GEFS forecast horizon (f240); request the briefing closer to the trip"
+            )
+        if _cmp_utc(self.end) < now_utc - timedelta(hours=MAX_ENDED_AGE_H):
+            raise MissionWindowError(
+                f"mission window ended more than {MAX_ENDED_AGE_H} hours ago — a briefing "
+                "for a past window is stale; adjust the window to a current or upcoming trip"
+            )
 
     def to_mission(self) -> Mission:
         # The window is entered as local wall-clock time at the trip point; attach the
@@ -110,11 +195,21 @@ class WatershedWarmRequest(BaseModel):
     delineated in the background while the user finishes entering the mission. Only the
     point matters: ``radius_km`` is accepted for symmetry with :class:`MissionSpec` but is
     ignored, since the Radius-of-Concern clip runs after delineation.
+
+    Coordinates carry the same CONUS bounds as :class:`MissionSpec` (H-8): a warm outside
+    the product's coverage would spend a 3-15 s USGS delineation on a point that can never
+    be briefed.
     """
 
-    lat: float = Field(ge=-90, le=90)
-    lon: float = Field(ge=-180, le=180)
-    radius_km: float | None = Field(default=None, ge=1, description="ignored for delineation")
+    lat: float = Field(
+        ge=CONUS_LAT_MIN, le=CONUS_LAT_MAX, description="contiguous-US only (PRD §2)"
+    )
+    lon: float = Field(
+        ge=CONUS_LON_MIN, le=CONUS_LON_MAX, description="contiguous-US only (PRD §2)"
+    )
+    radius_km: float | None = Field(
+        default=None, ge=1, le=MAX_RADIUS_KM, description="ignored for delineation"
+    )
 
 
 class MissionView(BaseModel):

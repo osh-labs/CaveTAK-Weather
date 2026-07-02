@@ -321,6 +321,17 @@ confidence at Low when a hazard's primary driver was unavailable (`missing_prima
 SITREP "DATA GAPS" section and the structured contract's `data_quality` block. The PDF endpoint
 is hardened (typed sub-models in `api/models.py`, template escaping, a Playwright request gate,
 size/concurrency caps) and the refresh scheduler runs off the event loop (`asyncio.to_thread`).
+A second round (changelog `docs/changelog-2026-07-02-high-fixes.md`) closed the remaining
+review highs: the upstream trace probes external inflow at **every** node and carries
+first-class completeness (`UpstreamTrace.complete` → DATA GAP + flash-flood confidence capped
+at Moderate, `confidence.yaml` v1.2); the watershed cache is identical-point-only (6-decimal
+keys, TTL'd fallback entries, self-healing reads, resolve-before-write single-flight); NWS
+flood products are checked over the **basin** (sampled points, OR-merged with the point check);
+the lightning AFD ceiling applies only in REFS range (`lightning.yaml` v1.5); `heat_index_f`
+is the real NWS Rothfusz index from temp+RH (apparent temperature remains the cold/wet basis);
+the PWA persists the last briefing for offline review (`uwx.briefing.v1`, age-labeled) and the
+offline PDF handoff works; the API validates MissionSpec (CONUS bounds, window/radius caps,
+currency), bounds `_active`/warm queues, and rate-limits frame/pdf/warm per IP.
 
 **Briefing tab.** The PWA now has six primary tabs in this order: Overview, Map, Hazards,
 **Briefing**, Forecast, Resources. The Briefing tab renders the full Markdown SITREP

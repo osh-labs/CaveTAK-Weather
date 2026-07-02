@@ -1,13 +1,16 @@
 """Open-Meteo adapter — derived numerical forecast fields (FR-6).
 
 Open-Meteo serves HRRR-derived output as JSON and is free for non-commercial use.
-We pull apparent temperature, precipitation, CAPE, and wind over the mission
-window in US units, then reduce per the hazard that needs them: heat takes the
-window max apparent temperature; cold/wet takes the egress-relevant minimum.
+We pull temperature/RH, apparent temperature, precipitation, CAPE, and wind over
+the mission window in US units, then reduce per the hazard that needs them: heat
+takes the window max **NWS heat index** (computed in-house from temp + RH so the
+value matches the official FR-15 category bands); cold/wet takes the
+egress-relevant minimum apparent temperature (wind folded in).
 """
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -21,9 +24,10 @@ NAME = "open_meteo"
 
 # Engine-feeding fields plus the extra display series the Forecast view renders (FR-6).
 # Display additions (gusts / precip probability / weather code) do not feed the engine.
+# relative_humidity_2m feeds the in-house NWS heat-index computation (FR-15).
 _HOURLY = (
     "temperature_2m,apparent_temperature,precipitation,precipitation_probability,"
-    "cape,wind_speed_10m,wind_gusts_10m,weather_code"
+    "relative_humidity_2m,cape,wind_speed_10m,wind_gusts_10m,weather_code"
 )
 # A measurable-precip / antecedent-wetness floor (inches over a window).
 _MEASURABLE_IN = 0.01
@@ -71,6 +75,39 @@ def _query(lat: float, lon: float, *, timeout: float = 30.0, attempts: int = _MA
                 time.sleep(_BACKOFF_BASE_S * (2**attempt))
     assert last_exc is not None  # loop ran at least once
     raise last_exc
+
+
+def _nws_heat_index(temp_f: float, rh_pct: float) -> float:
+    """NWS heat index (Rothfusz 1990 regression + NWS adjustments), deg F.
+
+    The heat thresholds (FR-15, heat.yaml) are the official NWS Heat Index category
+    bands, so the value compared against them must be the NWS heat index itself —
+    Open-Meteo's ``apparent_temperature`` is a different formulation (folds wind and
+    solar radiation) that can sit several °F off across a category boundary. Formula
+    per the NWS/WPC heat-index equation page: below 80 °F HI a Steadman-blend simple
+    formula applies; at/above 80 °F the full regression with the low-RH and high-RH
+    adjustment terms.
+    """
+    t, rh = temp_f, rh_pct
+    simple = 0.5 * (t + 61.0 + (t - 68.0) * 1.2 + rh * 0.094)
+    if (simple + t) / 2.0 < 80.0:
+        return (simple + t) / 2.0
+    hi = (
+        -42.379
+        + 2.04901523 * t
+        + 10.14333127 * rh
+        - 0.22475541 * t * rh
+        - 0.00683783 * t * t
+        - 0.05481717 * rh * rh
+        + 0.00122874 * t * t * rh
+        + 0.00085282 * t * rh * rh
+        - 0.00000199 * t * t * rh * rh
+    )
+    if rh < 13.0 and 80.0 <= t <= 112.0:
+        hi -= ((13.0 - rh) / 4.0) * math.sqrt((17.0 - abs(t - 95.0)) / 17.0)
+    elif rh > 85.0 and 80.0 <= t <= 87.0:
+        hi += ((rh - 85.0) / 10.0) * ((87.0 - t) / 2.0)
+    return hi
 
 
 def _to_utc_naive(dt: datetime) -> datetime:
@@ -159,6 +196,8 @@ def fetch(mission: Mission, bundle: IngestBundle) -> None:
     hourly = data.get("hourly", {})
     times = hourly.get("time", [])
     apparent = hourly.get("apparent_temperature", [])
+    temp = hourly.get("temperature_2m", [])
+    rh = hourly.get("relative_humidity_2m", [])
     precip = hourly.get("precipitation", [])
     cape = hourly.get("cape", [])
     wind = hourly.get("wind_speed_10m", [])
@@ -168,9 +207,24 @@ def fetch(mission: Mission, bundle: IngestBundle) -> None:
     if window:
         app_vals = [apparent[i] for i in window if i < len(apparent) and apparent[i] is not None]
         if app_vals:
-            # Heat uses the hottest hour; cold/wet uses the coldest (egress-relevant).
-            bundle.heat_index_f = max(app_vals)
+            # Cold/wet uses the coldest apparent temperature (wind folded in; egress-relevant).
             bundle.apparent_temp_f = min(app_vals)
+        # Heat compares against the official NWS Heat Index bands (FR-15), so compute the
+        # actual NWS heat index (temp + RH, hottest hour) rather than proxying with
+        # apparent temperature; fall back to apparent when temp/RH are absent (NFR-6).
+        hi_vals = [
+            _nws_heat_index(temp[i], rh[i])
+            for i in window
+            if i < len(temp) and i < len(rh) and temp[i] is not None and rh[i] is not None
+        ]
+        if hi_vals:
+            bundle.heat_index_f = max(hi_vals)
+        elif app_vals:
+            bundle.heat_index_f = max(app_vals)
+            bundle.notes.append(
+                "open_meteo: temp/RH unavailable; heat index approximated by apparent "
+                "temperature (may sit a few °F off the NWS category bands)."
+            )
         cape_vals = [cape[i] for i in window if i < len(cape) and cape[i] is not None]
         if cape_vals:
             bundle.cape_jkg = max(cape_vals)  # lightning instability context (§16.2)

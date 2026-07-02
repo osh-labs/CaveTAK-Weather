@@ -90,13 +90,20 @@ def test_subcell_on_grid_polygon_still_falls_back() -> None:
 # -- Open-Meteo adapter (C-1 fields + coverage tri-state) ------------------------------
 
 
-def _om_payload(hours: list[str], precip: list[float], cape: list[float]) -> dict:
+def _om_payload(
+    hours: list[str],
+    precip: list[float],
+    cape: list[float],
+    temp_f: float = 70.0,
+    rh: float = 50.0,
+) -> dict:
     n = len(hours)
     return {
         "hourly": {
             "time": hours,
-            "temperature_2m": [70.0] * n,
+            "temperature_2m": [temp_f] * n,
             "apparent_temperature": [75.0] * n,
+            "relative_humidity_2m": [rh] * n,
             "precipitation": precip,
             "precipitation_probability": [10.0] * n,
             "cape": cape,
@@ -161,6 +168,66 @@ def test_openmeteo_partial_coverage_dry_is_unknown(monkeypatch) -> None:
     openmeteo.fetch(_mission("2026-06-20T08:00", "2026-06-20T18:00"), bundle)
     assert bundle.measurable_precip is None  # the uncovered tail could hold the precip
     assert any("partially covers" in n for n in bundle.notes)
+
+
+# -- NWS heat index (FR-15: the value must match the official category bands) -------------
+
+
+def test_nws_heat_index_matches_nws_chart() -> None:
+    from upstreamwx.ingest.openmeteo import _nws_heat_index as hi
+
+    assert hi(90.0, 70.0) == pytest.approx(106.0, abs=1.5)  # NWS chart: ~105 °F
+    assert hi(96.0, 13.0) == pytest.approx(91.0, abs=1.5)  # low-RH adjustment applies
+    assert hi(70.0, 50.0) == pytest.approx(70.0, abs=1.5)  # below 80 °F ≈ air temp
+    assert hi(85.0, 90.0) == pytest.approx(102.0, abs=1.5)  # high-RH adjustment applies
+
+
+def test_openmeteo_heat_index_computed_from_temp_rh(monkeypatch) -> None:
+    """heat_index_f is the real NWS heat index, not the apparent-temperature proxy."""
+    hours = [f"2026-06-20T{h:02d}:00" for h in range(0, 24)]
+    monkeypatch.setattr(
+        openmeteo,
+        "_query",
+        lambda lat, lon: _om_payload(hours, [0.0] * 24, [50.0] * 24, temp_f=90.0, rh=70.0),
+    )
+    bundle = IngestBundle()
+    openmeteo.fetch(_mission("2026-06-20T08:00", "2026-06-20T18:00"), bundle)
+    assert bundle.heat_index_f == pytest.approx(106.0, abs=1.5)
+    assert bundle.apparent_temp_f == pytest.approx(75.0)  # cold/wet basis unchanged
+
+
+# -- basin-wide alert check (FR-5 + FR-3) --------------------------------------------------
+
+
+def test_flood_flags_classification() -> None:
+    flags = nws.flood_flags_from_events(
+        ["Flash Flood Warning", "Flood Advisory", "Coastal Flood Watch"]
+    )
+    assert flags["flash_flood_warning"] is True
+    assert flags["flood_advisory"] is True
+    assert flags["flood_watch"] is False  # coastal flooding is not an upstream hazard
+    assert flags["flood_warning"] is False
+
+
+def test_basin_sample_points_stay_inside_and_bounded() -> None:
+    from shapely.geometry import Point
+
+    poly = box(-111.5, 37.0, -109.0, 39.0)
+    pts = nws._basin_sample_points(poly)
+    assert 1 <= len(pts) <= 5
+    assert all(poly.contains(Point(lon, lat)) for lat, lon in pts)
+
+
+def test_basin_alert_flags_or_into_point_flags() -> None:
+    """The ensemble branch's basin flags merge by OR — a warning over the upper basin
+    must survive the point provider's False, and vice versa (raise-only)."""
+    from upstreamwx.ingest.orchestrator import _merge_into
+
+    dest = IngestBundle(flash_flood_warning=True)  # point check fired
+    src = IngestBundle(flood_watch=True)  # basin check fired a different product
+    _merge_into(dest, src)
+    assert dest.flash_flood_warning is True  # not erased by src's False
+    assert dest.flood_watch is True
 
 
 # -- GEFS provider guards ---------------------------------------------------------------

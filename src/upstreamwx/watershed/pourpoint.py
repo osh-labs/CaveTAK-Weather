@@ -43,6 +43,10 @@ _TO_ALBERS = Transformer.from_crs(4326, 5070, always_xy=True).transform
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_S = 0.5
 
+# The coarse WBD trace method tag. Named so the cache layer can recognise (and
+# TTL-expire) fallback-quality entries without duplicating the string (H-9b).
+WBD_FALLBACK_METHOD = "wbd-huc12-fallback"
+
 
 @dataclass
 class PourpointBasin:
@@ -54,10 +58,15 @@ class PourpointBasin:
     snapped_lon: float
     polygon: BaseGeometry  # upstream drainage basin, EPSG:4326
     area_km2: float
-    method: str  # "nldi-raindrop-split" | "wbd-huc12-fallback"
+    method: str  # "nldi-raindrop-split" | WBD_FALLBACK_METHOD
     comid: int | None = None
     flowline_name: str | None = None
     notes: list[str] = field(default_factory=list)
+    # Completeness contract (H-1): the NLDI-exact path validates its own basin
+    # (degenerate results return None and fall back), so it stays True; the WBD
+    # path propagates the upstream trace's truncation-risk flag + reasons.
+    complete: bool = True
+    completeness_notes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -213,10 +222,12 @@ def _wbd_fallback(lat: float, lon: float) -> PourpointBasin:
         snapped_lon=lon,
         polygon=trace.polygon,
         area_km2=trace.area_km2,
-        method="wbd-huc12-fallback",
+        method=WBD_FALLBACK_METHOD,
         comid=None,
         flowline_name=None,
         notes=notes,
+        complete=trace.complete,
+        completeness_notes=list(trace.completeness_notes),
     )
 
 

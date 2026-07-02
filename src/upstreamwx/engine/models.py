@@ -151,6 +151,11 @@ class HazardInputs:
     wind_mph: float | None = None
     antecedent_precip_24_72h: bool | None = False  # significant prior rain; None = unknown
 
+    # False when the upstream trace may be missing area (data quality): caps
+    # flash-flood confidence at the configured maximum — a posture computed over a
+    # possibly-truncated basin must not present as well-supported.
+    domain_complete: bool = True
+
     # Activity modifiers.
     dry_party: bool = False                       # dry cave, no immersion
 

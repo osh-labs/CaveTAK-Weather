@@ -90,6 +90,79 @@ def active_alerts(lat: float, lon: float, *, timeout: float = 30.0) -> list[str]
     ]
 
 
+def flood_flags_from_events(events: list[str]) -> dict[str, bool]:
+    """Classify alert event names into the flood-product bundle flags (FR-5).
+
+    Shared by the mission-point check and the upstream-basin check so both use one
+    vocabulary. Matches the generic "Flood ..." events but excludes the flash-flood
+    family (its own flags) and coastal flooding (not an upstream drainage hazard).
+    """
+    lowered = [e.lower() for e in events]
+
+    def _flood_event(kind: str) -> bool:
+        return any(
+            f"flood {kind}" in e and "flash" not in e and "coastal" not in e for e in lowered
+        )
+
+    return {
+        "flash_flood_warning": any("flash flood warning" in e for e in lowered),
+        "flash_flood_watch": any("flash flood watch" in e for e in lowered),
+        "flood_warning": _flood_event("warning"),
+        "flood_advisory": _flood_event("advisory"),
+        "flood_watch": _flood_event("watch"),
+    }
+
+
+def _basin_sample_points(polygon, max_points: int = 5) -> list[tuple[float, float]]:
+    """(lat, lon) samples spread over a basin polygon: representative point + quadrants.
+
+    The NWS alerts API is point-based; a handful of interior samples over the basin
+    catches a warning polygon covering the upper watershed that misses the canyon
+    mouth (rain 40 km upstream floods the slot the user is standing in — PRD FR-3).
+    """
+    from shapely.geometry import box as _box
+
+    points = [polygon.representative_point()]
+    minx, miny, maxx, maxy = polygon.bounds
+    midx, midy = (minx + maxx) / 2, (miny + maxy) / 2
+    for qx0, qy0, qx1, qy1 in (
+        (minx, midy, midx, maxy),  # NW
+        (midx, midy, maxx, maxy),  # NE
+        (minx, miny, midx, midy),  # SW
+        (midx, miny, maxx, midy),  # SE
+    ):
+        quadrant = polygon.intersection(_box(qx0, qy0, qx1, qy1))
+        if not quadrant.is_empty:
+            points.append(quadrant.representative_point())
+    seen: set[tuple[float, float]] = set()
+    out: list[tuple[float, float]] = []
+    for p in points:
+        # Dedupe at ~1 km so a small basin doesn't spend five queries on one spot.
+        key = (round(p.y, 2), round(p.x, 2))
+        if key not in seen:
+            seen.add(key)
+            out.append((p.y, p.x))
+    return out[:max_points]
+
+
+def basin_flood_flags(polygon, *, timeout: float = 30.0) -> dict[str, bool]:
+    """Active flood-product flags anywhere over the upstream basin (FR-5 + FR-3).
+
+    Queries the alerts API at a handful of points sampled across the polygon
+    (concurrently) and ORs the classified flags — a raise-only supplement to the
+    mission-point check, so a sample failure can only miss a raise, never lower one.
+    """
+    points = _basin_sample_points(polygon)
+    events: list[str] = []
+    with ThreadPoolExecutor(max_workers=len(points)) as executor:
+        futures = [
+            executor.submit(active_alerts, lat, lon, timeout=timeout) for lat, lon in points
+        ]
+        for fut in futures:
+            events.extend(fut.result())
+    return flood_flags_from_events(events)
+
+
 def _office_for(lat: float, lon: float, *, timeout: float = 30.0) -> str | None:
     """Resolve (and cache) the NWS office/CWA serving a point via ``/points`` (FR-5)."""
     key = (round(lat, _OFFICE_PRECISION), round(lon, _OFFICE_PRECISION))
@@ -152,23 +225,10 @@ def fetch(mission: Mission, bundle: IngestBundle) -> None:
             bundle.notes.append(f"nws: AFD unavailable ({type(exc).__name__}).")
 
     if events is not None:
+        for flag, value in flood_flags_from_events(events).items():
+            setattr(bundle, flag, value)
         lowered = [e.lower() for e in events]
-        bundle.flash_flood_warning = any("flash flood warning" in e for e in lowered)
-        bundle.flash_flood_watch = any("flash flood watch" in e for e in lowered)
         bundle.thunderstorm_warning = any("thunderstorm warning" in e for e in lowered)
-
-        # Areal/river flood products. Match the generic "Flood ..." events but exclude
-        # the flash-flood family (handled above) and coastal flooding (not an upstream
-        # drainage hazard) so neither double-counts nor falsely fires.
-        def _flood_event(kind: str) -> bool:
-            return any(
-                f"flood {kind}" in e and "flash" not in e and "coastal" not in e
-                for e in lowered
-            )
-
-        bundle.flood_warning = _flood_event("warning")
-        bundle.flood_advisory = _flood_event("advisory")
-        bundle.flood_watch = _flood_event("watch")
         bundle.sources_ok[NAME] = True
 
     storm_mode = _afd_storm_mode(afd)

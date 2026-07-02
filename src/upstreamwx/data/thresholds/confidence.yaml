@@ -3,7 +3,7 @@
 # the assigned tier condition) and cross-source consistency. The agreement fractions
 # (40% / 75%) are UpstreamWX proposals, tuned via field testing (FR-20a).
 hazard: all
-version: "1.1.0"
+version: "1.2.0"
 provenance:
   effective_date: "2026-06-18"
   rationale: >-
@@ -11,7 +11,9 @@ provenance:
     adjusted by inter-source agreement (AFD / SPC / derived fields). Fractions are
     UpstreamWX proposals. v1.1 adds the missing-primary floor: a hazard whose primary
     driver was unavailable at ingest reports the configured (Low) confidence instead
-    of the no-ensemble Moderate default (data quality first-class, NFR-6).
+    of the no-ensemble Moderate default (data quality first-class, NFR-6). v1.2 adds
+    the incomplete-domain cap: a flash-flood posture aggregated over a possibly
+    truncated upstream trace is capped at Moderate.
   source: "UpstreamWX PRD v0.8 §16.5"
 
 # Fraction of ensemble members supporting the assigned tier condition, [0, 1].
@@ -30,3 +32,9 @@ source_agreement:
 # without its primary input must never present as moderately confident; the briefing
 # shows the benign tier with an explicit data-gap driver and this floor (NFR-6).
 missing_primary_confidence: low
+
+# Flash-flood confidence cap when the upstream trace may be missing contributing area
+# (external inflow at the widest WBD fetch level, or a failed completeness probe). The
+# ensemble aggregated over a possibly-truncated basin; the tier stands (signals only
+# raise) but its support must not present as High (data quality first-class, v1.2).
+incomplete_domain_max: moderate

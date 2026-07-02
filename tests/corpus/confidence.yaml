@@ -70,6 +70,26 @@ cases:
     for_hazard: flash_flood
     inputs: {flash_flood_warning: true, member_support: {}, source_agreement: consistent}
     expect: moderate
+  # ---- incomplete-domain cap (confidence v1.2) ----------------------------------------
+  - id: incomplete_domain_caps_flood_high_to_moderate
+    # Strong member support, but the upstream trace may be missing contributing area:
+    # the aggregation domain itself is suspect, so support must not present as High.
+    for_hazard: flash_flood
+    inputs:
+      gefs_p_precip: 80
+      member_support: {flash_flood: 0.80}
+      source_agreement: consistent
+      domain_complete: false
+    expect: moderate
+  - id: incomplete_domain_does_not_touch_lightning
+    # Lightning aggregates over the LAoC disk, not the basin — the cap is flood-only.
+    for_hazard: lightning
+    inputs:
+      gefs_p_tstm: 80
+      member_support: {lightning: 0.80}
+      source_agreement: consistent
+      domain_complete: false
+    expect: high
   - id: unverified_products_do_not_anchor
     # Same vector but the alerts check never ran: flags are unchecked, not clear.
     for_hazard: flash_flood

@@ -72,14 +72,23 @@ cases:
   - id: afd_scattered_candidate_elevated
     inputs: {gefs_p_tstm: 0, afd_storm_mode: scattered}
     expect: elevated
-  # AFD ceiling: scattered caps SREF-driven Extreme at High (no HREF override).
+  # AFD ceiling (v1.5: applies only while REFS is in-window): scattered caps a
+  # REFS-driven Extreme at High when REFS is below the override threshold.
   - id: afd_scattered_caps_extreme
-    inputs: {gefs_p_tstm: 82, afd_storm_mode: scattered}
+    inputs: {gefs_p_tstm: 82, refs_p_lightning: 50, afd_storm_mode: scattered}
     expect: high
-  # AFD ceiling: isolated caps SREF-driven High at Elevated.
+  # AFD ceiling: isolated caps an in-window High at Elevated (REFS present, below override).
   - id: afd_isolated_caps_high
-    inputs: {gefs_p_tstm: 50, afd_storm_mode: isolated}
+    inputs: {gefs_p_tstm: 50, refs_p_lightning: 10, afd_storm_mode: isolated}
     expect: elevated
+  # Beyond REFS range the ceiling does NOT apply (v1.5): the AFD scan is window-blind and
+  # the override can never fire, so the text must not cap the live multi-day ensemble.
+  - id: afd_ceiling_inert_beyond_refs_range_scattered
+    inputs: {gefs_p_tstm: 82, afd_storm_mode: scattered}
+    expect: extreme
+  - id: afd_ceiling_inert_beyond_refs_range_isolated
+    inputs: {gefs_p_tstm: 50, afd_storm_mode: isolated}
+    expect: high
   # HREF > 60% overrides the scattered ceiling -> Extreme allowed.
   - id: afd_scattered_href_overrides_ceiling
     inputs: {gefs_p_tstm: 82, refs_p_lightning: 65, afd_storm_mode: scattered}

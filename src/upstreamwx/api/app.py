@@ -20,9 +20,13 @@ import asyncio
 import concurrent.futures
 import json as _json
 import logging
+import math
 import multiprocessing
 import re
+import threading
+import time
 import unicodedata
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -38,9 +42,9 @@ from ..grib import cache as grib_cache
 from ..sitrep.frame import _SYSTEM_PROMPT, DEFAULT_MODEL, _structured_view
 from .cache import mission_cache_key
 from .cycles import cycle_key, next_cycle
-from .models import BriefingResponse, MissionSpec, WatershedWarmRequest
+from .models import BriefingResponse, MissionSpec, MissionWindowError, WatershedWarmRequest
 from .scheduler import run_scheduler
-from .service import BriefingBusy, BriefingService
+from .service import BriefingBusy, BriefingService, WarmQueueFull
 
 logger = logging.getLogger("upstreamwx.api")
 
@@ -66,12 +70,115 @@ _FILENAME_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 _SCHEDULER_SHUTDOWN_TIMEOUT_S = 10.0
 
 
+# -----------------------------------------------------------------------------------------
+# Per-IP rate limiting on the expensive/billable endpoints (H-8), dependency-free.
+#
+# /v1/briefing itself is deliberately NOT rate-limited here: cache hits must stay cheap, and
+# cold generations are already bounded by the service's _gen_sem (BriefingBusy -> 503).
+# nginx's edge limit_req (deploy/nginx/upstreamwx.conf) still applies in front; this is the
+# app's own defence when it is reached directly or the edge config drifts. Gated by the
+# ``api_rate_limits_enabled`` setting (checked per request, default on).
+# -----------------------------------------------------------------------------------------
+_FRAME_RATE_PER_MIN = 6  # billable Anthropic calls — strictest
+_PDF_RATE_PER_MIN = 4  # each render launches headless Chromium
+_WARM_RATE_PER_MIN = 12  # each distinct point is a 3-15 s USGS delineation
+# LRU cap over tracked client IPs so the limiter itself can never become a memory sink
+# (an evicted idle IP simply starts over with a full bucket).
+_RATE_LIMIT_MAX_IPS = 4096
+
+# Peers we treat as "our local nginx" for X-Forwarded-For purposes (see _client_ip).
+_LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"})
+
+
+class _TokenBucketLimiter:
+    """A small thread-safe per-key token bucket (H-8).
+
+    Capacity equals one minute's budget (``rate_per_min``), refilled continuously, so a
+    normal session's burst passes and a sustained flood is held to the configured rate.
+    The bucket map is LRU-bounded at ``max_ips`` entries.
+    """
+
+    def __init__(self, rate_per_min: float, *, max_ips: int = _RATE_LIMIT_MAX_IPS) -> None:
+        self._rate_per_s = rate_per_min / 60.0
+        self._capacity = float(rate_per_min)
+        self._max_ips = max(1, max_ips)
+        # ip -> (tokens remaining, monotonic stamp of the last update)
+        self._buckets: OrderedDict[str, tuple[float, float]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def acquire(self, ip: str, *, now: float | None = None) -> int | None:
+        """Take one token for ``ip``: None when granted, else whole seconds to Retry-After."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            tokens, stamp = self._buckets.pop(ip, (self._capacity, now))
+            tokens = min(self._capacity, tokens + (now - stamp) * self._rate_per_s)
+            granted = tokens >= 1.0
+            if granted:
+                tokens -= 1.0
+            self._buckets[ip] = (tokens, now)  # (re)insert as most recently used
+            while len(self._buckets) > self._max_ips:
+                self._buckets.popitem(last=False)
+            if granted:
+                return None
+            return max(1, math.ceil((1.0 - tokens) / self._rate_per_s))
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._buckets)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._buckets.clear()
+
+
+_frame_limiter = _TokenBucketLimiter(_FRAME_RATE_PER_MIN)
+_pdf_limiter = _TokenBucketLimiter(_PDF_RATE_PER_MIN)
+_warm_limiter = _TokenBucketLimiter(_WARM_RATE_PER_MIN)
+
+
+def _client_ip(request: Request) -> str:
+    """Resolve the client IP the rate limiter keys on (H-8).
+
+    nginx fronts the app on the same host and builds X-Forwarded-For with
+    ``$proxy_add_x_forwarded_for`` (deploy/nginx/upstreamwx.conf), i.e. it *appends* the
+    peer address it verified — so the RIGHTMOST entry is the one trusted hop; everything
+    left of it is client-supplied and spoofable. The header is therefore honored only when
+    the direct peer is loopback (the request came through our local nginx). A direct hit
+    on uvicorn keys on the socket peer, and a forged XFF from a non-loopback peer is
+    ignored — otherwise any client could dodge the limiter with a random header.
+    """
+    peer = request.client.host if request.client else "unknown"
+    if peer in _LOOPBACK_PEERS:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        hop = forwarded.rsplit(",", 1)[-1].strip()
+        if hop:
+            return hop
+    return peer
+
+
+def _enforce_rate_limit(limiter: _TokenBucketLimiter, request: Request) -> None:
+    """Raise 429 + Retry-After when ``request``'s client is over ``limiter``'s budget."""
+    if not get_settings().api_rate_limits_enabled:
+        return
+    retry_after = limiter.acquire(_client_ip(request))
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded for this endpoint — please retry shortly.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start the cycle-aligned refresh scheduler for the app's lifetime (FR-12)."""
     task: asyncio.Task | None = None
     stop = asyncio.Event()
     settings = get_settings()
+    # Fresh rate-limit buckets per app run: a no-op in production (one lifespan per
+    # process) that also isolates TestClient contexts from each other without env plumbing.
+    for limiter in (_frame_limiter, _pdf_limiter, _warm_limiter):
+        limiter.reset()
     if settings.api_enable_scheduler:
         task = asyncio.create_task(run_scheduler(service, stop=stop))
         logger.info("briefing refresh scheduler started")
@@ -147,6 +254,9 @@ def health() -> dict:
             "briefing_max_concurrency": settings.briefing_max_concurrency,
             "briefing_busy_timeout_s": settings.briefing_busy_timeout_s,
             "gefs_warm_fhours": len(settings.gefs_warm_fhours),
+            "active_missions_max": settings.api_active_missions_max,
+            "warm_pending_max": settings.api_warm_pending_max,
+            "rate_limits_enabled": settings.api_rate_limits_enabled,
         },
     }
 
@@ -161,9 +271,13 @@ def briefing(spec: MissionSpec) -> BriefingResponse:
 
     When the host is at its concurrent-generation cap, returns 503 with ``Retry-After`` so the
     PWA shows a "busy — retry" banner instead of every request piling on and OOM-ing the host.
+    A live window outside the serviceable forecast horizon is a 422 (H-8); no rate limit here —
+    cache hits must stay cheap, and cold generations are already bounded by the busy cap.
     """
     try:
         return service.get_briefing(spec)
+    except MissionWindowError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     except BriefingBusy:
         raise HTTPException(
             status_code=503,
@@ -173,19 +287,22 @@ def briefing(spec: MissionSpec) -> BriefingResponse:
 
 
 @app.post("/v1/briefing/frame")
-async def frame_stream(spec: MissionSpec) -> StreamingResponse:
+async def frame_stream(spec: MissionSpec, request: Request) -> StreamingResponse:
     """Stream the Haiku plain-language narrative for a cached briefing as SSE (FR-21).
 
     The main ``/v1/briefing`` endpoint always skips Haiku so the structured posture
     data arrives immediately. The PWA calls this endpoint in parallel to stream the
     Risk Discussion text into the collapsed card as it generates.
 
-    Returns 204 (no body) when no Anthropic API key is configured. Returns 404 when
-    the matching briefing has not been cached yet — call ``/v1/briefing`` first.
+    Every call is a billable Anthropic request, so this is the strictest per-IP rate
+    limit in the API (429 + Retry-After past the budget, H-8). Returns 204 (no body)
+    when no Anthropic API key is configured. Returns 404 when the matching briefing has
+    not been cached yet — call ``/v1/briefing`` first.
 
     Each SSE event is ``data: <json>\\n\\n``. Chunks carry ``{"text": "..."}``; the
     terminal event carries ``{"done": true}``.
     """
+    _enforce_rate_limit(_frame_limiter, request)
     api_key = get_settings().anthropic_api_key
     if not api_key:
         return Response(status_code=204)
@@ -241,6 +358,9 @@ async def briefing_pdf(request: Request) -> Response:
     """
     from ..sitrep.pdf import render_pdf  # pdf.py imports playwright lazily; always succeeds
 
+    # Rate limit before touching the body: Chromium renders are the most expensive thing
+    # this API can launch, so an over-budget client is turned away at zero cost (H-8).
+    _enforce_rate_limit(_pdf_limiter, request)
     # Cheap header check first, then an authoritative check on the actual bytes (the
     # Content-Length header is client-supplied and absent on chunked uploads).
     declared = request.headers.get("content-length", "")
@@ -309,14 +429,26 @@ async def briefing_pdf(request: Request) -> Response:
 
 
 @app.post("/v1/watershed/warm", status_code=202)
-def warm_watershed(req: WatershedWarmRequest) -> dict:
+def warm_watershed(req: WatershedWarmRequest, request: Request) -> dict:
     """Pre-warm the pour-point watershed cache for a point (FR-3).
 
     Fire-and-forget: the planner calls this the moment coordinates change so the upstream
     basin delineates in the background while the user enters mission times. Returns 202
     immediately; the next briefing for the same point then skips the cold 3-15 s trace.
+
+    Backpressure (H-8): coordinates must be inside CONUS (422, enforced by the request
+    model), per-IP requests are rate limited (429), and a saturated warm queue returns 503
+    with ``Retry-After`` — a refused warm only forfeits the latency win (NFR-6).
     """
-    submitted = service.warm_watershed(req.lat, req.lon)
+    _enforce_rate_limit(_warm_limiter, request)
+    try:
+        submitted = service.warm_watershed(req.lat, req.lon)
+    except WarmQueueFull:
+        raise HTTPException(
+            status_code=503,
+            detail="The watershed warm queue is full — please retry shortly.",
+            headers={"Retry-After": "30"},
+        ) from None
     return {"status": "submitted" if submitted else "noop"}
 
 
