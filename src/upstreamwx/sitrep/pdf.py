@@ -21,6 +21,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger("upstreamwx.pdf")
 
@@ -86,6 +87,31 @@ def _chromium_path() -> str | None:
     return None
 
 
+def _allowed_request_paths(template_path: Path) -> frozenset[Path]:
+    """The only file-URI resources the rendered page may load.
+
+    The page needs no network at all: the briefing and display config are injected as
+    init scripts before any page script runs. The single subresource the template
+    references is its masthead logo, which lives next to it. Everything else — other
+    ``file://`` paths, http(s), anything a hostile briefing payload might try to pull
+    into the render — is aborted (see :func:`render_pdf`).
+    """
+    return frozenset(
+        {template_path.resolve(), (template_path.parent / "logo-light.png").resolve()}
+    )
+
+
+def _is_allowed_request(url: str, allowed: frozenset[Path]) -> bool:
+    """True iff *url* is a ``file:`` URI resolving to one of *allowed* paths."""
+    parsed = urlparse(url)
+    if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
+        return False
+    try:
+        return Path(unquote(parsed.path)).resolve() in allowed
+    except (OSError, ValueError):
+        return False
+
+
 async def render_pdf(briefing: dict) -> bytes:
     """Render *briefing* through the HTML template and return PDF bytes (FR-27).
 
@@ -146,6 +172,19 @@ async def render_pdf(briefing: dict) -> bytes:
                 # and window.__DISPLAY_CONFIG__ (avoids file:// cross-resource fetch).
                 await page.add_init_script(f"window.__BRIEFING__ = {briefing_json};")
                 await page.add_init_script(f"window.__DISPLAY_CONFIG__ = {display_config_json};")
+
+                # The briefing JSON is client-supplied: abort every request that is not
+                # the template itself or its logo, so an injected payload can neither
+                # read local files over file:// nor phone home over http(s).
+                allowed = _allowed_request_paths(template_path)
+
+                async def _gate(route):
+                    if _is_allowed_request(route.request.url, allowed):
+                        await route.continue_()
+                    else:
+                        await route.abort()
+
+                await page.route("**/*", _gate)
                 await page.goto(
                     template_path.as_uri(),
                     wait_until="networkidle",

@@ -9,11 +9,31 @@ source-availability provenance the PWA (M0.4) needs to show currency and degrada
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from ..engine.models import ActivityType, HazardInputs, Mission
 from ..timezones import localize_window
+
+
+def _reject_markup(v: str) -> str:
+    """Refuse angle brackets in short display tokens.
+
+    These fields are clock windows / cycle ids the PDF template (FR-27) interpolates into
+    HTML; legitimate values never contain markup, so any ``<``/``>`` is a hostile payload
+    aimed at the headless-Chromium renderer and is rejected at the model boundary.
+    """
+    if "<" in v or ">" in v:
+        raise ValueError("markup characters are not allowed in this field")
+    return v
+
+
+# A short local clock window ("1400–2100") or hour token ("1300"): bounded and markup-free
+# so the PDF template can never be handed HTML where it expects a time string.
+ClockToken = Annotated[str, Field(max_length=24), AfterValidator(_reject_markup)]
+# A short identifier-ish display token (ensemble cycle id, SPC category).
+ShortToken = Annotated[str, Field(max_length=32), AfterValidator(_reject_markup)]
 
 
 class MissionSpec(BaseModel):
@@ -97,6 +117,105 @@ class WatershedWarmRequest(BaseModel):
     radius_km: float | None = Field(default=None, ge=1, description="ignored for delineation")
 
 
+class MissionView(BaseModel):
+    """The ``mission`` block of the structured contract (sample-briefing.json).
+
+    Typed just tightly enough that the PDF renderer (FR-27) can trust the fields it
+    interpolates: coordinates are real numbers, names/labels are bounded strings. Extra
+    keys (``huc12``, ``radius_km``, ``phases_inferred``, …) pass through untouched so the
+    frozen contract is preserved verbatim.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str = Field(default="", max_length=200)
+    activity: str = Field(default="canyon", max_length=32)
+    is_slot: bool = False
+    lat: float = Field(default=0.0, ge=-90, le=90)
+    lon: float = Field(default=0.0, ge=-180, le=180)
+    window_start: str | None = Field(default=None, max_length=64)
+    window_end: str | None = Field(default=None, max_length=64)
+    timezone: str | None = Field(default=None, max_length=64)
+    tz_name: str | None = Field(default=None, max_length=64)
+
+
+class BlufEntry(BaseModel):
+    """One hazard row of the BLUF table (Overview view + PDF hazard summary)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    hazard: str = Field(max_length=32)
+    label: str = Field(max_length=32)
+    severity_class: str = Field(max_length=32)
+    confidence: str | None = Field(default=None, max_length=16)
+    window: ClockToken | None = Field(
+        default=None, description="local HHMM–HHMM window of concern; null = persistent"
+    )
+    is_persistent: bool = False
+
+
+class PhaseCard(BaseModel):
+    """One phase card (approach/technical/egress) of the structured contract (FR-9a)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    phase: str = Field(max_length=32)
+    window: ClockToken | None = None
+    thermal_primary: str | None = Field(default=None, max_length=32)
+    lead_label: str | None = Field(default=None, max_length=120)
+    applicable: str | None = Field(default=None, max_length=200)
+    # Generous cap: joined engine phase notes are sentences, not documents; the template
+    # HTML-escapes the note, so the cap only bounds size.
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ForecastRow(BaseModel):
+    """One labelled row of the hourly forecast table (display-only, never an engine input)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    label: str = Field(max_length=32)
+    # 512 comfortably covers the longest legitimate hourly series (Open-Meteo tops out at
+    # 16 forecast days = 384 h) while still bounding a hostile payload.
+    values: list[str | int | float | None] = Field(default_factory=list, max_length=512)
+
+
+class ForecastTable(BaseModel):
+    """The ``forecast_hourly`` table: hour tokens + per-metric rows (Forecast view + PDF)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    hours: list[ClockToken] = Field(default_factory=list, max_length=512)
+    rows: list[ForecastRow] = Field(default_factory=list, max_length=16)
+
+
+class RiskInputsView(BaseModel):
+    """Scalar engine inputs echoed for the Forecast view's Risk Analysis section (FR-20).
+
+    Numbers are numbers and the two display strings are bounded, markup-free tokens: the
+    PDF template interpolates these into HTML, so the model guarantees no field can
+    smuggle markup into the headless render. Display-only — never re-read by the engine.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # int | float (not bare float) so the server's rounded integer percentages keep their
+    # exact wire format (65, not 65.0) — the contract stays byte-compatible.
+    gefs_p_precip: int | float | None = None
+    gefs_p_tstm: int | float | None = None
+    refs_in_range: bool | None = None
+    refs_p_precip: int | float | None = None
+    refs_p_lightning: int | float | None = None
+    refs_cycle: ShortToken | None = None
+    cape_jkg: int | float | None = None
+    convective_rate_in_per_hr: int | float | None = None
+    spc_category: ShortToken | None = None
+    flash_flood_warning: bool | None = None
+    flash_flood_watch: bool | None = None
+    flood_watch: bool | None = None
+    thunderstorm_warning: bool | None = None
+
+
 class BriefingResponse(BaseModel):
     """A generated (or cached) briefing and its provenance.
 
@@ -105,6 +224,12 @@ class BriefingResponse(BaseModel):
     built by :func:`upstreamwx.sitrep.structured.to_structured`; their shape is the frozen
     contract in ``frontend/data/sample-briefing.json``. Every posture here is the engine's
     verbatim output — the response layer decides nothing (FR-13, FR-20).
+
+    The fields the PDF renderer interpolates (``mission``, ``bluf``, ``phases``,
+    ``forecast_hourly``, ``risk_inputs``) are typed sub-models rather than bare dicts:
+    ``POST /v1/briefing/pdf`` accepts this schema from the client and renders it in
+    headless Chromium, so the model is the first line of defence against briefing JSON
+    carrying HTML where the template expects a number or clock window.
     """
 
     markdown: str
@@ -114,28 +239,40 @@ class BriefingResponse(BaseModel):
     generated_at: datetime
     framed: bool
     cached: bool = Field(description="True if served from cache without regenerating")
-    cache_cycle: str = Field(description="SREF cycle id this briefing is current for")
+    cache_cycle: str = Field(
+        description="GEFS/REFS cycle token this briefing is current for (newest available run)"
+    )
     degraded: bool = Field(description="True if a non-mandatory source was unavailable (NFR-6)")
     sources_ok: dict[str, bool] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    data_quality: dict = Field(
+        default_factory=dict,
+        description=(
+            "First-class availability/provenance: data gaps affecting this briefing plus the "
+            "model cycles actually used (NFR-6). Display-only; never re-read by the engine."
+        ),
+    )
 
     # Structured view for the PWA (M0.4). See sample-briefing.json for the shape.
-    mission: dict = Field(default_factory=dict)
+    # (hazard_detail / metrics / timeline / resources stay bare dicts: every value the PDF
+    # template reads from them is HTML-escaped or mapped through a fixed lookup.)
+    mission: MissionView = Field(default_factory=MissionView)
     watershed: dict | None = None
     roc: dict | None = Field(default=None, description="Radius-of-Concern ring; null = unbounded")
     laoc: dict | None = Field(
         default=None, description="Lightning-Area-of-Concern ring; null = upstream domain"
     )
     summary: str | None = None
-    bluf: list[dict] = Field(default_factory=list)
+    bluf: list[BlufEntry] = Field(default_factory=list)
     metrics: list[dict] = Field(default_factory=list)
-    phases: list[dict] = Field(default_factory=list)
+    phases: list[PhaseCard] = Field(default_factory=list)
     timeline: list[dict] = Field(default_factory=list)
     hazard_detail: list[dict] = Field(default_factory=list)
-    forecast_hourly: dict = Field(default_factory=dict)
+    forecast_hourly: ForecastTable = Field(default_factory=ForecastTable)
     temp_series: dict = Field(default_factory=dict)
     wind_series: dict = Field(default_factory=dict)
-    risk_inputs: dict = Field(
-        default_factory=dict, description="scalar engine inputs for the Forecast view (FR-20)"
+    risk_inputs: RiskInputsView = Field(
+        default_factory=RiskInputsView,
+        description="scalar engine inputs for the Forecast view (FR-20)",
     )
     resources: list[dict] = Field(default_factory=list)

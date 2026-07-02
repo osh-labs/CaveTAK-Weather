@@ -21,14 +21,17 @@ import concurrent.futures
 import json as _json
 import logging
 import multiprocessing
+import re
 import unicodedata
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from ..config import get_settings
 from ..grib import cache as grib_cache
@@ -44,6 +47,23 @@ logger = logging.getLogger("upstreamwx.api")
 # Single process-wide service so the cache and active-mission registry are shared across
 # requests and the scheduler.
 service = BriefingService()
+
+# PDF export hardening: the endpoint renders *client-supplied* JSON in headless Chromium, so
+# the raw body is size-capped before parsing (a legitimate structured briefing is well under
+# 1 MB even with a large watershed ring) and renders are gated by a small semaphore mirroring
+# the service's _gen_sem — Chromium is the most expensive thing this API can launch on the
+# ~2 GB production host, so concurrency stays low (do not raise it there).
+_PDF_MAX_BODY_BYTES = 2 * 1024 * 1024
+_PDF_RENDER_CONCURRENCY = 2
+_PDF_BUSY_TIMEOUT_S = 10.0
+_pdf_sem = asyncio.Semaphore(_PDF_RENDER_CONCURRENCY)
+# Content-Disposition filename whitelist: anything outside [A-Za-z0-9._-] could alter how a
+# browser parses the header (quotes, separators), so it is replaced rather than escaped.
+_FILENAME_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+# How long shutdown waits for the cancelled scheduler task before abandoning it, so a pass
+# stuck in a worker thread can never hang process exit.
+_SCHEDULER_SHUTDOWN_TIMEOUT_S = 10.0
 
 
 @asynccontextmanager
@@ -77,9 +97,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             stop.set()
             task.cancel()
             try:
-                await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001 — shutdown best-effort
-                pass
+                await asyncio.wait_for(task, timeout=_SCHEDULER_SHUTDOWN_TIMEOUT_S)
+            except asyncio.CancelledError:
+                pass  # normal path: the task acknowledged the cancel
+            except TimeoutError:
+                # A refresh pass stuck in a worker thread cannot be interrupted; abandon
+                # the task so shutdown completes instead of hanging the process.
+                logger.warning(
+                    "scheduler task did not exit within %.0fs at shutdown; abandoning it",
+                    _SCHEDULER_SHUTDOWN_TIMEOUT_S,
+                )
+            except Exception:  # shutdown is best-effort; log instead of masking exit
+                logger.exception("scheduler task raised during shutdown")
 
 
 app = FastAPI(
@@ -192,7 +221,7 @@ async def frame_stream(spec: MissionSpec) -> StreamingResponse:
 
 
 @app.post("/v1/briefing/pdf")
-async def briefing_pdf(briefing: BriefingResponse) -> Response:
+async def briefing_pdf(request: Request) -> Response:
     """Render the structured briefing as a downloadable PDF via headless Chromium (FR-27).
 
     Accepts the ``BriefingResponse`` JSON the PWA already holds in memory, renders it
@@ -201,11 +230,45 @@ async def briefing_pdf(briefing: BriefingResponse) -> Response:
     descriptive filename — the user downloads and prints without any browser URL chrome
     or iOS print-preview trap.
 
+    The payload is client-supplied and is rendered in a real browser, so it is treated as
+    hostile: the raw body is rejected past ``_PDF_MAX_BODY_BYTES`` (413), the parsed JSON
+    must validate against :class:`BriefingResponse` (whose sub-models block markup in the
+    fields the template trusts), and concurrent renders are capped by ``_pdf_sem`` (503
+    with ``Retry-After`` when saturated, mirroring ``/v1/briefing``'s busy behaviour).
+
     Requires ``playwright`` and the pre-installed Chromium (``/opt/pw-browsers/...``).
     Returns 503 when Playwright is unavailable so the client can fall back gracefully.
     """
     from ..sitrep.pdf import render_pdf  # pdf.py imports playwright lazily; always succeeds
 
+    # Cheap header check first, then an authoritative check on the actual bytes (the
+    # Content-Length header is client-supplied and absent on chunked uploads).
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > _PDF_MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Briefing payload too large for PDF export.")
+    body = await request.body()
+    if len(body) > _PDF_MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Briefing payload too large for PDF export.")
+    try:
+        briefing = BriefingResponse.model_validate_json(body)
+    except ValidationError as exc:
+        # Same 422 shape FastAPI would emit for a typed body parameter; strip context so
+        # the response never echoes raw exception objects.
+        raise RequestValidationError(
+            exc.errors(include_url=False, include_context=False, include_input=False)
+        ) from exc
+
+    # Bound concurrent Chromium launches like the service bounds cold generations
+    # (_gen_sem): a burst of PDF requests would otherwise fork N browsers and OOM the
+    # small host. Wait briefly for a slot, then tell the client to retry.
+    try:
+        await asyncio.wait_for(_pdf_sem.acquire(), timeout=_PDF_BUSY_TIMEOUT_S)
+    except TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail="The PDF renderer is busy right now — please retry in a moment.",
+            headers={"Retry-After": "10"},
+        ) from None
     try:
         pdf_bytes = await render_pdf(briefing.model_dump(mode="json"))
     except ImportError as exc:
@@ -225,18 +288,18 @@ async def briefing_pdf(briefing: BriefingResponse) -> Response:
         raise HTTPException(
             status_code=500, detail="PDF render failed — check server logs for details."
         ) from exc
+    finally:
+        _pdf_sem.release()
 
-    raw_name = briefing.mission.get("name") or "briefing"
+    raw_name = briefing.mission.name or "briefing"
     # HTTP headers must be latin-1; mission names can contain curly quotes or other
     # non-ASCII Unicode (e.g. U+2019 RIGHT SINGLE QUOTATION MARK from the Haiku framing
     # or copy-pasted place names).  NFKD normalisation converts accented chars to their
-    # ASCII base; encode("ascii","ignore") drops anything that doesn't decompose cleanly.
-    mission_name = (
-        unicodedata.normalize("NFKD", raw_name)
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .replace(" ", "_")
-    ) or "briefing"
+    # ASCII base; encode("ascii","ignore") drops anything that doesn't decompose cleanly,
+    # then the whitelist replaces every remaining unsafe byte (quotes, separators, control
+    # chars) so the name can never break out of the quoted Content-Disposition value.
+    ascii_name = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+    mission_name = _FILENAME_UNSAFE.sub("_", ascii_name).strip("._") or "briefing"
     filename = f"upstreamwx_{mission_name}.pdf"
     return Response(
         content=pdf_bytes,

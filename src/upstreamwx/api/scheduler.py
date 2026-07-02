@@ -70,13 +70,16 @@ async def run_scheduler(service: BriefingService, *, stop: asyncio.Event | None 
         # re-downloading per domain (roadmap §M0.1.1). A warm failure (NOMADS lag) is
         # logged and swallowed so refresh still runs from whatever is cached (NFR-6) — and,
         # consistent with that, a warm failure alone does not fail the heartbeat.
+        # Both calls are synchronous and network/GRIB heavy (minutes on a cold cycle), so
+        # they run via to_thread: executed inline they starve the event loop, freezing
+        # /v1/health and every briefing request for the whole pass.
         try:
-            warmed = service.warm_and_prune()
+            warmed = await asyncio.to_thread(service.warm_and_prune)
             logger.info("scheduled warm cached %d ensemble field(s)", warmed)
         except Exception:  # noqa: BLE001 — a warm failure must not block refresh
             logger.exception("scheduled ensemble warm failed")
         try:
-            count = service.refresh_active()
+            count = await asyncio.to_thread(service.refresh_active)
             logger.info("scheduled refresh regenerated %d briefing(s)", count)
         except Exception:  # noqa: BLE001 — one bad cycle must not kill the scheduler
             cycle_ok = False

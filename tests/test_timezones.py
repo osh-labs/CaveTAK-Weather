@@ -101,6 +101,7 @@ def test_structured_contract_carries_local_zone(tmp_path) -> None:
         inputs=inputs,
     )
     resp = BriefingService().get_briefing(spec)
-    assert resp.mission["timezone"] == "MDT"
-    assert resp.mission["tz_name"] == "America/Denver"
-    assert resp.mission["window_start"] == "2026-06-25T08:00:00-06:00"
+    # mission is a typed MissionView (extra="allow"), so attribute access.
+    assert resp.mission.timezone == "MDT"
+    assert resp.mission.tz_name == "America/Denver"
+    assert resp.mission.window_start == "2026-06-25T08:00:00-06:00"
