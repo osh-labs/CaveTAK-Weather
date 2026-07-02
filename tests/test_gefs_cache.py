@@ -83,3 +83,19 @@ def test_discard_subset_removes_file_and_idx(tmp_path):
     assert not subset.exists() and not idx.exists()
     # Idempotent: a second call on already-gone files is a no-op, not an error.
     gcache._discard_subset(subset)
+
+
+def test_warm_cycle_skips_truncated_subset(monkeypatch, tmp_path):
+    """A TruncatedGribError (ValueError) during warming skips that subset rather than raising
+    out of the whole warm pass — regression guard for the download-time validation change."""
+    from upstreamwx.grib.idx import TruncatedGribError
+
+    def boom(*a, **k):
+        raise TruncatedGribError("truncated mid-publish")
+
+    monkeypatch.setattr(gcache, "_ensure_member_subset", boom)
+    paths = gcache.warm_cycle(
+        GefsCycle("20260620", 0), (24,),
+        settings=Settings(data_dir=tmp_path), members=("gec00", "gep01"),
+    )
+    assert paths == []  # every subset skipped, no exception escaped the pass

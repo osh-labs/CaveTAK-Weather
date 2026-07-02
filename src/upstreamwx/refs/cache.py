@@ -178,7 +178,11 @@ def warm_cycle(
                 field = load_probability_field_cached(
                     cycle, fhour, spec.var, spec.prob, fcst=fcst, settings=settings
                 )
-            except (LookupError, TimeoutError, OSError, requests.RequestException) as exc:
+            except (
+                LookupError, ValueError, TimeoutError, OSError, requests.RequestException
+            ) as exc:
+                # ValueError covers TruncatedGribError (a subset fetched mid-publish); skip it and
+                # let the next tick re-fetch clean rather than sink the warm pass (NFR-6).
                 logger.debug("REFS warm skipped f%02d %s %s: %s", fhour, spec.var, spec.prob, exc)
                 continue
             paths.append(field.grib_path)

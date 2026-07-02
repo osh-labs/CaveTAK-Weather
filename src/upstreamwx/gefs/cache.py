@@ -266,7 +266,10 @@ def warm_cycle(
                 cycle, member, fhour, spec.var, fcst, spec.level, res_set, settings=settings
             )
             return path
-        except (LookupError, TimeoutError, OSError, requests.RequestException) as exc:
+        except (LookupError, ValueError, TimeoutError, OSError, requests.RequestException) as exc:
+            # ValueError covers TruncatedGribError: a subset fetched during the cycle's publish
+            # window can be truncated, and a warm must skip it (like the briefing path) rather
+            # than sink the whole warm pass — the next tick/briefing re-fetches it clean (NFR-6).
             logger.debug("GEFS warm skipped %s f%03d %s: %s", member, fhour, spec.var, exc)
             return None
 
