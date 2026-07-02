@@ -98,6 +98,24 @@ def _decode_cropped(
     return crop_bbox_normalize(_decode(path), bbox, margin=margin).copy(deep=True)
 
 
+# Decode failures that indicate a corrupt/truncated on-disk subset (vs. a programming error):
+# eccodes/cfgrib surface a truncated GRIB message as EOFError, and a malformed one as ValueError
+# or a low-level OSError. These trigger a one-shot re-fetch of the artifact (see
+# :func:`load_member_field_cached`); anything else propagates unchanged.
+_CORRUPT_SUBSET_ERRORS = (EOFError, ValueError, OSError)
+
+
+def _discard_subset(path: Path) -> None:
+    """Delete a corrupt cached subset (and any ``.idx`` sidecar) so the next fetch re-downloads."""
+    for p in (path, path.with_suffix(path.suffix + ".idx")):
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:  # best-effort; a stuck file just means the re-fetch overwrites it
+            logger.debug("could not remove %s during self-heal: %s", p, exc)
+
+
 def _ensure_member_subset(
     cycle: GefsCycle,
     member: str,
@@ -169,15 +187,32 @@ def load_member_field_cached(
     # in-process. Either way the retained/returned array is the small cropped grid, not the 16.5 MB
     # global one (the in-process full-grid retention is what OOM-killed the 2 GB host).
     cropped = crop_bbox is not None
-    if cropped:
-        da = decode_cached(
-            path,
-            functools.partial(_decode_cropped, bbox=crop_bbox, margin=margin),
-            use_pool=use_pool,
-            key_extra=("crop", crop_bbox, margin),
+
+    def _decode_subset() -> xr.DataArray:
+        if cropped:
+            return decode_cached(
+                path,
+                functools.partial(_decode_cropped, bbox=crop_bbox, margin=margin),
+                use_pool=use_pool,
+                key_extra=("crop", crop_bbox, margin),
+            )
+        return decode_cached(path, _decode, use_pool=use_pool)
+
+    try:
+        da = _decode_subset()
+    except _CORRUPT_SUBSET_ERRORS as exc:
+        # A truncated/corrupt cached subset — most often a byte range fetched while the GRIB
+        # file was still publishing — fails to decode (classically EOFError). Left in place it
+        # poisons this (cycle, member, fhour) for the life of the cached cycle, degrading GEFS
+        # on *every* briefing. Self-heal: drop the bad artifact and re-fetch once (data quality
+        # first-class, NFR-6). A second failure propagates so the caller degrades this member
+        # and the ensemble quorum carries.
+        logger.warning("GEFS subset %s failed to decode (%s); refetching once", path.name, exc)
+        _discard_subset(path)
+        _ensure_member_subset(
+            cycle, member, fhour, var, fcst, level, res_set, settings=settings, refresh=True
         )
-    else:
-        da = decode_cached(path, _decode, use_pool=use_pool)
+        da = _decode_subset()
     return GefsField(
         name=var,
         member=member,

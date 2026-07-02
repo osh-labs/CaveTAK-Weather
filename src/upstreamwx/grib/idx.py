@@ -26,6 +26,67 @@ import requests
 USER_AGENT = "UpstreamWX/0.0 (M0.0 ensemble spikes; +https://upstreamwx.com)"
 _HEADERS = {"User-Agent": USER_AGENT}
 
+# GRIB2 message framing (WMO FM 92): every message opens with the ASCII "GRIB" marker
+# (Section 0) carrying an 8-byte big-endian total length at bytes 8-15, and closes with
+# the ASCII "7777" marker (Section 8). These let us verify a downloaded subset is
+# structurally complete *before* it is cached.
+_GRIB_MAGIC = b"GRIB"
+_GRIB_END = b"7777"
+_GRIB_EDITION = 2
+
+
+class TruncatedGribError(ValueError):
+    """A downloaded subset is not a run of complete GRIB2 messages (mid-publish truncation).
+
+    A ``ValueError`` subclass so it flows through the existing per-member degradation path
+    (the ensemble quorum carries) rather than sinking the whole source (NFR-6).
+    """
+
+
+def validate_grib2_bytes(
+    data: bytes, *, expected_messages: int | None = None, what: str = ""
+) -> None:
+    """Raise :class:`TruncatedGribError` unless ``data`` is N complete GRIB2 messages.
+
+    Walks the concatenated messages by their self-declared Section 0 length and checks each
+    opens with ``GRIB`` (edition 2) and closes with ``7777``. Catches the exact failure behind
+    the "gefs: unavailable (EOFError)" incident: an open-ended byte range fetched while the
+    source ``.grib2`` was still publishing returns fewer bytes than the message declares, so the
+    file writes "successfully" yet decodes to EOF. Validating here keeps the truncated bytes out
+    of the cache entirely (§16.1; data quality first-class).
+    """
+    detail = f" ({what})" if what else ""
+    n = len(data)
+    if n == 0:
+        raise TruncatedGribError(f"empty GRIB subset{detail}")
+    offset = count = 0
+    while offset < n:
+        if data[offset : offset + 4] != _GRIB_MAGIC:
+            raise TruncatedGribError(f"bad GRIB magic at byte {offset}{detail}")
+        if offset + 16 > n:
+            raise TruncatedGribError(f"truncated GRIB header at byte {offset}{detail}")
+        if data[offset + 7] != _GRIB_EDITION:
+            raise TruncatedGribError(
+                f"unexpected GRIB edition {data[offset + 7]} at byte {offset}{detail}"
+            )
+        total = int.from_bytes(data[offset + 8 : offset + 16], "big")
+        if total < 16 or offset + total > n:
+            # Declared length runs past the bytes we have -> truncated (the mid-publish case).
+            raise TruncatedGribError(
+                f"GRIB message at byte {offset} declares {total} bytes but only "
+                f"{n - offset} remain{detail}"
+            )
+        if data[offset + total - 4 : offset + total] != _GRIB_END:
+            raise TruncatedGribError(
+                f"missing 7777 end marker for message at byte {offset}{detail}"
+            )
+        offset += total
+        count += 1
+    if expected_messages is not None and count != expected_messages:
+        raise TruncatedGribError(
+            f"expected {expected_messages} GRIB messages, found {count}{detail}"
+        )
+
 
 @dataclass(frozen=True)
 class IdxEntry:
@@ -168,4 +229,11 @@ def download_subset(
             resp.raise_for_status()
             for chunk in resp.iter_content(chunk_size=1 << 16):
                 fh.write(chunk)
+    # Verify the concatenated bytes are complete GRIB2 messages before the caller accepts them
+    # (cached_subset only os.replace()s a returned path into place). A range fetched mid-publish
+    # can write "successfully" yet be truncated — validating here keeps it out of the cache and
+    # raises TruncatedGribError (a ValueError) so the member degrades behind the quorum (NFR-6).
+    validate_grib2_bytes(
+        out_path.read_bytes(), expected_messages=len(selected), what=grib_url
+    )
     return out_path

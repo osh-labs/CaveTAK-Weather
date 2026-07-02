@@ -121,3 +121,52 @@ def test_gefs_fetch_degrades_when_no_member_fields(monkeypatch):
     gefs_provider.fetch(_mission(), bundle, _POLY)
     assert bundle.sources_ok["gefs"] is False
     assert bundle.gefs_p_precip is None and bundle.gefs_p_tstm is None
+
+
+def test_member_sample_degrades_on_decode_eoferror(monkeypatch):
+    """A corrupt-subset EOFError during decode degrades THAT member to None rather than
+    propagating — the 'gefs: unavailable (EOFError)' regression where one truncated cached
+    file (fetched mid-publish) sank the whole ensemble."""
+    from upstreamwx.config import Settings
+
+    def boom(*a, **k):
+        raise EOFError("end of file reached while decoding GRIB message")
+
+    monkeypatch.setattr(gefs_provider, "load_member_field_cached", boom)
+    out = gefs_provider._member_sample(
+        GefsCycle("20260620", 0), "gep01", 24, _POLY, _POLY, settings=Settings()
+    )
+    assert out == (None, None, None)
+
+
+def test_gefs_fetch_survives_partial_eoferror_via_quorum(monkeypatch):
+    """One member whose decode is corrupt (EOFError) must not sink the ensemble: the quorum
+    of healthy members still yields a probability and gefs stays available (NFR-6)."""
+    from upstreamwx.config import Settings
+
+    monkeypatch.setattr(gefs_provider, "_select_fhours", lambda c, ws, we: [24])
+    monkeypatch.setattr(
+        gefs_provider, "_resolve_cycle", lambda c, *, settings=None: GefsCycle("20260620", 0)
+    )
+
+    def fake_load(cycle, member, fhour, var, fcst, level, *a, **k):
+        if member == "gep01":  # the one corrupt member
+            raise EOFError("truncated GRIB message")
+
+        class _F:  # minimal stand-in; _member_sample only calls _poly_max on .data
+            data = None
+
+        return _F()
+
+    # _poly_max is what reduces the (mocked) field; return a heavy-precip, convective value.
+    monkeypatch.setattr(gefs_provider, "load_member_field_cached", fake_load)
+    monkeypatch.setattr(gefs_provider, "_poly_max", lambda field, poly, var: 10.0)
+    monkeypatch.setattr(gefs_provider, "_poly_max_precropped", lambda field, poly, var: 10.0)
+
+    bundle = IngestBundle()
+    gefs_provider.fetch(_mission(), bundle, _POLY, settings=Settings())
+
+    assert bundle.sources_ok["gefs"] is True  # NOT sunk by the one EOFError
+    assert bundle.gefs_p_precip is not None
+    # 30 of 31 members answered (one corrupt) — comfortably above the quorum.
+    assert any("partial ensemble" in n for n in bundle.notes)

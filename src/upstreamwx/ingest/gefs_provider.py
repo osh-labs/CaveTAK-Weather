@@ -152,7 +152,13 @@ def _member_sample(
     # A single member's transient miss (unpublished hour mid-cycle-publish, a NOMADS
     # hiccup, an off-grid domain) degrades to None for that member instead of sinking the
     # whole ensemble — the quorum below decides whether enough members remain (NFR-6).
-    member_errors = (LookupError, ValueError, TimeoutError, requests.RequestException, OSError)
+    # EOFError is included deliberately: a truncated/corrupt cached subset (a byte range
+    # fetched while the file was still mid-publish) fails to *decode* with EOFError, and
+    # without it here one bad member would sink the whole ensemble ("gefs: unavailable
+    # (EOFError)"). load_member_field_cached self-heals the file; this is the backstop.
+    member_errors = (
+        LookupError, ValueError, TimeoutError, requests.RequestException, OSError, EOFError
+    )
     apcp_flood = apcp_ltng = cape_ltng = None
     try:
         af = load_member_field_cached(

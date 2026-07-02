@@ -333,6 +333,16 @@ the PWA persists the last briefing for offline review (`uwx.briefing.v1`, age-la
 offline PDF handoff works; the API validates MissionSpec (CONUS bounds, window/radius caps,
 currency), bounds `_active`/warm queues, and rate-limits frame/pdf/warm per IP.
 
+**GEFS corrupt-subset resilience (2026-07-02).** A byte-range subset fetched while a `.grib2`
+was still publishing can be truncated (decodes to `EOFError`); a one-member hiccup previously
+sank the whole GEFS source and stuck there (changelog `docs/changelog-2026-07-02-gefs-resilience.md`).
+Now: the shared download path (`grib/idx.py`) validates GRIB2 framing (`GRIB`…`7777`, declared
+lengths, message count) via `validate_grib2_bytes` before a subset is accepted — a truncated
+download raises `TruncatedGribError` (a `ValueError`) so it never reaches the cache and the member
+degrades behind the quorum; `gefs/cache.py` self-heals any bad file already on disk (discard +
+re-fetch once); and `gefs_provider._member_sample` catches `EOFError`. Applies to REFS too (same
+download path). Engine output unchanged (NFR-4).
+
 **Briefing tab.** The PWA now has six primary tabs in this order: Overview, Map, Hazards,
 **Briefing**, Forecast, Resources. The Briefing tab renders the full Markdown SITREP
 (`BriefingResponse.markdown`) as formatted HTML using a zero-dependency in-browser converter
